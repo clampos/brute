@@ -30,7 +30,9 @@ export default function Login() {
       <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
         Don&apos;t have an account?{" "}
         <button
-          onClick={() => navigate("/signup")}
+            onClick={() =>
+    window.location.href = "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01"
+  }
           className="text-blue-400 underline"
         >
           Sign Up

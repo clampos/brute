@@ -1,17 +1,24 @@
+
 ```
 brute
 ├─ index.html
+├─ package-lock.json
 ├─ package.json
 ├─ postcss.config.js
 ├─ public
+├─ README.md
+├─ server
+│  ├─ .env
+│  ├─ index.js
+│  ├─ package-lock.json
+│  ├─ package.json
+│  └─ routes
+│     └─ stripe.js
 ├─ src
 │  ├─ App.tsx
 │  ├─ assets
 │  │  └─ logo.png
 │  ├─ components
-│  │  ├─ Auth
-│  │  │  ├─ Login.tsx
-│  │  │  └─ Signup.tsx
 │  │  └─ ScreenWrapper.tsx
 │  ├─ index.css
 │  ├─ legacy
@@ -24,7 +31,7 @@ brute
 │     ├─ Dashboard.tsx
 │     ├─ Login.tsx
 │     ├─ Onboarding.tsx
-│     └─ SignUp.tsx
+│     └─ Signup.tsx
 ├─ tailwind.config.js
 ├─ tsconfig.json
 └─ yarn.lock
