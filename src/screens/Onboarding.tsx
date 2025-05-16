@@ -78,12 +78,14 @@ export default function Onboarding() {
   >
     Log In
   </button>
-  <button
-    onClick={() => navigate("/signup")}
-    className="w-full bg-blue-700 font-semibold py-3 rounded-xl shadow-lg"
-  >
-    Sign Up
-  </button>
+<button
+  onClick={() =>
+    window.location.href = "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01"
+  }
+  className="w-full bg-blue-700 font-semibold py-3 rounded-xl shadow-lg"
+>
+  Sign Up
+</button>
 </div>
 
       <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
