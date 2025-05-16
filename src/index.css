@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* confirm CSS is loading */
+body {
+  background: radial-gradient(#ef88ed, #7269e3, #8350db);
+}
