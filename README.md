@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-
 ```
 brute
 ├─ index.html
@@ -32,6 +30,3 @@ brute
 └─ yarn.lock
 
 ```
-=======
-# brute
->>>>>>> c34b4714d108cef8a28805efba3671bf35b55954
