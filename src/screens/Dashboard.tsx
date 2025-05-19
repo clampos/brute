@@ -1,6 +1,19 @@
+// src/pages/Dashboard.tsx
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { isLoggedIn } from "../utils/auth";
+
 export default function Dashboard() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      navigate("/login");
+    }
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#001F3F] to-[#000B1A] text-white p-6 font-poppins">
+<div className="min-h-screen bg-gradient-to-b from-[#001F3F] to-[#000B1A] text-white p-6 font-poppins">
       <h1 className="text-4xl font-semibold mb-10">Welcome to BRUTE</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
@@ -46,3 +59,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
