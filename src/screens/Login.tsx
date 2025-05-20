@@ -5,6 +5,7 @@ import { login } from "../services/authService";
 
 export default function Login() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
@@ -13,7 +14,7 @@ export default function Login() {
     setError("");
 
     try {
-      const { token } = await login(email);
+      const { token } = await login(email, password);
       localStorage.setItem("token", token);
       navigate("/dashboard");
     } catch (err: any) {
@@ -33,6 +34,14 @@ export default function Login() {
           onChange={(e) => setEmail(e.target.value)}
           className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
         />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
+        />
+
         <button
           type="submit"
           className="w-full py-3 bg-green-600 rounded-xl font-semibold hover:bg-green-700 transition"
@@ -44,6 +53,18 @@ export default function Login() {
       {error && (
         <p className="text-red-400 mt-4 text-sm text-center">{error}</p>
       )}
+      <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
+        Don&apos;t have an account?{" "}
+        <button
+          onClick={() =>
+            (window.location.href =
+              "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01")
+          }
+          className="text-blue-400 underline"
+        >
+          Sign Up
+        </button>
+      </p>
     </div>
   );
 }

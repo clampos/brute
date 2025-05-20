@@ -11,10 +11,13 @@ const app = express();
 const PORT = 4242;
 
 app.use(cors());
-app.use('/webhook', webhook); // webhook uses raw body
 
+// ✅ Route-mounted raw body handler
+app.use('/webhook', webhook);
+
+// ✅ All other routes use JSON parsing
 app.use(bodyParser.json());
-app.use('/auth', auth); // login routes
+app.use('/auth', auth);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
