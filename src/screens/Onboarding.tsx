@@ -3,6 +3,7 @@ import { useSwipeable } from "react-swipeable";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 
+// Bubbles background on splash screens
 function BubblesBackground() {
   const bubbleCount = 25;
   const bubbleColors = ["#8ecae6", "#bde0fe", "#a2d2ff", "#d0f4ff"];
@@ -38,6 +39,7 @@ function BubblesBackground() {
   );
 }
 
+// Rendering for three onboarding screens
 export default function Onboarding() {
   const [page, setPage] = useState(0);
   const navigate = useNavigate();
@@ -114,11 +116,8 @@ export default function Onboarding() {
           Log In
         </button>
         <button
-          onClick={() =>
-            (window.location.href =
-              "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01")
-          }
-          className="w-full bg-blue-700 font-semibold py-3 rounded-xl shadow-lg"
+          onClick={() => navigate("/signup")}
+          className="w-full bg-blue-500 font-semibold py-3 rounded-xl shadow-lg"
         >
           Sign Up
         </button>
@@ -130,6 +129,7 @@ export default function Onboarding() {
     </div>,
   ];
 
+  // UX feature to swipe across onboarding screens
   const handlers = useSwipeable({
     onSwipedLeft: () =>
       setPage((prev) => Math.min(prev + 1, screens.length - 1)),
@@ -137,6 +137,7 @@ export default function Onboarding() {
     trackMouse: true,
   });
 
+  // UX feature to toggle screens using left and right keys
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "ArrowRight") {
@@ -149,6 +150,12 @@ export default function Onboarding() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [screens.length]);
 
+  useEffect(() => {
+    console.log("Onboarding mounted");
+    return () => console.log("Onboarding unmounted");
+  }, []);
+
+  // UX feature - dots at bottom of screen
   const dots = (
     <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4 z-10">
       {screens.map((_, i) => (
@@ -164,6 +171,7 @@ export default function Onboarding() {
     </div>
   );
 
+  // Full rendering including bubbles and UX features
   return (
     <div
       {...handlers}

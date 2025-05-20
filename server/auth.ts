@@ -42,12 +42,12 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
       mode: 'subscription',
       line_items: [
         {
-          price: 'your_stripe_price_id', // Replace with your actual Stripe price ID
+          price: 'price_1ROyadGfBRLXd4a8hSUq5ZQz',
           quantity: 1,
         },
       ],
       customer_email: email,
-      success_url: 'http://localhost:5173/dashboard',
+      success_url: 'http://localhost:5173/subscription-success?email=' + encodeURIComponent(email),
       cancel_url: 'http://localhost:5173/login',
     });
 
