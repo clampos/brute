@@ -7,17 +7,14 @@ dotenv.config();
 
 const router = express.Router();
 
-const stripe = new Stripe(
-  process.env.STRIPE_SECRET_KEY as string,
-  {
-    apiVersion: '2025-04-30.basil',
-  }
-);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  apiVersion: '2025-04-30.basil',
+});
 
 router.post(
-  '/webhook',
+  '/',
   express.raw({ type: 'application/json' }),
-  (req: Request, res: Response): void => {
+  async (req: Request, res: Response) => {
     const sig = req.headers['stripe-signature']!;
     let event: Stripe.Event;
 
@@ -30,22 +27,40 @@ router.post(
     } catch (err: any) {
       console.error('❌ Webhook signature verification failed.', err.message);
       res.sendStatus(400);
-      return; // Important to exit early
+      return;
     }
+
+    console.log(`📦 Received event: ${event.type}`);
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
-      const email = session.customer_email;
+
+      let email: string | null = session.customer_email ?? null;
+
+      if (!email && session.customer) {
+        try {
+          const customerResult = await stripe.customers.retrieve(
+            session.customer as string
+          );
+
+          if (customerResult.deleted !== true) {
+            email = customerResult.email ?? null;
+          }
+        } catch (err) {
+          console.error('❌ Failed to retrieve customer:', err);
+        }
+      }
 
       if (email) {
         console.log(`✅ User subscribed: ${email}`);
-        addUser(email);
+        addUser(email, ''); // Dummy password or handle differently
+      } else {
+        console.warn('⚠️ Email not found in session or customer');
       }
     }
 
     res.json({ received: true });
   }
 );
-
 
 export default router;

@@ -1,34 +1,32 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FormEvent, useState } from "react";
 
 export default function Signup() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setError("");
 
     try {
-      const res = await fetch("http://localhost:4242/create-checkout-session", {
+      const res = await fetch("http://localhost:3000/auth/signup", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}), // You can send user data here later if needed
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url; // Redirect to Stripe Checkout
-      } else {
-        alert("Something went wrong.");
+
+      if (!res.ok) {
+        throw new Error(data.error || "Signup failed");
       }
-    } catch (err) {
-      console.error("Checkout error:", err);
-      alert("Failed to create checkout session.");
-    } finally {
-      setLoading(false);
+
+      window.location.href = data.checkoutUrl; // Redirect to Stripe Checkout
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -38,42 +36,30 @@ export default function Signup() {
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-6">
         <input
-          type="text"
-          placeholder="Full Name"
-          className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
-          required
-        />
-        <input
           type="email"
           placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
-          required
         />
         <input
           type="password"
           placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
-          required
         />
-
         <button
           type="submit"
-          className="w-full py-3 bg-green-600 rounded-xl font-semibold hover:bg-green-700 transition disabled:opacity-50"
-          disabled={loading}
+          className="w-full py-3 bg-blue-600 rounded-xl font-semibold hover:bg-blue-700 transition"
         >
-          {loading ? "Redirecting..." : "Sign Up"}
+          Sign Up
         </button>
       </form>
 
-      <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
-        Already have an account?{" "}
-        <button
-          onClick={() => navigate("/login")}
-          className="text-blue-400 underline"
-        >
-          Log In
-        </button>
-      </p>
+      {error && (
+        <p className="text-red-400 mt-4 text-sm text-center">{error}</p>
+      )}
     </div>
   );
 }

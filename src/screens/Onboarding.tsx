@@ -3,9 +3,44 @@ import { useSwipeable } from "react-swipeable";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 
+function BubblesBackground() {
+  const bubbleCount = 25;
+  const bubbleColors = ["#8ecae6", "#bde0fe", "#a2d2ff", "#d0f4ff"];
+
+  const bubbles = Array.from({ length: bubbleCount }, (_, i) => {
+    const size = Math.random() * 6 + 4; // 4px to 10px
+    const left = Math.random() * 100;
+    const delay = Math.random() * 10;
+    const duration = 10 + Math.random() * 10;
+
+    return (
+      <div
+        key={i}
+        className="absolute rounded-full opacity-30 animate-float animate-drift"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          left: `${left}%`,
+          bottom: `-20px`,
+          animationDelay: `${delay}s`,
+          animationDuration: `${duration}s`,
+          backgroundColor:
+            bubbleColors[Math.floor(Math.random() * bubbleColors.length)],
+        }}
+      />
+    );
+  });
+
+  return (
+    <div className="absolute inset-0 overflow-hidden z-10 pointer-events-none">
+      {bubbles}
+    </div>
+  );
+}
+
 export default function Onboarding() {
   const [page, setPage] = useState(0);
-  const navigate = useNavigate(); 
+  const navigate = useNavigate();
 
   const screens = [
     // Splash Screen
@@ -71,22 +106,23 @@ export default function Onboarding() {
         <p>Grow.</p>
       </div>
 
-<div className="w-full max-w-xs space-y-4">
-  <button
-    onClick={() => navigate("/login")}
-    className="w-full bg-blue-500 font-semibold py-3 rounded-xl shadow-lg"
-  >
-    Log In
-  </button>
-<button
-  onClick={() =>
-    window.location.href = "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01"
-  }
-  className="w-full bg-blue-700 font-semibold py-3 rounded-xl shadow-lg"
->
-  Sign Up
-</button>
-</div>
+      <div className="w-full max-w-xs space-y-4 z-10">
+        <button
+          onClick={() => navigate("/login")}
+          className="w-full bg-blue-500 font-semibold py-3 rounded-xl shadow-lg"
+        >
+          Log In
+        </button>
+        <button
+          onClick={() =>
+            (window.location.href =
+              "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01")
+          }
+          className="w-full bg-blue-700 font-semibold py-3 rounded-xl shadow-lg"
+        >
+          Sign Up
+        </button>
+      </div>
 
       <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
         By continuing you agree to BRUTE's Terms of Services & Privacy Policy.
@@ -94,8 +130,9 @@ export default function Onboarding() {
     </div>,
   ];
 
-const handlers = useSwipeable({
-    onSwipedLeft: () => setPage((prev) => Math.min(prev + 1, screens.length - 1)),
+  const handlers = useSwipeable({
+    onSwipedLeft: () =>
+      setPage((prev) => Math.min(prev + 1, screens.length - 1)),
     onSwipedRight: () => setPage((prev) => Math.max(prev - 1, 0)),
     trackMouse: true,
   });
@@ -132,6 +169,7 @@ const handlers = useSwipeable({
       {...handlers}
       className="w-full h-screen font-poppins overflow-hidden relative select-none"
     >
+      <BubblesBackground />
       {screens[page]}
       {dots}
     </div>

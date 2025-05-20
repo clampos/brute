@@ -1,4 +1,3 @@
-
 ```
 brute
 ├─ index.html
@@ -9,11 +8,16 @@ brute
 ├─ README.md
 ├─ server
 │  ├─ .env
-│  ├─ index.js
+│  ├─ auth.ts
+│  ├─ index.ts
 │  ├─ package-lock.json
 │  ├─ package.json
-│  └─ routes
-│     └─ stripe.js
+│  ├─ routes
+│  │  └─ stripe.js
+│  ├─ tsconfig.json
+│  ├─ users.ts
+│  ├─ utils.ts
+│  └─ webhook.ts
 ├─ src
 │  ├─ App.tsx
 │  ├─ assets
@@ -27,11 +31,15 @@ brute
 │  │  ├─ SecondScreen.tsx
 │  │  └─ SplashScreen.tsx
 │  ├─ main.tsx
-│  └─ screens
-│     ├─ Dashboard.tsx
-│     ├─ Login.tsx
-│     ├─ Onboarding.tsx
-│     └─ Signup.tsx
+│  ├─ screens
+│  │  ├─ Dashboard.tsx
+│  │  ├─ Login.tsx
+│  │  ├─ Onboarding.tsx
+│  │  └─ Signup.tsx
+│  ├─ services
+│  │  └─ authService.ts
+│  └─ utils
+│     └─ auth.ts
 ├─ tailwind.config.js
 ├─ tsconfig.json
 └─ yarn.lock
