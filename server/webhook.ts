@@ -1,7 +1,10 @@
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
-import { addUser } from './users';
+import { sendConfirmationEmail } from './email';
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+
 
 dotenv.config();
 
@@ -53,7 +56,24 @@ router.post(
 
       if (email) {
         console.log(`✅ User subscribed: ${email}`);
-        addUser(email, ''); // Dummy password or handle differently
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+
+if (!existingUser) {
+  await prisma.user.create({
+    data: {
+      email,
+      password: '', // or a generated placeholder — user shouldn't log in this way
+      subscribed: true,
+    },
+  });
+} else {
+  await prisma.user.update({
+    where: { email },
+    data: { subscribed: true },
+  });
+}
+
+        await sendConfirmationEmail(email);
       } else {
         console.warn('⚠️ Email not found in session or customer');
       }

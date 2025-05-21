@@ -1,11 +1,12 @@
+// server/utils.ts
 import jwt from 'jsonwebtoken';
 
-const SECRET = process.env.JWT_SECRET || 'devsecret';
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 
-export function createToken(payload: object) {
-  return jwt.sign(payload, SECRET, { expiresIn: '7d' });
+export function generateToken(email: string) {
+  return jwt.sign({ email }, JWT_SECRET, { expiresIn: '7d' });
 }
 
 export function verifyToken(token: string) {
-  return jwt.verify(token, SECRET);
+  return jwt.verify(token, JWT_SECRET);
 }
