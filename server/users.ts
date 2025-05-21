@@ -1,31 +1,28 @@
-type User = {
-  email: string;
-  password: string;
-  subscribed: boolean;
-};
+// server/users.ts
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
-const users: Record<string, User> = {};
+const prisma = new PrismaClient();
 
-// Save new user with unsubscribed status
-export function addUser(email: string, password: string): void {
-  users[email] = { email, password, subscribed: false };
+export async function addUser(email: string, plainPassword: string) {
+  const hashed = await bcrypt.hash(plainPassword, 10);
+  return prisma.user.create({
+    data: {
+      email,
+      password: hashed,
+    },
+  });
 }
 
-// Retrieve user by email
-export function getUser(email: string): User | undefined {
-  return users[email];
+export async function getUser(email: string) {
+  return prisma.user.findUnique({
+    where: { email },
+  });
 }
 
-// Validate credentials
-export function validateUser(email: string, password: string): boolean {
-  const user = users[email];
-  return !!user && user.password === password;
-}
-
-// Mark user as subscribed (used in webhook)
-export function markUserSubscribed(email: string): void {
-  const user = users[email];
-  if (user) {
-    user.subscribed = true;
-  }
+export async function markUserSubscribed(email: string) {
+  return prisma.user.update({
+    where: { email },
+    data: { subscribed: true },
+  });
 }
