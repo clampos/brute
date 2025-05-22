@@ -1,19 +1,31 @@
 // src/services/authService.ts
 import axios from 'axios';
 
-const API = 'http://localhost:4242'; // Backend URL
-
 export async function login(email: string, password: string) {
-  const res = await fetch("http://localhost:3000/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+  try {
+    const res = await axios.post("http://localhost:4242/auth/login", {
+      email,
+      password,
+    });
+    return res.data; // should be { token }
+  } catch (err: any) {
+    throw err; // Let the component handle the error
+  }
+}
+
+
+// src/services/authService.ts
+export async function fetchDashboard() {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("No token");
+
+  const res = await fetch("http://localhost:4242/api/dashboard", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
 
-  if (!res.ok) {
-    const data = await res.json();
-    throw data.error || "Login failed";
-  }
+  if (!res.ok) throw new Error("Unauthorized");
 
-  return await res.json();
+  return res.json();
 }

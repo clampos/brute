@@ -18,7 +18,13 @@ export default function Login() {
       localStorage.setItem("token", token);
       navigate("/dashboard");
     } catch (err: any) {
-      setError(err);
+      if (err.response?.status === 401) {
+        setError("Invalid email or password.");
+      } else if (err.response?.status === 403) {
+        setError("Your subscription is inactive.");
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
     }
   };
 
@@ -56,10 +62,7 @@ export default function Login() {
       <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
         Don&apos;t have an account?{" "}
         <button
-          onClick={() =>
-            (window.location.href =
-              "https://buy.stripe.com/test_00w7sL5WZ0a83PL4OAbsc01")
-          }
+          onClick={() => navigate("/signup")}
           className="text-blue-400 underline"
         >
           Sign Up
