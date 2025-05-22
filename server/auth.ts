@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { sendConfirmationEmail } from './email';
 import { PrismaClient } from '@prisma/client';
+import { generateToken } from './utils';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -100,6 +101,8 @@ router.post(
         sig,
         process.env.STRIPE_WEBHOOK_SECRET!
       );
+      console.log('🔔 Webhook received:', event.type);
+
     } catch (err: any) {
       console.error('⚠️ Webhook signature verification failed.', err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -128,5 +131,29 @@ router.post(
     res.json({ received: true });
   }
 );
+
+// GET /auth/token?email=...
+router.get('/token', async (req: Request, res: Response): Promise<any> => {
+  const email = req.query.email as string;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user || !user.subscribed) {
+    return res.status(403).json({ error: 'User not found or not subscribed' });
+  }
+
+  const token = jwt.sign(
+    { userId: user.id, email: user.email },
+    process.env.JWT_SECRET!,
+    { expiresIn: '7d' }
+  );
+
+  res.json({ token });
+});
+
 
 export default router;
