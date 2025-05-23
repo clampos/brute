@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { sendConfirmationEmail } from './email';
 import { PrismaClient } from '@prisma/client';
 import { generateToken } from './utils';
+import { authenticateToken } from './authMiddleware';
 
 const router = express.Router();
 const prisma = new PrismaClient();
