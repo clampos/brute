@@ -62,8 +62,10 @@ if (!existingUser) {
   await prisma.user.create({
     data: {
       email,
-      password: '', // or a generated placeholder — user shouldn't log in this way
+      password: '', // User won't use this path to log in
       subscribed: true,
+      firstName: 'Unknown',
+      surname: 'Unknown',
     },
   });
 } else {
@@ -72,6 +74,7 @@ if (!existingUser) {
     data: { subscribed: true },
   });
 }
+
 
         await sendConfirmationEmail(email);
       } else {
