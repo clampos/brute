@@ -1,9 +1,15 @@
-// src/pages/Dashboard.tsx
-import { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
+import { ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 
-export default function Dashboard() {
+export default function Dashboard({ firstName = "John", surname = "Doe" }) {
+  const [activeTab, setActiveTab] = useState("overview");
+
+  const navItems = ["overview", "performance"];
+
+  const isActive = (tab: string) => activeTab === tab;
+
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -45,55 +51,136 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#001F3F] to-[#000B1A] text-white p-6 font-poppins">
-      <img
-        src={logo}
-        alt="App Logo"
-        style={{ width: 225.49, height: 108 }}
-        className="object-contain"
-      />
-
-      {message && (
-        <p className="text-lg text-center mb-8 font-medium">{message}</p>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-        <div className="bg-white/10 rounded-xl p-6 shadow-lg flex flex-col items-center justify-center">
-          <p className="text-xl font-semibold mb-2">Enter your bodyweight</p>
-          <input
-            type="number"
-            placeholder="kg"
-            className="p-2 rounded-md bg-white/20 text-white w-full text-center"
-          />
-        </div>
-
-        <div className="bg-white/10 rounded-xl p-6 shadow-lg flex flex-col items-center justify-center">
-          <p className="text-xl font-semibold mb-2">
-            Update new bench press PR
-          </p>
-          <input
-            type="number"
-            placeholder="kg"
-            className="p-2 rounded-md bg-white/20 text-white w-full text-center"
-          />
-        </div>
-
-        <div className="bg-white/10 rounded-xl p-6 shadow-lg flex flex-col items-center justify-center">
-          <p className="text-xl font-semibold mb-2">Select programme</p>
-          <select className="p-2 rounded-md bg-white/20 text-white w-full text-center">
-            <option>Strength</option>
-            <option>Hypertrophy</option>
-            <option>Endurance</option>
-          </select>
-        </div>
+    <div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4"
+      style={{
+        background:
+          "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+      }}
+    >
+      {/* Logo */}
+      <div className="flex justify-center mt-4">
+        <img src={logo} alt="Logo" className="h-12 w-auto" />
+      </div>
+      {/* Top Bar: Dashboard + User Image */}
+      <div className="flex justify-between items-center mt-4 px-2">
+        <h2
+          className="text-white"
+          style={{
+            fontFamily: "'Poppins', sans-serif",
+            fontWeight: 600,
+            fontSize: "20px",
+          }}
+        >
+          Dashboard
+        </h2>
+        <img
+          src="https://via.placeholder.com/36"
+          alt="User Avatar"
+          className="w-9 h-9 rounded-full object-cover"
+        />
       </div>
 
-      <footer className="fixed bottom-0 left-0 w-full bg-[#000B1A] p-4 flex justify-around">
-        <div className="w-10 h-10 bg-white/20 rounded-lg"></div>
-        <div className="w-10 h-10 bg-white/20 rounded-lg"></div>
-        <div className="w-10 h-10 bg-white/20 rounded-lg"></div>
-        <div className="w-10 h-10 bg-white/20 rounded-lg"></div>
-      </footer>
+      {/* Welcome Message */}
+      <h1
+        className="text-center mt-4"
+        style={{
+          fontFamily: "'Poppins', sans-serif",
+          fontWeight: 600,
+          fontSize: "36px",
+          lineHeight: "40px",
+          letterSpacing: "0px",
+          color: "white",
+        }}
+      >
+        Welcome, {firstName} {surname}
+      </h1>
+
+      {/* Filter Menu */}
+      <div className="flex justify-around mt-6 mb-4">
+        {navItems.map((item) => (
+          <button
+            key={item}
+            onClick={() => setActiveTab(item)}
+            className={`px-4 py-2 rounded-full font-medium text-sm ${
+              isActive(item)
+                ? "bg-[#246BFD] text-white"
+                : "text-[#5E6272] bg-transparent"
+            }`}
+          >
+            {item === "overview" ? "Overview" : "This Week's Performance"}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      {activeTab === "overview" && (
+        <div className="flex flex-col gap-4">
+          {/* Gradient Workout Box */}
+          <div className="rounded-2xl p-4 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black relative">
+            <h2 className="text-lg font-semibold">Today's Workout</h2>
+            <p className="mt-2 text-sm">Workout will appear here</p>
+            <button className="absolute bottom-4 right-4 bg-[#246BFD] text-white px-4 py-2 rounded-full text-sm font-medium shadow-md">
+              Start Now
+            </button>
+          </div>
+
+          {/* Quick Action Boxes */}
+          {[
+            "Update Bodyweight",
+            "New Bench Press PR!",
+            "Plan Your Next Programme",
+          ].map((title, index) => (
+            <div
+              key={index}
+              className="rounded-xl p-4 flex justify-between items-center shadow-sm text-white"
+              style={{ background: "#262A34" }}
+            >
+              <span className="font-medium">{title}</span>
+              <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "performance" && (
+        <div className="flex flex-col gap-6 mt-4">
+          {["Weekly Goal", "Weight moved in the last 7 days"].map(
+            (heading, idx) => (
+              <div
+                key={idx}
+                className="rounded-xl px-6 py-8"
+                style={{ background: "#262A34" }}
+              >
+                <h3
+                  className="text-[#5E6272] font-semibold text-lg mb-4"
+                  style={{ fontFamily: "'Poppins', sans-serif" }}
+                >
+                  {heading}
+                </h3>
+                {/* Placeholder content */}
+                <p className="text-white text-sm">Content goes here...</p>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* Bottom Navigation */}
+      <div
+        className="fixed bottom-0 left-0 w-full flex justify-around py-3 text-sm"
+        style={{ backgroundColor: "#000B1A" }}
+      >
+        {["Home", "Workouts", "Diary", "Settings"].map((label) => (
+          <button
+            key={label}
+            className="flex-1 text-center text-white font-medium tracking-wide"
+            style={{ fontFamily: "'Poppins', sans-serif" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

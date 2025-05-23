@@ -25,4 +25,3 @@ try {
     console.error("❌ Unexpected email send failure:", err);
   }
 }
-// Emails don't seem to be sending again now?
