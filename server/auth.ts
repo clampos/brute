@@ -49,7 +49,8 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
 
 // --- SIGNUP ---
 router.post('/signup', async (req: Request, res: Response): Promise<any> => {
-  const { email, password } = req.body;
+  const { email, password, firstName, surname } = req.body;
+
 
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
@@ -58,12 +59,14 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  await prisma.user.create({
-    data: {
-      email,
-      password: hashedPassword,
-    },
-  });
+await prisma.user.create({
+  data: {
+    email,
+    password: hashedPassword,
+    firstName,
+    surname,
+  },
+});
 
   try {
     const session = await stripe.checkout.sessions.create({
