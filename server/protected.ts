@@ -7,16 +7,20 @@ const prisma = new PrismaClient();
 const router = express.Router();
 
 router.get('/dashboard', authenticateToken, async (req, res): Promise<any> => {
-  const userPayload = (req as any).user;
+ const userId = (req as any).user.userId;
 
-  // ✅ Check DB to ensure user still exists
-  const user = await prisma.user.findUnique({ where: { email: userPayload.email } });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { firstName: true, surname: true },
+  });
 
-  if (!user) {
-    return res.status(401).json({ error: 'User no longer exists' });
-  }
+  if (!user) return res.status(404).json({ error: "User not found" });
 
-  res.json({ message: `Welcome to your dashboard, ${user.firstName}` });
+  res.json({
+    message: "Welcome back!",
+    firstName: user.firstName,
+    surname: user.surname,
+  });
 });
 
 export default router;
