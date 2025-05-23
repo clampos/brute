@@ -2,8 +2,9 @@ import React, { useState, useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
+import icon from "../assets/icon_placeholder.png";
 
-export default function Dashboard({ firstName = "John", surname = "Doe" }) {
+export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
 
   const navItems = ["overview", "performance"];
@@ -13,6 +14,9 @@ export default function Dashboard({ firstName = "John", surname = "Doe" }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+
+  const [firstName, setFirstName] = useState("John");
+  const [surname, setSurname] = useState("Doe");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -32,7 +36,9 @@ export default function Dashboard({ firstName = "John", surname = "Doe" }) {
         return res.json();
       })
       .then((data) => {
-        setMessage(data.message); // You can display this in the UI
+        setFirstName(data.firstName);
+        setSurname(data.surname);
+        setMessage(data.message);
         setLoading(false);
       })
       .catch((err) => {
@@ -49,6 +55,10 @@ export default function Dashboard({ firstName = "John", surname = "Doe" }) {
       </div>
     );
   }
+
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
     <div
@@ -75,9 +85,9 @@ export default function Dashboard({ firstName = "John", surname = "Doe" }) {
           Dashboard
         </h2>
         <img
-          src="https://via.placeholder.com/36"
+          src={icon}
           alt="User Avatar"
-          className="w-9 h-9 rounded-full object-cover"
+          className="w-10 h-10 rounded-full object-cover"
         />
       </div>
 
@@ -93,7 +103,7 @@ export default function Dashboard({ firstName = "John", surname = "Doe" }) {
           color: "white",
         }}
       >
-        Welcome, {firstName} {surname}
+        {greeting}, {firstName}
       </h1>
 
       {/* Filter Menu */}
@@ -171,7 +181,7 @@ export default function Dashboard({ firstName = "John", surname = "Doe" }) {
         className="fixed bottom-0 left-0 w-full flex justify-around py-3 text-sm"
         style={{ backgroundColor: "#000B1A" }}
       >
-        {["Home", "Workouts", "Diary", "Settings"].map((label) => (
+        {["Home", "Workouts", "Calendar", "Settings"].map((label) => (
           <button
             key={label}
             className="flex-1 text-center text-white font-medium tracking-wide"
