@@ -16,7 +16,7 @@ router.get('/dashboard', authenticateToken, async (req, res): Promise<any> => {
     return res.status(401).json({ error: 'User no longer exists' });
   }
 
-  res.json({ message: `Welcome to your dashboard, ${user.email}` });
+  res.json({ message: `Welcome to your dashboard, ${user.firstName}` });
 });
 
 export default router;
