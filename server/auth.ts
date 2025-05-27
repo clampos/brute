@@ -5,7 +5,6 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { sendConfirmationEmail } from './email';
 import { PrismaClient } from '@prisma/client';
-import { generateToken } from './utils';
 import { authenticateToken } from './authMiddleware';
 
 const router = express.Router();
@@ -17,7 +16,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 // JWT secret
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 // --- LOGIN ---
 router.post('/login', async (req: Request, res: Response): Promise<any> => {
@@ -41,8 +43,8 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
   // Generate JWT
   const token = jwt.sign(
     { userId: user.id, email: user.email },
-    process.env.JWT_SECRET!, // Add this to your .env file
-    { expiresIn: '7d' }
+    JWT_SECRET!, // Add this to your .env file
+    { expiresIn: '1d' }
   );
 
   res.json({ token });
@@ -80,8 +82,8 @@ await prisma.user.create({
         },
       ],
       customer_email: email,
-      success_url: `http://localhost:5173/subscription-success?email=${encodeURIComponent(email)}`,
-      cancel_url: 'http://localhost:5173/login',
+      success_url: `${process.env.CLIENT_URL}/subscription-success?email=${encodeURIComponent(email)}`,
+      cancel_url: `${process.env.CLIENT_URL}/login`,
     });
 
     res.json({ checkoutUrl: session.url });
@@ -153,7 +155,7 @@ router.get('/token', async (req: Request, res: Response): Promise<any> => {
   const token = jwt.sign(
     { userId: user.id, email: user.email },
     process.env.JWT_SECRET!,
-    { expiresIn: '7d' }
+    { expiresIn: '1d' }
   );
 
   res.json({ token });

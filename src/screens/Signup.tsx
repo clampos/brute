@@ -12,8 +12,44 @@ export default function Signup() {
   const navigate = useNavigate();
 
   const handleSignup = async () => {
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+
+    // Required fields
+    if (!firstName || !surname || !email || !password || !confirmPassword) {
+      alert("Please fill in all fields.");
+      return;
+    }
+
+    // Password match
     if (password !== confirmPassword) {
       alert("Passwords do not match.");
+      return;
+    }
+
+    // Password strength validation
+    const validatePassword = (password: string) => {
+      const minLength = 8;
+      const hasUpperCase = /[A-Z]/.test(password);
+      const hasLowerCase = /[a-z]/.test(password);
+      const hasNumbers = /\d/.test(password);
+
+      if (password.length < minLength) {
+        return "Password must be at least 8 characters long";
+      }
+      if (!hasUpperCase || !hasLowerCase || !hasNumbers) {
+        return "Password must contain uppercase, lowercase, and numbers";
+      }
+      return null;
+    };
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      alert(passwordError);
       return;
     }
 
