@@ -68,10 +68,18 @@ export default function Dashboard() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
-      <div className="flex justify-center mt-4">
-        <img src={logo} alt="Logo" className="h-12 w-auto" />
+      {/* Responsive full-width logo container, centered */}
+      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
+        <img
+          src={logo}
+          alt="Logo"
+          className="
+      w-[84.56px] h-[15px] object-contain
+      md:w-[100px] md:h-[18px]
+    "
+        />
       </div>
+
       {/* Top Bar: Dashboard + User Image */}
       <div className="flex justify-between items-center mt-4 px-2">
         <h2
