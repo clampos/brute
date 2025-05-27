@@ -18,28 +18,25 @@ brute
 │  │  ├─ migrations
 │  │  │  ├─ 20250521152123_init
 │  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250523083816_add_name_fields
+│  │  │  │  └─ migration.sql
 │  │  │  └─ migration_lock.toml
 │  │  └─ schema.prisma
+│  ├─ prisma.ts
 │  ├─ protected.ts
 │  ├─ routes
 │  │  └─ stripe.js
 │  ├─ tsconfig.json
-│  ├─ users.ts
-│  ├─ utils.ts
 │  └─ webhook.ts
 ├─ src
 │  ├─ App.tsx
 │  ├─ assets
+│  │  ├─ icon_placeholder.png
 │  │  └─ logo.png
 │  ├─ components
 │  │  ├─ ProtectedRoute.tsx
 │  │  └─ ScreenWrapper.tsx
 │  ├─ index.css
-│  ├─ legacy
-│  │  ├─ Footer.tsx
-│  │  ├─ Header.tsx
-│  │  ├─ SecondScreen.tsx
-│  │  └─ SplashScreen.tsx
 │  ├─ main.tsx
 │  ├─ screens
 │  │  ├─ Dashboard.tsx
