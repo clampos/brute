@@ -1,9 +1,8 @@
 import { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from './prisma'; 
 
 const JWT_SECRET = process.env.JWT_SECRET!;
-const prisma = new PrismaClient();
 
 export const authenticateToken: RequestHandler = async (req, res, next): Promise<any> => {
   const authHeader = req.headers['authorization'];
