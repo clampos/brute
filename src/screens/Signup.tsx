@@ -9,25 +9,28 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const handleSignup = async () => {
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      alert("Please enter a valid email address.");
-      return;
-    }
+    setError("");
 
     // Required fields
     if (!firstName || !surname || !email || !password || !confirmPassword) {
-      alert("Please fill in all fields.");
+      setError("Please fill in all fields.");
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError("Please enter a valid email address.");
       return;
     }
 
     // Password match
     if (password !== confirmPassword) {
-      alert("Passwords do not match.");
+      setError("Passwords do not match.");
       return;
     }
 
@@ -39,17 +42,17 @@ export default function Signup() {
       const hasNumbers = /\d/.test(password);
 
       if (password.length < minLength) {
-        return "Password must be at least 8 characters long";
+        return "Password must be at least 8 characters long.";
       }
       if (!hasUpperCase || !hasLowerCase || !hasNumbers) {
-        return "Password must contain uppercase, lowercase, and numbers";
+        return "Password must contain uppercase, lowercase, and numbers.";
       }
       return null;
     };
 
     const passwordError = validatePassword(password);
     if (passwordError) {
-      alert(passwordError);
+      setError(passwordError);
       return;
     }
 
@@ -65,11 +68,11 @@ export default function Signup() {
       if (res.ok && data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       } else {
-        alert(data.error || "Signup failed.");
+        setError(data.error || "Signup failed.");
       }
     } catch (err) {
       console.error(err);
-      alert("Signup error");
+      setError("Signup error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -82,35 +85,35 @@ export default function Signup() {
         <input
           type="text"
           placeholder="First Name"
-          className="w-full p-3 rounded bg-white/10"
+          className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
           value={firstName}
           onChange={(e) => setFirstName(e.target.value)}
         />
         <input
           type="text"
           placeholder="Surname"
-          className="w-full p-3 rounded bg-white/10"
+          className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
           value={surname}
           onChange={(e) => setSurname(e.target.value)}
         />
         <input
           type="email"
           placeholder="Email"
-          className="w-full p-3 rounded bg-white/10"
+          className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
         <input
           type={showPassword ? "text" : "password"}
           placeholder="Password"
-          className="w-full p-3 rounded bg-white/10"
+          className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
         <input
           type={showPassword ? "text" : "password"}
           placeholder="Confirm Password"
-          className="w-full p-3 rounded bg-white/10"
+          className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
         />
@@ -123,13 +126,18 @@ export default function Signup() {
           <span>Show password</span>
         </label>
         <button
-          className="w-full bg-blue-600 py-3 rounded font-semibold"
+          className="w-full bg-blue-600 py-3 rounded font-semibold hover:bg-blue-700 transition"
           onClick={handleSignup}
           disabled={loading}
         >
           {loading ? "Redirecting..." : "Continue to Payment"}
         </button>
-        <p className="text-center text-sm">
+
+        {error && (
+          <p className="text-red-400 mt-2 text-sm text-center">{error}</p>
+        )}
+
+        <p className="text-center text-sm text-white/70">
           Already have an account?{" "}
           <Link to="/login" className="text-blue-400 underline">
             Log In

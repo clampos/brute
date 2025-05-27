@@ -1,8 +1,8 @@
 // server/protected.ts
 import express from 'express';
 import {authenticateToken} from './authMiddleware';
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import { prisma } from './prisma'; 
+
 
 const router = express.Router();
 

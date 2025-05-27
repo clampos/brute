@@ -2,9 +2,9 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import webhook from './webhook';
 import auth from './auth';
 import protectedRoutes from './protected';
+import webhook from './webhook';
 
 
 dotenv.config();
