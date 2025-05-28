@@ -1,4 +1,3 @@
-// src/pages/Login.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "../services/authService";
@@ -6,6 +5,7 @@ import { login } from "../services/authService";
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
@@ -30,44 +30,56 @@ export default function Login() {
 
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-b from-[#001F3F] to-[#000B1A] text-white px-6">
-      <h1 className="text-3xl font-semibold mb-8 font-poppins">Log In</h1>
+      <div className="w-full max-w-md px-4 space-y-6">
+        <h1 className="text-3xl font-semibold mb-6 font-poppins">Log In</h1>
 
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-6">
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-3 rounded-md bg-white/10 placeholder-white/70 text-white focus:outline-none"
-        />
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
+          />
+          <input
+            type={showPassword ? "text" : "password"}
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
+          />
 
-        <button
-          type="submit"
-          className="w-full py-3 bg-green-600 rounded-xl font-semibold hover:bg-green-700 transition"
-        >
-          Log In
-        </button>
-      </form>
+          <label className="text-sm flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showPassword}
+              onChange={(e) => setShowPassword(e.target.checked)}
+            />
+            <span>Show password</span>
+          </label>
 
-      {error && (
-        <p className="text-red-400 mt-4 text-sm text-center">{error}</p>
-      )}
-      <p className="mt-6 text-sm text-white/70 text-center max-w-xs">
-        Don&apos;t have an account?{" "}
-        <button
-          onClick={() => navigate("/signup")}
-          className="text-blue-400 underline"
-        >
-          Sign Up
-        </button>
-      </p>
+          <button
+            type="submit"
+            className="w-full py-3 bg-green-600 rounded font-semibold hover:bg-green-700 transition"
+          >
+            Log In
+          </button>
+        </form>
+
+        {error && (
+          <p className="text-red-400 mt-2 text-sm text-center">{error}</p>
+        )}
+
+        <p className="text-center text-sm text-white/70">
+          Don&apos;t have an account?{" "}
+          <button
+            onClick={() => navigate("/signup")}
+            className="text-blue-400 underline"
+          >
+            Sign Up
+          </button>
+        </p>
+      </div>
     </div>
   );
 }

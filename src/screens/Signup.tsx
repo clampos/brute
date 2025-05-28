@@ -81,7 +81,8 @@ export default function Signup() {
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-b from-[#001F3F] to-[#000B1A] text-white px-6">
       <div className="w-full max-w-md px-4 space-y-6">
-        <h1 className="text-3xl font-semibold mb-8 font-poppins">Sign Up</h1>
+        <h1 className="text-3xl font-semibold mb-6 font-poppins">Sign Up</h1>
+
         <input
           type="text"
           placeholder="First Name"
