@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import AuthLayout from "../components/AuthLayout";
 
 export default function Signup() {
   const [firstName, setFirstName] = useState("");
@@ -79,10 +80,18 @@ export default function Signup() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-b from-[#001F3F] to-[#000B1A] text-white px-6">
-      <div className="w-full max-w-md px-4 space-y-6">
-        <h1 className="text-3xl font-semibold mb-6 font-poppins">Sign Up</h1>
-
+    <AuthLayout
+      title="Sign Up"
+      footer={
+        <p className="text-center text-sm text-white/70">
+          Already have an account?{" "}
+          <Link to="/login" className="text-blue-400 underline">
+            Log In
+          </Link>
+        </p>
+      }
+    >
+      <div className="space-y-6">
         <input
           type="text"
           placeholder="First Name"
@@ -133,18 +142,10 @@ export default function Signup() {
         >
           {loading ? "Redirecting..." : "Continue to Payment"}
         </button>
-
         {error && (
           <p className="text-red-400 mt-2 text-sm text-center">{error}</p>
         )}
-
-        <p className="text-center text-sm text-white/70">
-          Already have an account?{" "}
-          <Link to="/login" className="text-blue-400 underline">
-            Log In
-          </Link>
-        </p>
       </div>
-    </div>
+    </AuthLayout>
   );
 }
