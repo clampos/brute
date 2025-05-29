@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
@@ -48,6 +48,17 @@ export default function Dashboard() {
         navigate("/login");
       });
   }, [navigate]);
+
+  const handleLogout = () => {
+    // Clear the token from localStorage
+    localStorage.removeItem("token");
+
+    // Optional: Clear any other user data you might have stored
+    localStorage.removeItem("installPromptDismissed");
+
+    // Redirect to login page
+    navigate("/login");
+  };
 
   if (loading) {
     return (
@@ -199,12 +210,17 @@ export default function Dashboard() {
             {label}
           </button>
         ))}
+        <button
+          onClick={handleLogout}
+          className="flex-1 text-center text-white/70 hover:text-white font-medium tracking-wide transition-colors"
+          style={{ fontFamily: "'Poppins', sans-serif" }}
+        >
+          Logout
+        </button>
       </div>
 
       {/* Install Prompt - positioned as overlay */}
-      <InstallPrompt
-        forceShow={!localStorage.getItem("installPromptDismissed")}
-      />
+      <InstallPrompt />
     </div>
   );
 }
