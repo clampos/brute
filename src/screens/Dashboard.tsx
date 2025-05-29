@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
+import InstallPrompt from "../components/InstallPrompt";
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -199,6 +200,11 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+
+      {/* Install Prompt - positioned as overlay */}
+      <InstallPrompt
+        forceShow={!localStorage.getItem("installPromptDismissed")}
+      />
     </div>
   );
 }

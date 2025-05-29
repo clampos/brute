@@ -1,0 +1,37 @@
+{
+  "name": "BRUTE - Strength Without Limits",
+  "short_name": "BRUTE",
+  "description": "Track your workouts, monitor progress, and achieve your fitness goals",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000B1A",
+  "theme_color": "#001F3F",
+  "orientation": "portrait",
+  "categories": ["health", "fitness", "lifestyle"],
+  "icons": [
+    {
+      "src": "/my-favicon/favicon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "/my-favicon/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ]
+}
