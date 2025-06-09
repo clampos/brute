@@ -46,7 +46,7 @@ export default function InstallPrompt({
       setDeferredPrompt(null);
     });
 
-    // Fallback if beforeinstallprompt doesn't fire
+    // Show prompt immediately if forced and not installed & not dismissed
     if (
       forceShow &&
       !isInstalled &&
@@ -111,12 +111,20 @@ export default function InstallPrompt({
           )}
 
           {!isIOSSafari && (
-            <button
-              onClick={handleInstallClick}
-              className="mt-3 bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold text-sm"
-            >
-              Install Now
-            </button>
+            <>
+              {deferredPrompt ? (
+                <button
+                  onClick={handleInstallClick}
+                  className="mt-3 bg-white text-blue-600 px-4 py-2 rounded-lg font-semibold text-sm"
+                >
+                  Install Now
+                </button>
+              ) : (
+                <p className="text-white/90 text-sm mt-3">
+                  You can install this app from your browser's address bar.
+                </p>
+              )}
+            </>
           )}
         </div>
 
