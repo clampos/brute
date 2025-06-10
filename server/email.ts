@@ -25,3 +25,21 @@ try {
     console.error("❌ Unexpected email send failure:", err);
   }
 }
+
+export async function sendReferralRewardEmail(referrerEmail: string, referrerName: string, newUserEmail: string) {
+  try {
+    await resend.emails.send({
+      from: 'BRUTE <info@brutegym.com>',
+      to: referrerEmail,
+      subject: '🎉 You earned a referral reward!',
+      html: `
+        <h2>Congratulations ${referrerName}!</h2>
+        <p>Your friend (${newUserEmail}) just joined BRUTE using your referral code.</p>
+        <p>You've earned a free month! Check your account for details.</p>
+        <p>Keep sharing to earn more rewards! 💪</p>
+      `,
+    });
+  } catch (error) {
+    console.error('❌ Failed to send referral reward email:', error);
+  }
+}

@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import { sendConfirmationEmail } from './email';
 import { prisma } from './prisma'; 
 import { authenticateToken } from './authMiddleware';
+import { generateReferralCode } from './utils/referralUtils';
 
 const router = express.Router();
 
