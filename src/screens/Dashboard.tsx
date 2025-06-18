@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { ArrowRight, LogOut } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import InstallPrompt from "../components/InstallPrompt";
+import BottomBar from "../components/BottomBar"; // <-- Import BottomBar
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -74,7 +75,7 @@ export default function Dashboard() {
 
   return (
     <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4"
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16" // Added bottom padding for bottom bar space
       style={{
         background:
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
@@ -196,28 +197,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Bottom Navigation */}
-      <div
-        className="fixed bottom-0 left-0 w-full flex justify-around py-3 text-sm"
-        style={{ backgroundColor: "#000B1A" }}
-      >
-        {["Home", "Workouts", "Calendar", "Settings"].map((label) => (
-          <button
-            key={label}
-            className="flex-1 text-center text-white font-medium tracking-wide"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          onClick={handleLogout}
-          className="flex-1 text-center text-white/70 hover:text-white font-medium tracking-wide transition-colors"
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          Logout
-        </button>
-      </div>
+      {/* Use the new BottomBar component */}
+      <BottomBar onLogout={handleLogout} />
 
       {/* Install Prompt - positioned as overlay */}
       <InstallPrompt />

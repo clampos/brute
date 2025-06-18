@@ -13,6 +13,38 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2025-04-30.basil',
 });
 
+// Helper function to award referral credits
+async function awardReferralCredits(referrerId: string, newUserId: string) {
+  try {
+    // Award 1 month credit to the referrer
+    await prisma.user.update({
+      where: { id: referrerId },
+      data: {
+        referralCredits: {
+          increment: 1
+        },
+        freeMonthsEarned: {
+          increment: 1
+        }
+      }
+    });
+
+    // Award 1 month credit to the new user (they already got discount, but track it)
+    await prisma.user.update({
+      where: { id: newUserId },
+      data: {
+        referralCredits: {
+          increment: 1
+        }
+      }
+    });
+
+    console.log(`✅ Referral credits awarded: Referrer ${referrerId} and New User ${newUserId}`);
+  } catch (error) {
+    console.error('❌ Error awarding referral credits:', error);
+  }
+}
+
 // Stripe webhook endpoint
 router.post(
   '/',
@@ -60,33 +92,84 @@ router.post(
       if (email) {
         console.log(`✅ User subscribed: ${email}`);
 
+        // Get metadata from session
+        const userId = session.metadata?.userId;
+        const referredBy = session.metadata?.referredBy;
+        const referralCode = session.metadata?.referralCode;
+
         const existingUser = await prisma.user.findUnique({ where: { email } });
 
         if (!existingUser) {
           // If user doesn't exist, create a placeholder account
-          await prisma.user.create({
+          const newUser = await prisma.user.create({
             data: {
               email,
               password: '', // No password because user signed up via Stripe checkout
               subscribed: true,
               firstName: 'Unknown',
               surname: 'Unknown',
+              referralCode: `Unknown${Date.now()}`, // Temporary code
             },
           });
+          
+          // If this was a referral, award credits
+          if (referredBy && referredBy !== '') {
+            await awardReferralCredits(referredBy, newUser.id.toString());
+          }
         } else {
           // If user exists, mark them as subscribed
           await prisma.user.update({
             where: { email },
             data: { subscribed: true },
           });
+
+          // If this was a referral and we have the user ID, award credits
+          if (referredBy && referredBy !== '' && userId) {
+            await awardReferralCredits(referredBy, userId);
+          }
         }
 
         // Send a welcome/confirmation email
         await sendConfirmationEmail(email);
+
+        // Log referral info for debugging
+        if (referralCode) {
+          console.log(`🎁 Referral used: ${referralCode} by ${email}`);
+        }
       } else {
         console.warn('⚠️ Email not found in session or customer object.');
       }
-    } else {
+    }
+
+    // Handle subscription cancellations (optional - to deduct referral credits)
+    else if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object as Stripe.Subscription;
+      
+      if (subscription.customer) {
+        try {
+          const customer = await stripe.customers.retrieve(subscription.customer as string);
+          
+          if (customer.deleted !== true && customer.email) {
+            const user = await prisma.user.findUnique({ 
+              where: { email: customer.email }
+            });
+            
+            if (user) {
+              await prisma.user.update({
+                where: { id: user.id },
+                data: { subscribed: false }
+              });
+              
+              console.log(`❌ Subscription cancelled for: ${customer.email}`);
+            }
+          }
+        } catch (err) {
+          console.error('❌ Error handling subscription cancellation:', err);
+        }
+      }
+    }
+
+    else {
       console.log(`ℹ️ Ignored event type: ${event.type}`);
     }
 

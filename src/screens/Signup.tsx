@@ -10,6 +10,7 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
@@ -62,7 +63,13 @@ export default function Signup() {
       const res = await fetch("http://localhost:4242/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, firstName, surname }),
+        body: JSON.stringify({
+          email,
+          password,
+          firstName,
+          surname,
+          referralCode,
+        }),
       });
 
       const data = await res.json();
@@ -135,6 +142,19 @@ export default function Signup() {
           />
           <span>Show password</span>
         </label>
+        {/* Referral Code input */}
+        <div className="space-y-1">
+          <input
+            type="text"
+            placeholder="Referral Code (Optional)"
+            className="w-full p-3 rounded bg-white/10 placeholder-white/70 text-white"
+            value={referralCode}
+            onChange={(e) => setReferralCode(e.target.value)}
+          />
+          <p className="text-sm text-white/60">
+            Have a referral code? Enter it here to get a month free!
+          </p>
+        </div>
         <button
           className="w-full bg-blue-600 py-3 rounded font-semibold hover:bg-blue-700 transition"
           onClick={handleSignup}
