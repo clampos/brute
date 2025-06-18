@@ -1,6 +1,15 @@
 ```
 brute
 ├─ index.html
+├─ manifest.json
+├─ my-favicon
+│  ├─ apple-touch-icon.png
+│  ├─ favicon-96x96.png
+│  ├─ favicon.ico
+│  ├─ favicon.svg
+│  ├─ site.webmanifest
+│  ├─ web-app-manifest-192x192.png
+│  └─ web-app-manifest-512x512.png
 ├─ package-lock.json
 ├─ package.json
 ├─ postcss.config.js
@@ -27,6 +36,8 @@ brute
 │  ├─ routes
 │  │  └─ stripe.js
 │  ├─ tsconfig.json
+│  ├─ utils
+│  │  └─ referralUtils.ts
 │  └─ webhook.ts
 ├─ src
 │  ├─ App.tsx
@@ -34,6 +45,9 @@ brute
 │  │  ├─ icon_placeholder.png
 │  │  └─ logo.png
 │  ├─ components
+│  │  ├─ AuthLayout.tsx
+│  │  ├─ BubblesBackground.tsx
+│  │  ├─ InstallPrompt.tsx
 │  │  ├─ ProtectedRoute.tsx
 │  │  └─ ScreenWrapper.tsx
 │  ├─ index.css
@@ -48,6 +62,7 @@ brute
 │  │  └─ authService.ts
 │  └─ utils
 │     └─ auth.ts
+├─ sw.js
 ├─ tailwind.config.js
 ├─ tsconfig.json
 └─ yarn.lock
