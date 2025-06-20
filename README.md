@@ -29,6 +29,8 @@ brute
 │  │  │  │  └─ migration.sql
 │  │  │  ├─ 20250523083816_add_name_fields
 │  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250618153358_add_referral_fields
+│  │  │  │  └─ migration.sql
 │  │  │  └─ migration_lock.toml
 │  │  └─ schema.prisma
 │  ├─ prisma.ts
@@ -46,6 +48,7 @@ brute
 │  │  └─ logo.png
 │  ├─ components
 │  │  ├─ AuthLayout.tsx
+│  │  ├─ BottomBar.tsx
 │  │  ├─ BubblesBackground.tsx
 │  │  ├─ InstallPrompt.tsx
 │  │  ├─ ProtectedRoute.tsx
@@ -56,6 +59,7 @@ brute
 │  │  ├─ Dashboard.tsx
 │  │  ├─ Login.tsx
 │  │  ├─ Onboarding.tsx
+│  │  ├─ Settings.tsx
 │  │  ├─ Signup.tsx
 │  │  └─ SubscriptionSuccess.tsx
 │  ├─ services

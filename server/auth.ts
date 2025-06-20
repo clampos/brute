@@ -3,7 +3,7 @@ import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { sendConfirmationEmail } from './email';
+import { sendConfirmationEmail, sendReferralWelcomeEmail, sendReferralRewardEmail } from './email';
 import { prisma } from './prisma'; 
 import { authenticateToken } from './authMiddleware';
 import { generateUniqueReferralCode } from './utils/referralUtils';
@@ -54,6 +54,8 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
 router.post('/signup', async (req: Request, res: Response): Promise<any> => {
   const { email, password, firstName, surname, referralCode } = req.body;
 
+  console.log('🔄 Signup attempt:', { email, firstName, surname, referralCode });
+
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
     return res.status(400).json({ error: 'User already exists.' });
@@ -70,10 +72,12 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
     if (!referrer) {
       return res.status(400).json({ error: 'Invalid referral code.' });
     }
+    console.log('✅ Valid referral code found:', referralCode, 'Referrer:', referrer.firstName, referrer.surname);
   }
 
   // Generate unique referral code for new user
   const newUserReferralCode = await generateUniqueReferralCode(firstName, surname, prisma);
+  console.log('🆔 Generated referral code for new user:', newUserReferralCode);
 
   const newUser = await prisma.user.create({
     data: {
@@ -85,6 +89,26 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
       referredBy: referrer?.id,
     },
   });
+
+  console.log('👤 New user created:', newUser.id);
+
+try {
+  const coupon = await stripe.coupons.retrieve("BFLS4uO9");
+  console.log("✅ Coupon found:", coupon);
+} catch (error) {
+  if (error instanceof Error) {
+    console.error("❌ Coupon does not exist:", error.message);
+  } else {
+    console.error("❌ Unknown error:", error);
+  }
+}
+
+const coupons = await stripe.coupons.list();
+console.log("📋 Available coupons:", coupons.data.map(c => ({ id: c.id, name: c.name })));
+
+const coupon = await stripe.coupons.retrieve('BFLS4uO9');
+console.log("Coupon applies to:", coupon.applies_to);
+
 
   try {
     // Base session configuration
@@ -104,17 +128,28 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
         userId: newUser.id.toString(),
         referredBy: referrer?.id?.toString() || '',
         referralCode: referralCode || '',
-      }
+        newUserReferralCode: newUserReferralCode,
+      },
+      discounts: [{
+    coupon: 'BFLS4uO9' // 👈 Use actual coupon ID here
+  }]
     };
 
     // Apply referral discount if user was referred
+    // IMPORTANT: Use the coupon ID directly, not the promotion code
     if (referrer) {
-      sessionConfig.discounts = [{
-        promotion_code: 'FREEMONTHFORFRIENDS'
-      }];
+        console.log('🎁 Applying referral discount via promotion code');
+  sessionConfig.discounts = [{
+     coupon: 'BFLS4uO9'
+   }];
     }
 
+    console.log('🔄 Creating Stripe session with config:', JSON.stringify(sessionConfig, null, 2));
+
     const session = await stripe.checkout.sessions.create(sessionConfig);
+    
+    console.log('✅ Stripe session created successfully:', session.id);
+    
     res.json({ checkoutUrl: session.url });
   } catch (err) {
     console.error('❌ Stripe error:', err);
@@ -122,7 +157,10 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
     // Clean up user if Stripe session creation fails
     await prisma.user.delete({ where: { id: newUser.id } });
     
-    res.status(500).json({ error: 'Failed to create Stripe session' });
+    res.status(500).json({ 
+      error: 'Failed to create Stripe session',
+      details: err instanceof Error ? err.message : 'Unknown error'
+    });
   }
 });
 
