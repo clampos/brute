@@ -30,4 +30,6 @@ model User {
   // Referral relationships
   referrer            User?    @relation("UserReferrals", fields: [referredBy], references: [id])
   referredUsers       User[]   @relation("UserReferrals")
+
+  
 }
