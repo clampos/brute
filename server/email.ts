@@ -132,11 +132,11 @@ export async function sendReferralWelcomeEmail(to: string, referrerName: string,
           
           <div style="background: linear-gradient(135deg, #FFB8E0, #BE9EFF, #88C0FC, #86FF99); padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;">
             <h3 style="color: #000; margin: 0 0 10px 0;">🎉 FREE MONTH ACTIVATED!</h3>
-            <p style="color: #000; margin: 0; font-weight: bold;">Thanks to ${referrerName}, your first month is FREE!</p>
+            <p style="color: #000; margin: 0; font-weight: bold;">Thanks to ${referrerName}, you have another month of BRUTE completely FREE!</p>
           </div>
           
           <p style="font-size: 16px; line-height: 1.6;">
-            You've joined BRUTE through a friend's referral, which means you get your first month completely free! 
+            You've joined BRUTE through a friend's referral, which means you get an additional month free (on top of your 1-month free trial)! 
             Welcome to the community - let's get those gains together! 
           </p>
           
