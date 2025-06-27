@@ -89,23 +89,26 @@ export default function Settings() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo container */}
+      {/* Responsive full-width logo container, centered - MATCHES Dashboard */}
       <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
         <img
           src={logo}
           alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
+          className="
+            w-[84.56px] h-[15px] object-contain
+            md:w-[100px] md:h-[18px]
+          "
         />
       </div>
 
-      {/* Title + Avatar aligned like Dashboard */}
-      <div className="flex justify-between items-center mt-4 px-2 max-w-[375px] mx-auto w-full">
+      {/* Top Bar: Settings + User Image - MATCHES Dashboard spacing and responsiveness */}
+      <div className="flex justify-between items-center mt-4 px-2">
         <h2
           className="text-white"
           style={{
+            fontFamily: "'Poppins', sans-serif",
             fontWeight: 600,
             fontSize: "20px",
-            fontFamily: "'Poppins', sans-serif",
           }}
         >
           Settings
@@ -118,11 +121,13 @@ export default function Settings() {
       </div>
 
       {/* Referral Code Box */}
-      <div
-        className="mt-8 max-w-[375px] mx-auto w-full rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center"
-        style={{ fontFamily: "'Poppins', sans-serif" }}
-      >
-        <h3 className="text-lg font-semibold mb-2">Your Referral Code</h3>
+      <div className="mt-8 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
+        <h3
+          className="text-lg font-semibold mb-2"
+          style={{ fontFamily: "'Poppins', sans-serif" }}
+        >
+          Your Referral Code
+        </h3>
         <div className="flex items-center justify-center gap-2 mb-4">
           <p className="text-xl font-bold tracking-wide">
             {referralStats?.referralCode}
@@ -135,13 +140,13 @@ export default function Settings() {
           </button>
         </div>
         <p className="text-sm">
-          Share this code with friends to earn free months!
+          Share this code with friends - you'll both get a free month!
         </p>
       </div>
 
       {/* Referral Stats */}
       {referralStats && (
-        <div className="mt-6 max-w-[375px] mx-auto w-full space-y-4">
+        <div className="mt-6 space-y-4">
           <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">Referral Stats</h4>
             <div className="grid grid-cols-2 gap-4 text-center">
@@ -157,6 +162,14 @@ export default function Settings() {
                 </p>
                 <p className="text-sm text-[#5E6272]">Total Referrals</p>
               </div>
+            </div>
+            <div className="mt-4 text-center">
+              <p className="text-sm text-[#5E6272]">
+                Referral Credits Available:{" "}
+                <span className="text-white font-semibold">
+                  {referralStats.referralCredits}
+                </span>
+              </p>
             </div>
           </div>
 
@@ -191,7 +204,7 @@ export default function Settings() {
           )}
 
           {/* General Settings Section */}
-          <div className="bg-[#262A34] rounded-xl p-4 mt-4">
+          <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">General Settings</h4>
             <div className="space-y-2">
               {[

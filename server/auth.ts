@@ -92,24 +92,6 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
 
   console.log('👤 New user created:', newUser.id);
 
-try {
-  const coupon = await stripe.coupons.retrieve("BFLS4uO9");
-  console.log("✅ Coupon found:", coupon);
-} catch (error) {
-  if (error instanceof Error) {
-    console.error("❌ Coupon does not exist:", error.message);
-  } else {
-    console.error("❌ Unknown error:", error);
-  }
-}
-
-const coupons = await stripe.coupons.list();
-console.log("📋 Available coupons:", coupons.data.map(c => ({ id: c.id, name: c.name })));
-
-const coupon = await stripe.coupons.retrieve('BFLS4uO9');
-console.log("Coupon applies to:", coupon.applies_to);
-
-
   try {
     // Base session configuration
     const sessionConfig: Stripe.Checkout.SessionCreateParams = {
@@ -130,18 +112,14 @@ console.log("Coupon applies to:", coupon.applies_to);
         referralCode: referralCode || '',
         newUserReferralCode: newUserReferralCode,
       },
-      discounts: [{
-    coupon: 'BFLS4uO9' // 👈 Use actual coupon ID here
-  }]
     };
 
     // Apply referral discount if user was referred
-    // IMPORTANT: Use the coupon ID directly, not the promotion code
     if (referrer) {
-        console.log('🎁 Applying referral discount via promotion code');
-  sessionConfig.discounts = [{
-     coupon: 'BFLS4uO9'
-   }];
+      console.log('🎁 Applying referral discount');
+      sessionConfig.discounts = [{
+        coupon: 'BFLS4uO9' // Your referral discount coupon
+      }];
     }
 
     console.log('🔄 Creating Stripe session with config:', JSON.stringify(sessionConfig, null, 2));

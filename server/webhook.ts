@@ -43,7 +43,7 @@ async function awardReferralCredits(referrerId: string, newUserId: string) {
       }
     });
 
-    // Award 1 month credit to the new user
+    // Award 1 month credit to the new user (in addition to the discount they already got)
     await prisma.user.update({
       where: { id: newUserId },
       data: {
@@ -129,8 +129,9 @@ router.post(
             data: { subscribed: true },
           });
 
-          // Handle referral rewards
+          // Handle referral rewards - award credits to both users
           if (referredBy && referredBy !== '' && userId) {
+            console.log('🎁 Processing referral rewards for:', { referredBy, userId });
             await awardReferralCredits(referredBy, userId);
             
             // Send special welcome email for referred users
@@ -180,7 +181,7 @@ router.post(
       }
     }
 
-    // Handle subscription cancellations (optional - to deduct referral credits)
+    // Handle subscription cancellations
     else if (event.type === 'customer.subscription.deleted') {
       const subscription = event.data.object as Stripe.Subscription;
       
