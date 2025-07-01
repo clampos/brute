@@ -13,7 +13,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2025-04-30.basil',
 });
 
-// Helper function to award referral credits
+// Helper function to award referral credits (Updated version)
 async function awardReferralCredits(referrerId: string, newUserId: string) {
   try {
     // Get referrer and new user details
@@ -43,15 +43,24 @@ async function awardReferralCredits(referrerId: string, newUserId: string) {
       }
     });
 
-    // Award 1 month credit to the new user (in addition to the discount they already got)
+    // Award 1 month credit to the new user 
+    // (this is in addition to the discount they already got during signup)
     await prisma.user.update({
       where: { id: newUserId },
       data: {
         referralCredits: {
           increment: 1
+        },
+        freeMonthsEarned: {
+          increment: 1  // Track that they earned a free month too
         }
       }
     });
+
+    // Create Stripe billing credits for both users
+    // This ensures the credits are actually applied to their accounts
+    await createStripeBillingCredit(referrer.email, 'Referral reward - you referred a friend!');
+    await createStripeBillingCredit(newUser.email, 'Referral bonus - welcome to BRUTE!');
 
     // Send reward email to referrer
     await sendReferralRewardEmail(
@@ -64,6 +73,39 @@ async function awardReferralCredits(referrerId: string, newUserId: string) {
     console.log(`✅ Referral credits awarded: Referrer ${referrer.firstName} ${referrer.surname} and New User ${newUser.firstName} ${newUser.surname}`);
   } catch (error) {
     console.error('❌ Error awarding referral credits:', error);
+  }
+}
+
+// Helper function to create Stripe billing credits
+async function createStripeBillingCredit(email: string, description: string) {
+  try {
+    // Find the customer by email
+    const customers = await stripe.customers.list({
+      email: email,
+      limit: 1
+    });
+
+    if (customers.data.length === 0) {
+      console.error(`❌ No Stripe customer found for email: ${email}`);
+      return;
+    }
+
+    const customer = customers.data[0];
+
+    // Get the subscription price amount (you'll need to fetch this from your price)
+    const price = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID!);
+    const creditAmount = price.unit_amount || 0; // Amount in cents
+
+    // Create a credit balance transaction
+    await stripe.customers.createBalanceTransaction(customer.id, {
+      amount: -creditAmount, // Negative amount creates a credit
+      currency: price.currency || 'usd',
+      description: description
+    });
+
+    console.log(`✅ Stripe billing credit created for ${email}: $${creditAmount/100}`);
+  } catch (error) {
+    console.error(`❌ Failed to create Stripe billing credit for ${email}:`, error);
   }
 }
 

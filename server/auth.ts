@@ -50,7 +50,7 @@ router.post('/login', async (req: Request, res: Response): Promise<any> => {
   res.json({ token });
 });
 
-// --- SIGNUP ---
+// --- SIGNUP --- (Updated version)
 router.post('/signup', async (req: Request, res: Response): Promise<any> => {
   const { email, password, firstName, surname, referralCode } = req.body;
 
@@ -112,13 +112,18 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
         referralCode: referralCode || '',
         newUserReferralCode: newUserReferralCode,
       },
+      // Add trial period for ALL users (30 days free trial)
+      subscription_data: {
+        trial_period_days: 30,
+      }
     };
 
-    // Apply referral discount if user was referred
+    // Apply ADDITIONAL referral discount if user was referred
+    // This gives them ANOTHER free month on top of the 30-day trial
     if (referrer) {
-      console.log('🎁 Applying referral discount');
+      console.log('🎁 Applying additional referral discount');
       sessionConfig.discounts = [{
-        coupon: 'BFLS4uO9' // Your referral discount coupon
+        coupon: 'BFLS4uO9' // Your referral discount coupon - should be for 1 month free
       }];
     }
 
