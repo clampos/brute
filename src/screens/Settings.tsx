@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, X } from "lucide-react";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
@@ -25,6 +25,14 @@ export default function Settings() {
   );
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -73,6 +81,61 @@ export default function Settings() {
     }
   };
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordLoading(true);
+
+    // Validation
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError("New passwords don't match");
+      setPasswordLoading(false);
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters");
+      setPasswordLoading(false);
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        "http://localhost:4242/auth/change-password",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            currentPassword: passwordForm.currentPassword,
+            newPassword: passwordForm.newPassword,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to change password");
+      }
+
+      // Success
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      setShowChangePassword(false);
+      alert("Password changed successfully!");
+    } catch (err: any) {
+      setPasswordError(err.message || "Failed to change password");
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-white font-poppins bg-gradient-to-b from-[#001F3F] to-[#000B1A]">
@@ -89,19 +152,16 @@ export default function Settings() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Responsive full-width logo container, centered - MATCHES Dashboard */}
+      {/* Logo */}
       <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
         <img
           src={logo}
           alt="Logo"
-          className="
-            w-[84.56px] h-[15px] object-contain
-            md:w-[100px] md:h-[18px]
-          "
+          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
         />
       </div>
 
-      {/* Top Bar: Settings + User Image - MATCHES Dashboard spacing and responsiveness */}
+      {/* Top Bar */}
       <div className="flex justify-between items-center mt-4 px-2">
         <h2
           className="text-white"
@@ -214,7 +274,7 @@ export default function Settings() {
                 },
                 {
                   label: "Change Password",
-                  onClick: () => alert("Change Password clicked"),
+                  onClick: () => setShowChangePassword(true),
                 },
                 {
                   label: "Manage Notifications",
@@ -237,6 +297,106 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-white text-lg font-semibold">
+                Change Password
+              </h3>
+              <button
+                onClick={() => {
+                  setShowChangePassword(false);
+                  setPasswordForm({
+                    currentPassword: "",
+                    newPassword: "",
+                    confirmPassword: "",
+                  });
+                  setPasswordError("");
+                }}
+                className="text-gray-400 hover:text-white"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <input
+                type="password"
+                placeholder="Current Password"
+                value={passwordForm.currentPassword}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    currentPassword: e.target.value,
+                  })
+                }
+                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                required
+              />
+              <input
+                type="password"
+                placeholder="New Password"
+                value={passwordForm.newPassword}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    newPassword: e.target.value,
+                  })
+                }
+                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                required
+                minLength={8}
+              />
+              <input
+                type="password"
+                placeholder="Confirm New Password"
+                value={passwordForm.confirmPassword}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    confirmPassword: e.target.value,
+                  })
+                }
+                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                required
+                minLength={8}
+              />
+
+              {passwordError && (
+                <p className="text-red-400 text-sm">{passwordError}</p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChangePassword(false);
+                    setPasswordForm({
+                      currentPassword: "",
+                      newPassword: "",
+                      confirmPassword: "",
+                    });
+                    setPasswordError("");
+                  }}
+                  className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="flex-1 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50"
+                >
+                  {passwordLoading ? "Changing..." : "Change Password"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

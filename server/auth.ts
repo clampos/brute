@@ -7,6 +7,7 @@ import { sendConfirmationEmail, sendReferralWelcomeEmail, sendReferralRewardEmai
 import { prisma } from './prisma'; 
 import { authenticateToken } from './authMiddleware';
 import { generateUniqueReferralCode } from './utils/referralUtils';
+import {sendPasswordResetEmail} from '../server/email';
 
 const router = express.Router();
 
@@ -200,6 +201,163 @@ router.get('/referrals', authenticateToken, async (req: Request, res: Response):
     totalReferrals: user.referredUsers.length,
     activeReferrals: user.referredUsers.filter(u => u.subscribed).length
   });
+});
+
+// Add these endpoints to your auth.ts file
+
+// Change Password endpoint
+router.post('/change-password', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = (req as any).user.userId;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required' });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId },
+      select: { password: true }
+    });
+
+    if (!user || !user.password) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Verify current password
+    const passwordMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!passwordMatch) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password in database
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedNewPassword }
+    });
+
+    console.log(`✅ Password changed for user: ${userId}`);
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('❌ Change password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Forgot Password endpoint
+router.post('/forgot-password', async (req: Request, res: Response): Promise<any> => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      // Don't reveal if email exists or not for security
+      return res.json({ message: 'If that email is registered, we\'ve sent a reset link' });
+    }
+
+    // Generate reset token (expires in 1 hour)
+    const resetToken = jwt.sign(
+      { userId: user.id, email: user.email, type: 'password_reset' },
+      JWT_SECRET!,
+      { expiresIn: '1h' }
+    );
+
+    // Store reset token in database (you might want to add a passwordResetToken field to your User model)
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { 
+        // Add these fields to your Prisma schema:
+        // passwordResetToken: String?
+        // passwordResetExpires: DateTime?
+        passwordResetToken: resetToken,
+        passwordResetExpires: new Date(Date.now() + 3600000) // 1 hour from now
+      }
+    });
+
+    // Send reset email
+    await sendPasswordResetEmail(email, resetToken);
+
+    console.log(`✅ Password reset email sent to: ${email}`);
+    res.json({ message: 'If that email is registered, we\'ve sent a reset link' });
+  } catch (error) {
+    console.error('❌ Forgot password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Reset Password endpoint (for when user clicks link in email)
+router.post('/reset-password', async (req: Request, res: Response): Promise<any> => {
+  const { token, newPassword } = req.body;
+
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Token and new password are required' });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+  }
+
+  try {
+    // Verify reset token
+    const decoded = jwt.verify(token, JWT_SECRET!) as { 
+      userId: string, 
+      email: string, 
+      type: string 
+    };
+
+    if (decoded.type !== 'password_reset') {
+      return res.status(400).json({ error: 'Invalid reset token' });
+    }
+
+    // Check if token exists in database and hasn't expired
+    const user = await prisma.user.findFirst({
+      where: {
+        id: decoded.userId,
+        passwordResetToken: token,
+        passwordResetExpires: {
+          gt: new Date()
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Reset token is invalid or has expired' });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password and clear reset token
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpires: null
+      }
+    });
+
+    console.log(`✅ Password reset successful for user: ${user.email}`);
+    res.json({ message: 'Password reset successful' });
+  } catch (error) {
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+    console.error('❌ Reset password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 export default router;

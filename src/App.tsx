@@ -5,6 +5,7 @@ import Signup from "./screens/Signup";
 import Dashboard from "./screens/Dashboard";
 import SubscriptionSuccess from "./screens/SubscriptionSuccess";
 import Settings from "./screens/Settings";
+import ResetPassword from "./components/ResetPassword";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/subscription-success" element={<SubscriptionSuccess />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     </BrowserRouter>
   );

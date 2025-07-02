@@ -31,5 +31,6 @@ model User {
   referrer            User?    @relation("UserReferrals", fields: [referredBy], references: [id])
   referredUsers       User[]   @relation("UserReferrals")
 
-  
+  passwordResetToken   String?   
+  passwordResetExpires DateTime?
 }
