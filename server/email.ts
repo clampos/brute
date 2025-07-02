@@ -179,3 +179,63 @@ export async function sendReferralWelcomeEmail(to: string, referrerName: string,
     console.error('❌ Failed to send referral welcome email:', error);
   }
 }
+
+// Fixed password reset email function
+export async function sendPasswordResetEmail(email: string, token: string) {
+  console.log("📤 Sending password reset email to:", email);
+  try {
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+    
+    const { data, error } = await resend.emails.send({
+      from: 'BRUTE <info@brutegym.com>',
+      to: email,
+      subject: 'Reset your BRUTE password 🔒',
+      html: `
+        <div style="font-family: 'Poppins', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #000B1A; color: white; padding: 20px;">
+          <h2 style="color: #246BFD; text-align: center; margin-bottom: 20px;">Reset Your Password 🔒</h2>
+          
+          <div style="background: #262A34; padding: 20px; border-radius: 10px; margin: 20px 0;">
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 15px 0;">
+              We received a request to reset your password for your BRUTE account.
+            </p>
+            <p style="font-size: 16px; line-height: 1.6; margin: 0;">
+              Click the button below to reset your password. This link will expire in 1 hour.
+            </p>
+          </div>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" 
+               style="background: #246BFD; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold;">
+              Reset Password
+            </a>
+          </div>
+          
+          <div style="background: #262A34; padding: 20px; border-radius: 10px; margin: 20px 0;">
+            <p style="color: #5E6272; font-size: 14px; line-height: 1.6; margin: 0;">
+              If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.
+            </p>
+          </div>
+          
+          <p style="text-align: center; color: #5E6272; font-size: 12px; margin-top: 30px;">
+            If the button doesn't work, copy and paste this link into your browser:<br>
+            <span style="color: #246BFD; word-break: break-all;">${resetUrl}</span>
+          </p>
+          
+          <p style="text-align: center; color: #5E6272; font-size: 12px; margin-top: 20px;">
+            Need help? Reply to this email or contact us at info@brutegym.com
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error("❌ Password reset email error:", error);
+      throw error;
+    } else {
+      console.log("✅ Password reset email sent:", data?.id);
+    }
+  } catch (err) {
+    console.error("❌ Unexpected password reset email failure:", err);
+    throw err;
+  }
+}
