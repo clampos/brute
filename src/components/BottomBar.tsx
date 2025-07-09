@@ -1,5 +1,6 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { Home, Dumbbell, Settings, LogOut } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
 
 interface BottomBarProps {
   onLogout: () => void;
@@ -7,49 +8,35 @@ interface BottomBarProps {
 
 export default function BottomBar({ onLogout }: BottomBarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const navItems = [
+    { icon: <Home size={22} />, path: "/dashboard", label: "Dashboard" },
+    { icon: <Dumbbell size={22} />, path: "/programmes", label: "Programmes" },
+    { icon: <Settings size={22} />, path: "/settings", label: "Settings" },
+  ];
 
   return (
-    <div
-      className="fixed bottom-0 left-0 w-full flex justify-around py-3 text-sm"
-      style={{ backgroundColor: "#000B1A" }}
-    >
-      {["Home", "Workouts", "Calendar"].map((label) => (
+    <div className="fixed bottom-0 left-0 right-0 bg-[#0E1117] border-t border-[#1F1F1F] flex justify-around items-center py-2 z-50">
+      {navItems.map((item) => (
         <button
-          key={label}
-          className="flex-1 text-center text-white font-medium tracking-wide"
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-          onClick={() => {
-            switch (label) {
-              case "Home":
-                navigate("/dashboard");
-                break;
-              case "Workouts":
-                navigate("/workouts");
-                break;
-              case "Calendar":
-                navigate("/calendar");
-                break;
-            }
-          }}
+          key={item.path}
+          onClick={() => navigate(item.path)}
+          className={`flex flex-col items-center text-sm ${
+            location.pathname === item.path
+              ? "text-[#246BFD]"
+              : "text-[#5E6272]"
+          }`}
         >
-          {label}
+          {item.icon}
         </button>
       ))}
 
-      {/* Settings button */}
-      <button
-        onClick={() => navigate("/settings")}
-        className="flex-1 text-center text-white font-medium tracking-wide"
-        style={{ fontFamily: "'Poppins', sans-serif" }}
-      >
-        Settings
-      </button>
       <button
         onClick={onLogout}
-        className="flex-1 text-center text-white/70 hover:text-white font-medium tracking-wide transition-colors"
-        style={{ fontFamily: "'Poppins', sans-serif" }}
+        className="flex flex-col items-center text-[#5E6272] hover:text-red-500 transition-colors"
       >
-        Logout
+        <LogOut size={22} />
       </button>
     </div>
   );
