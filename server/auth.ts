@@ -360,4 +360,25 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<any>
   }
 });
 
+// DELETE /auth/delete-account
+router.delete('/delete-account', authenticateToken, async (req: Request, res: Response) => {
+  const userId = (req as any).user.userId;
+
+  try {
+    // Optional: You could first cancel the user's Stripe subscription here if you store subscription ID
+
+    // Delete the user
+    await prisma.user.delete({
+      where: { id: userId }
+    });
+
+    console.log(`🗑️ Account deleted for user: ${userId}`);
+    res.status(200).json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('❌ Failed to delete account:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+
 export default router;

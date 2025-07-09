@@ -26,6 +26,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -81,6 +82,20 @@ export default function Settings() {
     }
   };
 
+  const resetPasswordModal = () => {
+    setShowChangePassword(false);
+    setPasswordForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setPasswordError("");
+  };
+
+  const resetDeleteAccountModal = () => {
+    setShowDeleteAccount(false);
+  };
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError("");
@@ -117,17 +132,14 @@ export default function Settings() {
       );
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to change password");
+        // Safer error message, not exposing backend errors
+        throw new Error(
+          "Failed to change password. Please check your current password."
+        );
       }
 
       // Success
-      setPasswordForm({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-      setShowChangePassword(false);
+      resetPasswordModal();
       alert("Password changed successfully!");
     } catch (err: any) {
       setPasswordError(err.message || "Failed to change password");
@@ -135,6 +147,52 @@ export default function Settings() {
       setPasswordLoading(false);
     }
   };
+
+  // Function to handle actual account deletion
+  const handleDeleteAccount = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        "http://localhost:4242/auth/delete-account",
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete account.");
+      }
+
+      // Clear storage and redirect to login or landing page
+      localStorage.clear();
+      alert("Account deleted successfully.");
+      navigate("/login");
+    } catch (err: any) {
+      alert(err.message || "Error deleting account.");
+    }
+  };
+
+  const settingsOptions = [
+    {
+      label: "Change Email",
+      onClick: () => alert("Change Email clicked"),
+    },
+    {
+      label: "Change Password",
+      onClick: () => setShowChangePassword(true),
+    },
+    {
+      label: "Manage Notifications",
+      onClick: () => alert("Manage Notifications clicked"),
+    },
+    {
+      label: "Delete Account",
+      onClick: () => setShowDeleteAccount(true),
+    },
+  ];
 
   if (loading) {
     return (
@@ -234,7 +292,7 @@ export default function Settings() {
           </div>
 
           {/* Recent Referrals */}
-          {referralStats.referredUsers.length > 0 && (
+          {referralStats.referredUsers?.length > 0 && (
             <div className="bg-[#262A34] rounded-xl p-4">
               <h4 className="text-white font-semibold mb-3">
                 Recent Referrals
@@ -267,27 +325,7 @@ export default function Settings() {
           <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">General Settings</h4>
             <div className="space-y-2">
-              {[
-                {
-                  label: "Change Email",
-                  onClick: () => alert("Change Email clicked"),
-                },
-                {
-                  label: "Change Password",
-                  onClick: () => setShowChangePassword(true),
-                },
-                {
-                  label: "Manage Notifications",
-                  onClick: () => alert("Manage Notifications clicked"),
-                },
-                {
-                  label: "Delete Account",
-                  onClick: () =>
-                    window.confirm(
-                      "Are you sure you want to delete your account?"
-                    ) && alert("Account deleted"),
-                },
-              ].map((setting, index) => (
+              {settingsOptions.map((setting, index) => (
                 <div
                   key={index}
                   className="flex justify-between items-center py-3 px-4 rounded-lg bg-[#1F222B] text-white hover:bg-[#2A2E39] cursor-pointer transition-colors"
@@ -310,15 +348,7 @@ export default function Settings() {
                 Change Password
               </h3>
               <button
-                onClick={() => {
-                  setShowChangePassword(false);
-                  setPasswordForm({
-                    currentPassword: "",
-                    newPassword: "",
-                    confirmPassword: "",
-                  });
-                  setPasswordError("");
-                }}
+                onClick={resetPasswordModal}
                 className="text-gray-400 hover:text-white"
               >
                 <X size={24} />
@@ -375,15 +405,7 @@ export default function Settings() {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowChangePassword(false);
-                    setPasswordForm({
-                      currentPassword: "",
-                      newPassword: "",
-                      confirmPassword: "",
-                    });
-                    setPasswordError("");
-                  }}
+                  onClick={resetPasswordModal}
                   className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
                 >
                   Cancel
@@ -401,7 +423,49 @@ export default function Settings() {
         </div>
       )}
 
-      <BottomBar onLogout={handleLogout} />
+      {/* Delete Account Modal */}
+      {showDeleteAccount && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-white text-lg font-semibold">
+                Delete Account
+              </h3>
+              <button
+                onClick={resetDeleteAccountModal}
+                className="text-gray-400 hover:text-white"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <p className="text-red-500 mb-6">
+              Are you sure you want to delete your account? This action cannot
+              be undone.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={resetDeleteAccountModal}
+                className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                className="flex-1 py-3 bg-red-600 rounded font-semibold hover:bg-red-700 transition text-white"
+              >
+                Delete Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Bar */}
+      <BottomBar />
     </div>
   );
 }

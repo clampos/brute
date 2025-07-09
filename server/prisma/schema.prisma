@@ -33,4 +33,134 @@ model User {
 
   passwordResetToken   String?   
   passwordResetExpires DateTime?
+
+  userPrograms UserProgram[]
+}
+
+model Programme {
+  id          String   @id @default(cuid())
+  name        String
+  daysPerWeek Int      @map("days_per_week")
+  weeks       Int
+  bodyPartFocus String @map("body_part_focus") // Full Body, Upper Body, Lower Body, etc.
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  exercises   ProgrammeExercise[]
+  userPrograms UserProgram[]
+
+  @@map("programmes")
+}
+
+model Exercise {
+  id          String   @id @default(cuid())
+  name        String
+  muscleGroup String   @map("muscle_group") // Primary muscle group
+  category    String   // Compound, Isolation, Cardio, etc.
+  equipment   String?  // Barbell, Dumbbell, Bodyweight, etc.
+  instructions String? // How to perform the exercise
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  programmeExercises ProgrammeExercise[]
+  workoutExercises   WorkoutExercise[]
+
+  @@map("exercises")
+}
+
+model ProgrammeExercise {
+  id          String @id @default(cuid())
+  programmeId String @map("programme_id")
+  exerciseId  String @map("exercise_id")
+  dayNumber   Int    @map("day_number") // 1, 2, 3, etc. for each day of the week
+  orderIndex  Int    @map("order_index") // Order of exercise within the day
+  sets        Int    @default(3)
+  reps        String @default("8-12") // Can be "8-12", "10", "AMRAP", etc.
+  restSeconds Int?   @map("rest_seconds") // Rest between sets in seconds
+  notes       String?
+
+  // Relationships
+  programme Programme @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  exercise  Exercise  @relation(fields: [exerciseId], references: [id])
+
+  @@map("programme_exercises")
+}
+
+model UserProgram {
+  id          String            @id @default(cuid())
+  userId      String            @map("user_id")
+  programmeId String            @map("programme_id")
+  startDate   DateTime          @map("start_date")
+  endDate     DateTime?         @map("end_date")
+  currentWeek Int               @default(1) @map("current_week")
+  currentDay  Int               @default(1) @map("current_day")
+  status      UserProgramStatus @default(ACTIVE)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  // Relationships
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programme Programme @relation(fields: [programmeId], references: [id])
+  workouts  Workout[]
+
+  @@map("user_programs")
+}
+
+model Workout {
+  id            String   @id @default(cuid())
+  userProgramId String   @map("user_program_id")
+  weekNumber    Int      @map("week_number")
+  dayNumber     Int      @map("day_number")
+  completedAt   DateTime @map("completed_at")
+  duration      Int?     // Duration in minutes
+  notes         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  userProgram UserProgram       @relation(fields: [userProgramId], references: [id], onDelete: Cascade)
+  exercises   WorkoutExercise[]
+
+  @@map("workouts")
+}
+
+model WorkoutExercise {
+  id         String @id @default(cuid())
+  workoutId  String @map("workout_id")
+  exerciseId String @map("exercise_id")
+  orderIndex Int    @map("order_index")
+
+  // Relationships
+  workout  Workout       @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise      @relation(fields: [exerciseId], references: [id])
+  sets     WorkoutSet[]
+
+  @@map("workout_exercises")
+}
+
+model WorkoutSet {
+  id                String  @id @default(cuid())
+  workoutExerciseId String  @map("workout_exercise_id")
+  setNumber         Int     @map("set_number")
+  weight            Float?  // Weight used (can be null for bodyweight)
+  reps              Int     // Actual reps performed
+  rpe               Int?    // Rate of Perceived Exertion (1-10)
+  restSeconds       Int?    @map("rest_seconds")
+  notes             String?
+  completed         Boolean @default(true)
+
+  // Relationships
+  workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+
+  @@map("workout_sets")
+}
+
+enum UserProgramStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELLED
 }
