@@ -65,36 +65,6 @@ export default function Dashboard() {
         setSurname(userData.surname);
         setMessage(userData.message);
 
-        // Fetch user's active programme
-        const programmeRes = await fetch(
-          "http://localhost:4242/api/my-programme",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (programmeRes.ok) {
-          const programmeData = await programmeRes.json();
-          setUserProgram(programmeData);
-
-          // Fetch today's workout if there's an active programme
-          const workoutRes = await fetch(
-            "http://localhost:4242/api/today-workout",
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            }
-          );
-
-          if (workoutRes.ok) {
-            const workoutData = await workoutRes.json();
-            setTodayWorkout(workoutData);
-          }
-        }
-
         setLoading(false);
       } catch (err) {
         console.error("Auth error:", err);
@@ -285,8 +255,7 @@ export default function Dashboard() {
             <div
               key={index}
               onClick={() => navigate(item.path)}
-              className="rounded-xl p-4 flex justify-between items-center shadow-sm text-white cursor-pointer hover:bg-[#2A2E38] transition-colors"
-              style={{ background: "#262A34" }}
+              className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex justify-between items-center cursor-pointer text-white hover:bg-[#2A2E38] transition-colors"
             >
               <span className="font-medium">{item.title}</span>
               <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
