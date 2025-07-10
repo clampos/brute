@@ -1,7 +1,13 @@
-// src/screens/ProgrammeEditor.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, GripVertical } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  CheckCircle,
+  XCircle,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
@@ -19,12 +25,7 @@ type ProgrammeDay = {
 };
 
 export default function ProgrammeEditor() {
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("installPromptDismissed");
-    navigate("/login");
-  };
-  const { programmeName } = useParams(); // Comes from the URL e.g. /editor/Full%20Body
+  const { programmeName } = useParams();
   const navigate = useNavigate();
 
   const [displayName, setDisplayName] = useState(
@@ -52,6 +53,17 @@ export default function ProgrammeEditor() {
     },
   ]);
 
+  const [openDays, setOpenDays] = useState<Record<number, boolean>>(() =>
+    Object.fromEntries(days.map((d) => [d.dayNumber, true]))
+  );
+
+  const toggleDay = (dayNumber: number) => {
+    setOpenDays((prev) => ({
+      ...prev,
+      [dayNumber]: !prev[dayNumber],
+    }));
+  };
+
   const handleAddExercise = (dayNumber: number) => {
     const updatedDays = days.map((day) => {
       if (day.dayNumber === dayNumber) {
@@ -72,6 +84,12 @@ export default function ProgrammeEditor() {
     });
 
     setDays(updatedDays);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("installPromptDismissed");
+    navigate("/login");
   };
 
   return (
@@ -109,72 +127,73 @@ export default function ProgrammeEditor() {
           className="w-10 h-10 rounded-full object-cover"
         />
       </div>
-      {/* Programme Metadata */}
-      <div className="bg-[#1C1F26] rounded-xl p-4 space-y-4 mb-8">
-        <div>
-          <label className="text-sm text-gray-400">Programme Name</label>
-          <input
-            className="w-full mt-1 px-3 py-2 bg-[#2A2D39] rounded-md text-white outline-none"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-        </div>
 
-        <div>
-          <label className="text-sm text-gray-400">Focus</label>
-          <input
-            className="w-full mt-1 px-3 py-2 bg-[#2A2D39] rounded-md text-white outline-none"
-            value={bodyFocus}
-            onChange={(e) => setBodyFocus(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-sm text-gray-400">Description</label>
-          <textarea
-            className="w-full mt-1 px-3 py-2 bg-[#2A2D39] rounded-md text-white outline-none"
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
+      {/* Programme Name Display */}
+      <div className="mt-6 mb-4 text-center">
+        <h3 className="text-white text-xl font-semibold">{displayName}</h3>
       </div>
 
       {/* Programme Days */}
       <div className="space-y-8">
-        {days.map((day) => (
-          <div key={day.dayNumber} className="space-y-2">
-            <h2 className="text-lg font-semibold">Day {day.dayNumber}</h2>
-
-            <div className="space-y-2">
-              {day.exercises.map((ex) => (
-                <div
-                  key={ex.id}
-                  className="bg-[#1C1F26] border border-[#2F3544] rounded-lg px-4 py-3 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2">
-                    <GripVertical className="text-gray-500 w-4 h-4" />
-                    <div>
-                      <p className="font-medium text-white">{ex.name}</p>
-                      <p className="text-sm text-gray-400">
-                        {ex.sets} sets of {ex.reps} reps
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <button
-                onClick={() => handleAddExercise(day.dayNumber)}
-                className="text-sm text-blue-400 flex items-center gap-1 hover:underline"
+        {days.map((day) => {
+          const isOpen = openDays[day.dayNumber];
+          return (
+            <div key={day.dayNumber} className="space-y-2">
+              {/* Day Header */}
+              <div
+                className="flex items-center gap-2 cursor-pointer"
+                onClick={() => toggleDay(day.dayNumber)}
               >
-                <Plus size={16} />
-                Add Exercise
-              </button>
+                {isOpen ? (
+                  <ChevronDown className="text-green-500 w-4 h-4" />
+                ) : (
+                  <ChevronRight className="text-green-500 w-4 h-4" />
+                )}
+                <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                  Day {day.dayNumber}
+                </h2>
+              </div>
+
+              {/* Exercise List */}
+              {isOpen && (
+                <div className="space-y-2">
+                  {day.exercises.map((ex) => (
+                    <div
+                      key={ex.id}
+                      className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center justify-between"
+                    >
+                      {/* Left: Green Tick */}
+                      <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
+
+                      {/* Center: Exercise Details */}
+                      <div className="flex-1 text-center">
+                        <p className="font-semibold text-white">{ex.name}</p>
+                        <div className="flex justify-center gap-3 text-sm mt-1">
+                          <span className="text-[#00FFAD]">{ex.sets} sets</span>
+                          <span className="text-[#FBA3FF]">Full Body</span>
+                        </div>
+                      </div>
+
+                      {/* Right: Red Cross */}
+                      <XCircle className="text-red-500 w-5 h-5 ml-3" />
+                    </div>
+                  ))}
+
+                  {/* Add Exercise */}
+                  <button
+                    onClick={() => handleAddExercise(day.dayNumber)}
+                    className="text-sm text-blue-400 flex items-center gap-1 hover:underline"
+                  >
+                    <Plus size={16} />
+                    Add Exercise
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
       <BottomBar onLogout={handleLogout} />
     </div>
   );
