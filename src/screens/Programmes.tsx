@@ -198,7 +198,10 @@ export default function Programmes() {
                   {section.programmes.map((prog, i) => (
                     <div
                       key={i}
-                      className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3"
+                      className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"
+                      onClick={() =>
+                        navigate(`/editor/${encodeURIComponent(prog.name)}`)
+                      }
                     >
                       <CheckCircle className="text-green-500 w-5 h-5" />
                       <div>

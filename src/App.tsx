@@ -7,6 +7,7 @@ import SubscriptionSuccess from "./screens/SubscriptionSuccess";
 import Settings from "./screens/Settings";
 import ResetPassword from "./components/ResetPassword";
 import ProgrammesScreen from "./screens/Programmes";
+import ProgrammeEditor from "./screens/ProgrammeEditor";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/programmes" element={<ProgrammesScreen />} />
+        <Route path="/editor/:programmeName" element={<ProgrammeEditor />} />
       </Routes>
     </BrowserRouter>
   );
