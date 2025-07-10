@@ -465,7 +465,7 @@ export default function Settings() {
       )}
 
       {/* Bottom Bar */}
-      <BottomBar />
+      <BottomBar onLogout={handleLogout} />
     </div>
   );
 }

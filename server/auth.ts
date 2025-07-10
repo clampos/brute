@@ -380,5 +380,96 @@ router.delete('/delete-account', authenticateToken, async (req: Request, res: Re
   }
 });
 
+router.get('/dashboard', authenticateToken, async (req, res): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        firstName: true,
+        surname: true,
+        subscribed: true,
+        referralCode: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.subscribed) {
+      return res.status(403).json({ error: 'Subscription required' });
+    }
+
+    res.json({
+      firstName: user.firstName,
+      surname: user.surname,
+      message: `Welcome back, ${user.firstName}!`,
+    });
+  } catch (error) {
+    console.error("Dashboard fetch error:", error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /auth/settings
+router.get('/settings', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        firstName: true,
+        surname: true,
+        email: true,
+        subscribed: true,
+        referralCode: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error('Settings fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /auth/programmes
+router.get('/programmes', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        subscribed: true
+      }
+    });
+
+    if (!user || !user.subscribed) {
+      return res.status(403).json({ error: 'Subscription required' });
+    }
+
+    // Replace this with actual programme content or logic
+    res.json({
+      programmes: [
+        { id: 1, title: 'Starter Strength', weeks: 4 },
+        { id: 2, title: 'Fat Loss Phase 1', weeks: 6 },
+        { id: 3, title: 'Build Muscle - Push/Pull', weeks: 8 }
+      ]
+    });
+  } catch (error) {
+    console.error('Programmes fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 export default router;
