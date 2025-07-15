@@ -555,4 +555,105 @@ router.delete('/programmes/:id', authenticateToken, async (req: Request, res: Re
 });
 
 
+router.get("/random", authenticateToken, async (req, res): Promise<any> => {
+  const focus = req.query.focus as string;
+
+  if (!focus) {
+    return res.status(400).json({ error: "Missing focus parameter" });
+  }
+
+  try {
+    const exercises = await prisma.exercise.findMany({
+      where: {
+        muscleGroup: {
+          equals: focus,
+        },
+      },
+    });
+
+    if (exercises.length === 0) {
+      return res.status(404).json({ error: "No exercises found for this focus" });
+    }
+
+    const random = exercises[Math.floor(Math.random() * exercises.length)];
+    res.json(random);
+  } catch (err) {
+    console.error("Failed to fetch random exercise", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+// POST /auth/programmes/:programmeId/exercises
+router.post("/programmes/:programmeId/exercises", authenticateToken, async (req, res): Promise<any> => {
+  const { programmeId } = req.params;
+  const { exerciseId, dayNumber, sets, reps } = req.body;
+
+  if (!exerciseId || !dayNumber) {
+    return res.status(400).json({ error: "exerciseId and dayNumber are required" });
+  }
+
+  try {
+    const newProgrammeExercise = await prisma.programmeExercise.create({
+      data: {
+        programmeId,
+        exerciseId,
+        dayNumber,
+        sets: sets ?? 3,
+        reps: reps ?? "10",
+        orderIndex: 0, // could be dynamically calculated later
+      },
+    });
+
+    return res.status(201).json(newProgrammeExercise);
+  } catch (err) {
+    console.error("Error adding programme exercise:", err);
+    return res.status(500).json({ error: "Failed to add exercise" });
+  }
+});
+
+// routes/programmeRoutes.ts
+router.delete("/exercises/:id", async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+
+  try {
+    await prisma.programmeExercise.delete({
+      where: { id },
+    });
+
+    res.status(204).send();
+  } catch (err) {
+    console.error("Error deleting programme exercise:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /auth/exercises/random?focus=Lower%20Body
+
+router.get("/exercises/random", authenticateToken, async (req, res): Promise<any> => {
+  const { focus } = req.query;
+
+  try {
+    const matchingExercises = await prisma.exercise.findMany({
+      where: {
+        muscleGroup: {
+          contains: focus as string,
+        },
+      },
+    });
+
+    if (matchingExercises.length === 0) {
+      return res.status(404).json({ error: "No exercises found for that focus" });
+    }
+
+    const randomIndex = Math.floor(Math.random() * matchingExercises.length);
+    const randomExercise = matchingExercises[randomIndex];
+
+    return res.json(randomExercise);
+  } catch (err) {
+    console.error("Error fetching random exercise:", err);
+    return res.status(500).json({ error: "Failed to get random exercise" });
+  }
+});
+
 export default router;
