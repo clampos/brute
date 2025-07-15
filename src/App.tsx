@@ -21,7 +21,7 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/programmes" element={<ProgrammesScreen />} />
-        <Route path="/editor/:programmeName" element={<ProgrammeEditor />} />
+        <Route path="/editor/:programmeId" element={<ProgrammeEditor />} />
       </Routes>
     </BrowserRouter>
   );

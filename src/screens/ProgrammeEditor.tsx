@@ -25,51 +25,16 @@ type ProgrammeDay = {
 };
 
 export default function ProgrammeEditor() {
-  const { programmeName } = useParams(); // This should be the programme ID now
+  const { programmeId } = useParams();
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
-  const [displayName, setDisplayName] = useState("");
-  const [bodyFocus, setBodyFocus] = useState("");
+  const [displayName, setDisplayName] = useState("Loading...");
+  const [bodyFocus, setBodyFocus] = useState("Full Body");
   const [description, setDescription] = useState("");
   const [days, setDays] = useState<ProgrammeDay[]>([]);
   const [openDays, setOpenDays] = useState<Record<number, boolean>>({});
-
-  // Fetch the selected programme
-  useEffect(() => {
-    const fetchProgramme = async () => {
-      const token = localStorage.getItem("token");
-      if (!token || !programmeName) return;
-
-      try {
-        const res = await fetch(
-          `http://localhost:4242/api/programmes/${programmeName}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
-
-        if (!res.ok) throw new Error("Failed to fetch programme");
-
-        const programme = await res.json();
-        setDisplayName(programme.name);
-        setBodyFocus(programme.bodyPartFocus);
-        setDescription(programme.description);
-        setDays(programme.days || []);
-        setOpenDays(
-          Object.fromEntries(
-            (programme.days || []).map((d: ProgrammeDay) => [d.dayNumber, true])
-          )
-        );
-      } catch (err) {
-        console.error("Error loading programme:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProgramme();
-  }, [programmeName]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const toggleDay = (dayNumber: number) => {
     setOpenDays((prev) => ({
@@ -78,38 +43,102 @@ export default function ProgrammeEditor() {
     }));
   };
 
-  const handleAddExercise = (dayNumber: number) => {
-    const updatedDays = days.map((day) => {
-      if (day.dayNumber === dayNumber) {
-        return {
-          ...day,
-          exercises: [
-            ...day.exercises,
-            {
-              id: `${Date.now()}`,
-              name: "New Exercise",
-              sets: 3,
-              reps: "10",
-            },
-          ],
-        };
+  const handleAddExercise = async (dayNumber: number) => {
+    try {
+      // Fetch a random exercise matching the programme's body focus
+      const res = await fetch(
+        `http://localhost:4242/auth/exercises/random?focus=${encodeURIComponent(
+          bodyFocus
+        )}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      if (!res.ok) {
+        throw new Error("Failed to fetch random exercise");
       }
-      return day;
-    });
-    setDays(updatedDays);
+
+      const randomExercise = await res.json();
+
+      // POST that exercise to the programme
+      const postRes = await fetch(
+        `http://localhost:4242/auth/programmes/${programmeId}/exercises`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            exerciseId: randomExercise.id,
+            dayNumber,
+            sets: 3,
+            reps: "10",
+          }),
+        }
+      );
+
+      if (!postRes.ok) {
+        throw new Error("Failed to add exercise to programme");
+      }
+
+      const newExercise = await postRes.json();
+
+      // Add to UI
+      setDays((prevDays) =>
+        prevDays.map((day) =>
+          day.dayNumber === dayNumber
+            ? {
+                ...day,
+                exercises: [
+                  ...day.exercises,
+                  {
+                    id: newExercise.id,
+                    name: randomExercise.name,
+                    sets: newExercise.sets,
+                    reps: newExercise.reps,
+                  },
+                ],
+              }
+            : day
+        )
+      );
+    } catch (err) {
+      console.error("Error adding exercise:", err);
+    }
   };
 
-  const handleRemoveExercise = (dayNumber: number, exerciseId: string) => {
-    const updatedDays = days.map((day) => {
-      if (day.dayNumber === dayNumber) {
-        return {
-          ...day,
-          exercises: day.exercises.filter((ex) => ex.id !== exerciseId),
-        };
-      }
-      return day;
-    });
-    setDays(updatedDays);
+  const handleRemoveExercise = async (
+    exerciseId: string,
+    dayNumber: number
+  ) => {
+    try {
+      await fetch(
+        `http://localhost:4242/auth/programmes/exercises/${exerciseId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      setDays((prev) =>
+        prev.map((day) =>
+          day.dayNumber === dayNumber
+            ? {
+                ...day,
+                exercises: day.exercises.filter((ex) => ex.id !== exerciseId),
+              }
+            : day
+        )
+      );
+    } catch (err) {
+      console.error("Failed to remove exercise", err);
+    }
   };
 
   const handleLogout = () => {
@@ -118,13 +147,65 @@ export default function ProgrammeEditor() {
     navigate("/login");
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex justify-center items-center text-white bg-black">
-        Loading...
-      </div>
-    );
-  }
+  // Load programme data
+  useEffect(() => {
+    const fetchProgramme = async () => {
+      if (!programmeId) return;
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const res = await fetch(
+          `http://localhost:4242/auth/programmes/${programmeId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          }
+        );
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to fetch programme");
+
+        setDisplayName(data.name);
+        setDescription(data.description || "");
+        setBodyFocus(data.bodyPartFocus || "Full Body");
+
+        const grouped: Record<number, Exercise[]> = {};
+        data.exercises?.forEach((item: any) => {
+          const day = item.dayNumber ?? 1;
+          if (!grouped[day]) grouped[day] = [];
+
+          grouped[day].push({
+            id: item.id,
+            name: item.exercise?.name || "Unnamed",
+            sets: item.sets ?? 3,
+            reps: item.reps ?? "10",
+          });
+        });
+
+        const loadedDays: ProgrammeDay[] = Object.entries(grouped).map(
+          ([dayStr, exercises]) => ({
+            dayNumber: Number(dayStr),
+            exercises,
+          })
+        );
+
+        setDays(loadedDays);
+        setOpenDays(
+          Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
+        );
+      } catch (err: any) {
+        console.error("Error loading programme:", err);
+        setError(err.message || "Unknown error occurred");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProgramme();
+  }, [programmeId]);
 
   return (
     <div
@@ -145,7 +226,7 @@ export default function ProgrammeEditor() {
 
       {/* Top Bar */}
       <div className="flex justify-between items-center mt-4 px-2">
-        <h2 className="text-white font-semibold text-xl">Programmes</h2>
+        <h2 className="text-white text-xl font-semibold">Programmes</h2>
         <img
           src={icon}
           alt="User Avatar"
@@ -153,78 +234,88 @@ export default function ProgrammeEditor() {
         />
       </div>
 
-      {/* Programme Name Display */}
+      {/* Programme Name */}
       <div className="mt-6 mb-4 text-center">
         <h3 className="text-white text-xl font-semibold">{displayName}</h3>
-        <p className="text-[#FBA3FF] text-sm mt-1">{bodyFocus}</p>
+        <p className="text-sm text-[#5E6272]">{description}</p>
       </div>
 
-      {/* Programme Days */}
-      <div className="space-y-8">
-        {days.map((day) => {
-          const isOpen = openDays[day.dayNumber];
-          return (
-            <div key={day.dayNumber} className="space-y-2">
-              {/* Day Header */}
-              <div
-                className="flex items-center gap-2 cursor-pointer"
-                onClick={() => toggleDay(day.dayNumber)}
-              >
-                {isOpen ? (
-                  <ChevronDown className="text-green-500 w-4 h-4" />
-                ) : (
-                  <ChevronRight className="text-green-500 w-4 h-4" />
-                )}
-                <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                  Day {day.dayNumber}
-                </h2>
-              </div>
-
-              {/* Exercise List */}
-              {isOpen && (
-                <div className="space-y-2">
-                  {day.exercises.map((ex) => (
-                    <div
-                      key={ex.id}
-                      className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center justify-between"
-                    >
-                      {/* Left: Green Tick */}
-                      <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
-
-                      {/* Center: Exercise Details */}
-                      <div className="flex-1 text-center">
-                        <p className="font-semibold text-white">{ex.name}</p>
-                        <div className="flex justify-center gap-3 text-sm mt-1">
-                          <span className="text-[#00FFAD]">{ex.sets} sets</span>
-                          <span className="text-[#FBA3FF]">{ex.reps} reps</span>
-                        </div>
-                      </div>
-
-                      {/* Right: Red Cross */}
-                      <button
-                        onClick={() =>
-                          handleRemoveExercise(day.dayNumber, ex.id)
-                        }
-                      >
-                        <XCircle className="text-red-500 w-5 h-5 ml-3" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {/* Add Exercise */}
-                  <button
-                    onClick={() => handleAddExercise(day.dayNumber)}
-                    className="text-sm text-blue-400 flex items-center gap-1 hover:underline"
-                  >
-                    <Plus size={16} />
-                    Add Exercise
-                  </button>
+      {/* Loading or Error */}
+      {loading ? (
+        <p className="text-white text-center">Loading...</p>
+      ) : error ? (
+        <p className="text-red-400 text-center">{error}</p>
+      ) : (
+        <div className="space-y-8">
+          {days.map((day) => {
+            const isOpen = openDays[day.dayNumber];
+            return (
+              <div key={day.dayNumber} className="space-y-2">
+                {/* Day Header */}
+                <div
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => toggleDay(day.dayNumber)}
+                >
+                  {isOpen ? (
+                    <ChevronDown className="text-green-500 w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="text-green-500 w-4 h-4" />
+                  )}
+                  <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                    Day {day.dayNumber}
+                  </h2>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+
+                {/* Exercise List */}
+                {isOpen && (
+                  <div className="space-y-2">
+                    {day.exercises.length > 0 ? (
+                      day.exercises.map((ex) => (
+                        <div
+                          key={ex.id}
+                          className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center justify-between"
+                        >
+                          <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
+                          <div className="flex-1 text-center">
+                            <p className="font-semibold text-white">
+                              {ex.name}
+                            </p>
+                            <div className="flex justify-center gap-3 text-sm mt-1">
+                              <span className="text-[#00FFAD]">
+                                {ex.sets} sets
+                              </span>
+                              <span className="text-[#FBA3FF]">
+                                {bodyFocus}
+                              </span>
+                            </div>
+                          </div>
+                          <XCircle
+                            className="text-red-500 w-5 h-5 ml-3 cursor-pointer"
+                            onClick={() =>
+                              handleRemoveExercise(ex.id, day.dayNumber)
+                            }
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-white text-sm">No exercises yet.</p>
+                    )}
+
+                    {/* Add Exercise */}
+                    <button
+                      onClick={() => handleAddExercise(day.dayNumber)}
+                      className="text-sm text-blue-400 flex items-center gap-1 hover:underline"
+                    >
+                      <Plus size={16} />
+                      Add Exercise
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <BottomBar onLogout={handleLogout} />
     </div>
