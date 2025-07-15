@@ -443,34 +443,116 @@ router.get('/settings', authenticateToken, async (req: Request, res: Response): 
 
 // GET /auth/programmes
 router.get('/programmes', authenticateToken, async (req: Request, res: Response): Promise<any> => {
-  const userId = (req as any).user.userId;
-
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        subscribed: true
-      }
+    const programmes = await prisma.programme.findMany({
+      include: {
+        exercises: true, // optional, remove if you only want base data
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
     });
-
-    if (!user || !user.subscribed) {
-      return res.status(403).json({ error: 'Subscription required' });
-    }
-
-    // Replace this with actual programme content or logic
-    res.json({
-      programmes: [
-        { id: 1, title: 'Starter Strength', weeks: 4 },
-        { id: 2, title: 'Fat Loss Phase 1', weeks: 6 },
-        { id: 3, title: 'Build Muscle - Push/Pull', weeks: 8 }
-      ]
-    });
+    res.json(programmes);
   } catch (error) {
-    console.error('Programmes fetch error:', error);
+    console.error('Error fetching programmes:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+
+router.get('/programmes/:id', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+
+  try {
+    const programme = await prisma.programme.findUnique({
+      where: { id },
+      include: {
+        exercises: {
+          include: {
+            exercise: true,
+          },
+          orderBy: [
+            { dayNumber: 'asc' },
+            { orderIndex: 'asc' },
+          ],
+        },
+      },
+    });
+
+    if (!programme) {
+      return res.status(404).json({ error: 'Programme not found' });
+    }
+
+    res.json(programme);
+  } catch (error) {
+    console.error('Error fetching programme:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+router.post('/programmes', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { name, daysPerWeek, weeks, bodyPartFocus, description } = req.body;
+
+  if (!name || !daysPerWeek || !weeks || !bodyPartFocus) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    const programme = await prisma.programme.create({
+      data: {
+        name,
+        daysPerWeek,
+        weeks,
+        bodyPartFocus,
+        description,
+      },
+    });
+
+    res.status(201).json(programme);
+  } catch (error) {
+    console.error('Error creating programme:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/programmes/:id', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+  const { name, daysPerWeek, weeks, bodyPartFocus, description } = req.body;
+
+  try {
+    const updated = await prisma.programme.update({
+      where: { id },
+      data: {
+        name,
+        daysPerWeek,
+        weeks,
+        bodyPartFocus,
+        description,
+      },
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating programme:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/programmes/:id', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+
+  try {
+    await prisma.programme.delete({
+      where: { id },
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting programme:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 
 export default router;
