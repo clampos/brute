@@ -9,9 +9,10 @@ export default function Programmes() {
   const navigate = useNavigate();
   const [firstName, setFirstName] = useState("John");
   const [surname, setSurname] = useState("Doe");
-  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState("All");
+  const [programmesData, setProgrammesData] = useState<Record<string, any[]>>(
+    {}
+  );
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -23,23 +24,47 @@ export default function Programmes() {
 
     const fetchData = async () => {
       try {
-        const res = await fetch("http://localhost:4242/api/dashboard", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        // Fetch user
+        const userRes = await fetch("http://localhost:4242/api/dashboard", {
+          headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (!res.ok) throw new Error("Unauthorized");
+        if (!userRes.ok) throw new Error("Unauthorized");
 
-        const userData = await res.json();
+        const userData = await userRes.json();
         setFirstName(userData.firstName);
         setSurname(userData.surname);
-        setMessage(userData.message);
-        setLoading(false);
+
+        // Fetch programmes
+        const progRes = await fetch("http://localhost:4242/auth/programmes", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!progRes.ok) throw new Error("Failed to fetch programmes");
+
+        const data = await progRes.json();
+
+        // Group by bodyPartFocus
+        const grouped: Record<string, any[]> = {};
+        data.forEach((p: any) => {
+          if (!grouped[p.bodyPartFocus]) grouped[p.bodyPartFocus] = [];
+          grouped[p.bodyPartFocus].push(p);
+        });
+
+        setProgrammesData(grouped);
+
+        // Initialize open state for all sections
+        const initialOpen: Record<string, boolean> = {};
+        Object.keys(grouped).forEach((key) => {
+          initialOpen[key] = true;
+        });
+        setOpenSections(initialOpen);
       } catch (err) {
-        console.error("Auth error:", err);
+        console.error("Error:", err);
         localStorage.removeItem("token");
         navigate("/login");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -51,40 +76,6 @@ export default function Programmes() {
     localStorage.removeItem("installPromptDismissed");
     navigate("/login");
   };
-
-  const filterOptions = ["All", "Previous", "BRUTE"];
-
-  // Original dummy programmes for "All"
-  const dummyProgrammes = [
-    {
-      section: "FULL BODY",
-      programmes: [
-        { name: "Full Body", days: "3 Days a Week" },
-        { name: "Full Body", days: "4 Days a Week" },
-      ],
-    },
-    {
-      section: "UPPER BODY FOCUSED",
-      programmes: [
-        { name: "Shoulder & Arm Focus", days: "3 Days a Week" },
-        { name: "Chest & Back Builder", days: "4 Days a Week" },
-      ],
-    },
-  ];
-
-  // Initialize open sections for "All" dummy programmes
-  useEffect(() => {
-    if (activeFilter === "All") {
-      const initialState: Record<string, boolean> = {};
-      dummyProgrammes.forEach((group) => {
-        initialState[group.section] = true;
-      });
-      setOpenSections(initialState);
-    } else {
-      // Close all sections for other filters (since we show placeholder)
-      setOpenSections({});
-    }
-  }, [activeFilter]);
 
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({
@@ -112,16 +103,7 @@ export default function Programmes() {
 
       {/* Top Bar */}
       <div className="flex justify-between items-center mt-4 px-2">
-        <h2
-          className="text-white"
-          style={{
-            fontFamily: "'Poppins', sans-serif",
-            fontWeight: 600,
-            fontSize: "20px",
-          }}
-        >
-          Programmes
-        </h2>
+        <h2 className="text-white font-semibold text-xl">Programmes</h2>
         <img
           src={icon}
           alt="User Avatar"
@@ -129,26 +111,12 @@ export default function Programmes() {
         />
       </div>
 
-      {/* Filter Pills */}
-      <div className="flex justify-around mb-5">
-        {filterOptions.map((filter) => (
-          <button
-            key={filter}
-            onClick={() => setActiveFilter(filter)}
-            className={`px-4 py-2 rounded-full font-medium text-sm transition ${
-              activeFilter === filter
-                ? "bg-[#246BFD] text-white"
-                : "text-[#5E6272]"
-            }`}
-          >
-            {filter}
-          </button>
-        ))}
-      </div>
-
       {/* Create New Custom Programme */}
-      <div className="w-full px-2 mb-5">
-        <div className="bg-[#1C1F26] border border-[#5E6272] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer">
+      <div className="w-full px-2 mb-5 mt-6">
+        <div
+          className="bg-[#1C1F26] border border-[#5E6272] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer"
+          onClick={() => navigate("/editor/new")}
+        >
           <span className="font-semibold text-base text-white">
             Create New Custom Programme
           </span>
@@ -158,37 +126,19 @@ export default function Programmes() {
         </div>
       </div>
 
-      {/* Current Programme Card */}
-      <div className="w-full px-2 mb-5">
-        <div className="bg-[#2A2D39] rounded-xl px-4 py-4 flex gap-3 items-center">
-          <div className="w-6 h-6 bg-white rounded-full relative">
-            <div
-              className="absolute top-0 left-0 w-full h-full rounded-full border-[3px]"
-              style={{
-                borderImage:
-                  "linear-gradient(270deg, #C393FF 34.57%, #E42A6C 100%) 1",
-                borderStyle: "solid",
-              }}
-            />
-          </div>
-          <div>
-            <p className="font-semibold text-white">Full Body (Current)</p>
-            <p className="text-sm text-[#FBA3FF]">5 Days a Week</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Programme Groups / Placeholder */}
+      {/* Programme Sections */}
       <div className="flex flex-col gap-6 px-2">
-        {activeFilter === "All" ? (
-          dummyProgrammes.map((section, idx) => {
-            const isOpen = openSections[section.section];
+        {loading ? (
+          <div className="text-white">Loading...</div>
+        ) : Object.keys(programmesData).length > 0 ? (
+          Object.entries(programmesData).map(([section, programmes], idx) => {
+            const isOpen = openSections[section];
+
             return (
               <div key={idx}>
-                {/* Section Header */}
                 <div
                   className="flex items-center gap-2 cursor-pointer mb-2"
-                  onClick={() => toggleSection(section.section)}
+                  onClick={() => toggleSection(section)}
                 >
                   {isOpen ? (
                     <ChevronDown className="text-green-500 w-4 h-4" />
@@ -196,27 +146,26 @@ export default function Programmes() {
                     <ChevronRight className="text-green-500 w-4 h-4" />
                   )}
                   <h3 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                    {section.section}
+                    {section}
                   </h3>
                 </div>
 
-                {/* Programme Cards */}
                 {isOpen && (
                   <div className="flex flex-col gap-3">
-                    {section.programmes.map((prog, i) => (
+                    {programmes.map((prog: any) => (
                       <div
-                        key={i}
+                        key={prog.id}
                         className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"
-                        onClick={() =>
-                          navigate(`/editor/${encodeURIComponent(prog.name)}`)
-                        }
+                        onClick={() => navigate(`/editor/${prog.id}`)}
                       >
                         <CheckCircle className="text-green-500 w-5 h-5" />
                         <div>
                           <p className="font-semibold text-white">
                             {prog.name}
                           </p>
-                          <p className="text-sm text-[#00FFAD]">{prog.days}</p>
+                          <p className="text-sm text-[#00FFAD]">
+                            {prog.daysPerWeek} days · {prog.weeks} weeks
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -228,7 +177,7 @@ export default function Programmes() {
         ) : (
           <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
             <p className="text-[#5E6272] font-semibold text-lg">
-              To be populated soon
+              No programmes yet
             </p>
           </div>
         )}

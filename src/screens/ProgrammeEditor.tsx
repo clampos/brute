@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -25,37 +25,51 @@ type ProgrammeDay = {
 };
 
 export default function ProgrammeEditor() {
-  const { programmeName } = useParams();
+  const { programmeName } = useParams(); // This should be the programme ID now
   const navigate = useNavigate();
 
-  const [displayName, setDisplayName] = useState(
-    decodeURIComponent(programmeName || "Unnamed Programme")
-  );
-  const [bodyFocus, setBodyFocus] = useState("Full Body");
-  const [description, setDescription] = useState(
-    "This is a placeholder description for the programme."
-  );
+  const [loading, setLoading] = useState(true);
+  const [displayName, setDisplayName] = useState("");
+  const [bodyFocus, setBodyFocus] = useState("");
+  const [description, setDescription] = useState("");
+  const [days, setDays] = useState<ProgrammeDay[]>([]);
+  const [openDays, setOpenDays] = useState<Record<number, boolean>>({});
 
-  const [days, setDays] = useState<ProgrammeDay[]>([
-    {
-      dayNumber: 1,
-      exercises: [
-        { id: "1", name: "Squat", sets: 4, reps: "6-8" },
-        { id: "2", name: "Bench Press", sets: 4, reps: "6-8" },
-      ],
-    },
-    {
-      dayNumber: 2,
-      exercises: [
-        { id: "3", name: "Deadlift", sets: 3, reps: "5" },
-        { id: "4", name: "Overhead Press", sets: 4, reps: "8-10" },
-      ],
-    },
-  ]);
+  // Fetch the selected programme
+  useEffect(() => {
+    const fetchProgramme = async () => {
+      const token = localStorage.getItem("token");
+      if (!token || !programmeName) return;
 
-  const [openDays, setOpenDays] = useState<Record<number, boolean>>(() =>
-    Object.fromEntries(days.map((d) => [d.dayNumber, true]))
-  );
+      try {
+        const res = await fetch(
+          `http://localhost:4242/api/programmes/${programmeName}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        if (!res.ok) throw new Error("Failed to fetch programme");
+
+        const programme = await res.json();
+        setDisplayName(programme.name);
+        setBodyFocus(programme.bodyPartFocus);
+        setDescription(programme.description);
+        setDays(programme.days || []);
+        setOpenDays(
+          Object.fromEntries(
+            (programme.days || []).map((d: ProgrammeDay) => [d.dayNumber, true])
+          )
+        );
+      } catch (err) {
+        console.error("Error loading programme:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProgramme();
+  }, [programmeName]);
 
   const toggleDay = (dayNumber: number) => {
     setOpenDays((prev) => ({
@@ -82,7 +96,19 @@ export default function ProgrammeEditor() {
       }
       return day;
     });
+    setDays(updatedDays);
+  };
 
+  const handleRemoveExercise = (dayNumber: number, exerciseId: string) => {
+    const updatedDays = days.map((day) => {
+      if (day.dayNumber === dayNumber) {
+        return {
+          ...day,
+          exercises: day.exercises.filter((ex) => ex.id !== exerciseId),
+        };
+      }
+      return day;
+    });
     setDays(updatedDays);
   };
 
@@ -91,6 +117,14 @@ export default function ProgrammeEditor() {
     localStorage.removeItem("installPromptDismissed");
     navigate("/login");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex justify-center items-center text-white bg-black">
+        Loading...
+      </div>
+    );
+  }
 
   return (
     <div
@@ -111,16 +145,7 @@ export default function ProgrammeEditor() {
 
       {/* Top Bar */}
       <div className="flex justify-between items-center mt-4 px-2">
-        <h2
-          className="text-white"
-          style={{
-            fontFamily: "'Poppins', sans-serif",
-            fontWeight: 600,
-            fontSize: "20px",
-          }}
-        >
-          Programmes
-        </h2>
+        <h2 className="text-white font-semibold text-xl">Programmes</h2>
         <img
           src={icon}
           alt="User Avatar"
@@ -131,6 +156,7 @@ export default function ProgrammeEditor() {
       {/* Programme Name Display */}
       <div className="mt-6 mb-4 text-center">
         <h3 className="text-white text-xl font-semibold">{displayName}</h3>
+        <p className="text-[#FBA3FF] text-sm mt-1">{bodyFocus}</p>
       </div>
 
       {/* Programme Days */}
@@ -170,12 +196,18 @@ export default function ProgrammeEditor() {
                         <p className="font-semibold text-white">{ex.name}</p>
                         <div className="flex justify-center gap-3 text-sm mt-1">
                           <span className="text-[#00FFAD]">{ex.sets} sets</span>
-                          <span className="text-[#FBA3FF]">Full Body</span>
+                          <span className="text-[#FBA3FF]">{ex.reps} reps</span>
                         </div>
                       </div>
 
                       {/* Right: Red Cross */}
-                      <XCircle className="text-red-500 w-5 h-5 ml-3" />
+                      <button
+                        onClick={() =>
+                          handleRemoveExercise(day.dayNumber, ex.id)
+                        }
+                      >
+                        <XCircle className="text-red-500 w-5 h-5 ml-3" />
+                      </button>
                     </div>
                   ))}
 
