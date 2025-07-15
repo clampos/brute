@@ -54,6 +54,7 @@ export default function Programmes() {
 
   const filterOptions = ["All", "Previous", "BRUTE"];
 
+  // Original dummy programmes for "All"
   const dummyProgrammes = [
     {
       section: "FULL BODY",
@@ -71,13 +72,19 @@ export default function Programmes() {
     },
   ];
 
+  // Initialize open sections for "All" dummy programmes
   useEffect(() => {
-    const initialState: Record<string, boolean> = {};
-    dummyProgrammes.forEach((group) => {
-      initialState[group.section] = true;
-    });
-    setOpenSections(initialState);
-  }, []);
+    if (activeFilter === "All") {
+      const initialState: Record<string, boolean> = {};
+      dummyProgrammes.forEach((group) => {
+        initialState[group.section] = true;
+      });
+      setOpenSections(initialState);
+    } else {
+      // Close all sections for other filters (since we show placeholder)
+      setOpenSections({});
+    }
+  }, [activeFilter]);
 
   const toggleSection = (section: string) => {
     setOpenSections((prev) => ({
@@ -171,50 +178,60 @@ export default function Programmes() {
         </div>
       </div>
 
-      {/* Programme Groups with Expand/Collapse */}
+      {/* Programme Groups / Placeholder */}
       <div className="flex flex-col gap-6 px-2">
-        {dummyProgrammes.map((section, idx) => {
-          const isOpen = openSections[section.section];
-          return (
-            <div key={idx}>
-              {/* Section Header */}
-              <div
-                className="flex items-center gap-2 cursor-pointer mb-2"
-                onClick={() => toggleSection(section.section)}
-              >
-                {isOpen ? (
-                  <ChevronDown className="text-green-500 w-4 h-4" />
-                ) : (
-                  <ChevronRight className="text-green-500 w-4 h-4" />
-                )}
-                <h3 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                  {section.section}
-                </h3>
-              </div>
-
-              {/* Programme Cards */}
-              {isOpen && (
-                <div className="flex flex-col gap-3">
-                  {section.programmes.map((prog, i) => (
-                    <div
-                      key={i}
-                      className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"
-                      onClick={() =>
-                        navigate(`/editor/${encodeURIComponent(prog.name)}`)
-                      }
-                    >
-                      <CheckCircle className="text-green-500 w-5 h-5" />
-                      <div>
-                        <p className="font-semibold text-white">{prog.name}</p>
-                        <p className="text-sm text-[#00FFAD]">{prog.days}</p>
-                      </div>
-                    </div>
-                  ))}
+        {activeFilter === "All" ? (
+          dummyProgrammes.map((section, idx) => {
+            const isOpen = openSections[section.section];
+            return (
+              <div key={idx}>
+                {/* Section Header */}
+                <div
+                  className="flex items-center gap-2 cursor-pointer mb-2"
+                  onClick={() => toggleSection(section.section)}
+                >
+                  {isOpen ? (
+                    <ChevronDown className="text-green-500 w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="text-green-500 w-4 h-4" />
+                  )}
+                  <h3 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                    {section.section}
+                  </h3>
                 </div>
-              )}
-            </div>
-          );
-        })}
+
+                {/* Programme Cards */}
+                {isOpen && (
+                  <div className="flex flex-col gap-3">
+                    {section.programmes.map((prog, i) => (
+                      <div
+                        key={i}
+                        className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"
+                        onClick={() =>
+                          navigate(`/editor/${encodeURIComponent(prog.name)}`)
+                        }
+                      >
+                        <CheckCircle className="text-green-500 w-5 h-5" />
+                        <div>
+                          <p className="font-semibold text-white">
+                            {prog.name}
+                          </p>
+                          <p className="text-sm text-[#00FFAD]">{prog.days}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
+            <p className="text-[#5E6272] font-semibold text-lg">
+              To be populated soon
+            </p>
+          </div>
+        )}
       </div>
 
       <BottomBar onLogout={handleLogout} />

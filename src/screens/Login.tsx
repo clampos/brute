@@ -218,7 +218,8 @@ export default function Login() {
                     Check your email
                   </h4>
                   <p className="text-white/70 text-sm">
-                    We've sent a password reset link to{" "}
+                    If you're on our system, there's a password reset link on
+                    its way to{" "}
                     <span className="text-white">{forgotPasswordEmail}</span>
                   </p>
                 </div>
