@@ -31,9 +31,14 @@ brute
 │  │  │  │  └─ migration.sql
 │  │  │  ├─ 20250618153358_add_referral_fields
 │  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250702144903_add_password_reset_fields
+│  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250707141705_add_workout_and_programme_fields
+│  │  │  │  └─ migration.sql
 │  │  │  └─ migration_lock.toml
 │  │  └─ schema.prisma
 │  ├─ prisma.ts
+│  ├─ programmes.ts
 │  ├─ protected.ts
 │  ├─ routes
 │  │  └─ stripe.js
@@ -51,7 +56,9 @@ brute
 │  │  ├─ BottomBar.tsx
 │  │  ├─ BubblesBackground.tsx
 │  │  ├─ InstallPrompt.tsx
+│  │  ├─ OvalProgressIcon.tsx
 │  │  ├─ ProtectedRoute.tsx
+│  │  ├─ ResetPassword.tsx
 │  │  └─ ScreenWrapper.tsx
 │  ├─ index.css
 │  ├─ main.tsx
@@ -59,6 +66,8 @@ brute
 │  │  ├─ Dashboard.tsx
 │  │  ├─ Login.tsx
 │  │  ├─ Onboarding.tsx
+│  │  ├─ ProgrammeEditor.tsx
+│  │  ├─ Programmes.tsx
 │  │  ├─ Settings.tsx
 │  │  ├─ Signup.tsx
 │  │  └─ SubscriptionSuccess.tsx
