@@ -8,13 +8,15 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  Check,
+  X,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
 
 type Exercise = {
-  isSelected: any;
+  isSelected: boolean; // Changed from 'any' to 'boolean'
   id: string;
   name: string;
   muscleGroup: string;
@@ -37,6 +39,28 @@ type ProgrammeDay = {
   exercises: ProgrammeExercise[];
   availableExercises: Exercise[];
   showAvailable: boolean;
+  hasChanges: boolean; // Track if there are unsaved changes
+};
+
+// Add proper type for the API response
+type ProgrammeExerciseResponse = {
+  id: string;
+  dayNumber: number;
+  sets: number;
+  reps: string;
+  exercise?: {
+    id: string;
+    name: string;
+  };
+  exerciseId: string;
+};
+
+type ProgrammeResponse = {
+  name: string;
+  description?: string;
+  bodyPartFocus?: string;
+  daysPerWeek?: number;
+  exercises?: ProgrammeExerciseResponse[];
 };
 
 export default function ProgrammeEditor() {
@@ -51,6 +75,7 @@ export default function ProgrammeEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
+  const [savingDay, setSavingDay] = useState<number | null>(null);
 
   const toggleDay = (dayNumber: number) => {
     setOpenDays((prev) => ({
@@ -59,7 +84,10 @@ export default function ProgrammeEditor() {
     }));
   };
 
-  const toggleAvailableExercises = (dayNumber: number) => {
+  const toggleAvailableExercises = async (dayNumber: number) => {
+    const currentDay = days.find((d) => d.dayNumber === dayNumber);
+    const isCurrentlyShowing = currentDay?.showAvailable || false;
+
     setDays((prevDays) =>
       prevDays.map((day) =>
         day.dayNumber === dayNumber
@@ -67,10 +95,55 @@ export default function ProgrammeEditor() {
           : day
       )
     );
+
+    // If toggling ON and we don't have fresh exercises, fetch them
+    if (!isCurrentlyShowing) {
+      await fetchAndUpdateAvailableExercises(dayNumber);
+    }
+  };
+
+  const fetchAndUpdateAvailableExercises = async (dayNumber: number) => {
+    try {
+      const muscleGroups = getMuscleGroupsForFocus(bodyFocus);
+      const exercisePromises = muscleGroups.map((group) =>
+        fetchAvailableExercises(group)
+      );
+      const exerciseArrays = await Promise.all(exercisePromises);
+      const fetchedExercises = exerciseArrays.flat();
+
+      // Remove duplicates based on exercise ID
+      const uniqueExercises = fetchedExercises.filter(
+        (exercise, index, self) =>
+          index === self.findIndex((e) => e.id === exercise.id)
+      );
+
+      setAllExercises(uniqueExercises);
+
+      setDays((prevDays) =>
+        prevDays.map((day) =>
+          day.dayNumber === dayNumber
+            ? {
+                ...day,
+                availableExercises: uniqueExercises.map((ex) => ({
+                  ...ex,
+                  isSelected: day.exercises.some(
+                    (existing) => existing.exerciseId === ex.id
+                  ),
+                })),
+              }
+            : day
+        )
+      );
+    } catch (err) {
+      console.error("Error fetching available exercises:", err);
+      setError("Failed to load available exercises");
+    }
   };
 
   // Fetch all exercises based on body focus
-  const fetchAvailableExercises = async (focus: string) => {
+  const fetchAvailableExercises = async (
+    focus: string
+  ): Promise<Exercise[]> => {
     try {
       const res = await fetch(
         `http://localhost:4242/auth/exercises?muscleGroup=${encodeURIComponent(
@@ -96,97 +169,143 @@ export default function ProgrammeEditor() {
     }
   };
 
-  const handleAddExercise = async (exerciseId: string, dayNumber: number) => {
-    try {
-      const exercise = allExercises.find((ex) => ex.id === exerciseId);
-      if (!exercise) return;
+  const handleAddExercise = (exerciseId: string, dayNumber: number) => {
+    const exercise = allExercises.find((ex) => ex.id === exerciseId);
+    if (!exercise) return;
 
-      const postRes = await fetch(
-        `http://localhost:4242/auth/programmes/${programmeId}/exercises`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-          body: JSON.stringify({
-            exerciseId: exercise.id,
-            dayNumber,
-            sets: 3,
-            reps: "8-12",
-          }),
-        }
+    // Create temporary programme exercise object
+    const tempProgrammeExercise = {
+      id: `temp-${Date.now()}-${exerciseId}`, // Temporary ID
+      name: exercise.name,
+      sets: 3,
+      reps: "8-12",
+      exerciseId: exercise.id,
+      isSelected: true,
+    };
+
+    setDays((prevDays) =>
+      prevDays.map((day) =>
+        day.dayNumber === dayNumber
+          ? {
+              ...day,
+              exercises: [...day.exercises, tempProgrammeExercise],
+              availableExercises: day.availableExercises.map((ex) =>
+                ex.id === exerciseId ? { ...ex, isSelected: true } : ex
+              ),
+              hasChanges: true, // Mark day as having changes
+            }
+          : day
+      )
+    );
+  };
+
+  const handleRemoveExercise = (
+    programmeExerciseId: string,
+    exerciseId: string,
+    dayNumber: number
+  ) => {
+    setDays((prev) =>
+      prev.map((day) =>
+        day.dayNumber === dayNumber
+          ? {
+              ...day,
+              exercises: day.exercises.filter(
+                (ex) => ex.id !== programmeExerciseId
+              ),
+              availableExercises: day.availableExercises.map((ex) =>
+                ex.id === exerciseId ? { ...ex, isSelected: false } : ex
+              ),
+              hasChanges: true, // Mark day as having changes
+            }
+          : day
+      )
+    );
+  };
+
+  const handleConfirmDay = async (dayNumber: number) => {
+    setSavingDay(dayNumber);
+
+    try {
+      const day = days.find((d) => d.dayNumber === dayNumber);
+      if (!day) return;
+
+      // First, delete all existing exercises for this day
+      const existingExercises = day.exercises.filter(
+        (ex) => !ex.id.startsWith("temp-")
       );
 
-      if (!postRes.ok) {
-        const errorText = await postRes.text();
-        console.error("Failed to add exercise:", postRes.status, errorText);
-        throw new Error("Failed to add exercise");
+      for (const exercise of existingExercises) {
+        await fetch(
+          `http://localhost:4242/auth/programmes/exercises/${exercise.id}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          }
+        );
       }
 
-      const newProgrammeExercise = await postRes.json();
+      // Then add all current exercises (including new ones)
+      const exercisesToAdd = day.exercises.filter((ex) => ex.isSelected);
+      const addedExercises = [];
 
+      for (const exercise of exercisesToAdd) {
+        const postRes = await fetch(
+          `http://localhost:4242/auth/programmes/${programmeId}/exercises`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+            body: JSON.stringify({
+              exerciseId: exercise.exerciseId,
+              dayNumber,
+              sets: exercise.sets,
+              reps: exercise.reps,
+            }),
+          }
+        );
+
+        if (!postRes.ok) {
+          throw new Error("Failed to add exercise");
+        }
+
+        const newProgrammeExercise = await postRes.json();
+        addedExercises.push({
+          id: newProgrammeExercise.id,
+          name: exercise.name,
+          sets: newProgrammeExercise.sets,
+          reps: newProgrammeExercise.reps,
+          exerciseId: exercise.exerciseId,
+          isSelected: true,
+        });
+      }
+
+      // Update the day with real IDs and mark as saved
       setDays((prevDays) =>
         prevDays.map((day) =>
           day.dayNumber === dayNumber
             ? {
                 ...day,
-                exercises: [
-                  ...day.exercises,
-                  {
-                    id: newProgrammeExercise.id,
-                    name: exercise.name,
-                    sets: newProgrammeExercise.sets,
-                    reps: newProgrammeExercise.reps,
-                    exerciseId: exercise.id,
-                    isSelected: true,
-                  },
-                ],
-                availableExercises: day.availableExercises.map((ex) =>
-                  ex.id === exerciseId ? { ...ex, isSelected: true } : ex
-                ),
+                exercises: addedExercises,
+                hasChanges: false, // Clear the changes flag
+                showAvailable: false, // Hide available exercises after confirming
               }
             : day
         )
       );
-    } catch (err) {
-      console.error("Error adding exercise:", err);
-    }
-  };
 
-  const handleRemoveExercise = async (
-    programmeExerciseId: string,
-    exerciseId: string,
-    dayNumber: number
-  ) => {
-    try {
-      await fetch(
-        `http://localhost:4242/auth/programmes/exercises/${programmeExerciseId}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
-      );
-
-      setDays((prev) =>
-        prev.map((day) =>
-          day.dayNumber === dayNumber
-            ? {
-                ...day,
-                exercises: day.exercises.filter(
-                  (ex) => ex.id !== programmeExerciseId
-                ),
-                availableExercises: day.availableExercises.map((ex) =>
-                  ex.id === exerciseId ? { ...ex, isSelected: false } : ex
-                ),
-              }
-            : day
-        )
-      );
+      // Show success message briefly
+      setTimeout(() => {
+        setError("");
+      }, 2000);
     } catch (err) {
-      console.error("Failed to remove exercise", err);
+      console.error("Error confirming day:", err);
+      setError("Failed to save exercises for this day");
+    } finally {
+      setSavingDay(null);
     }
   };
 
@@ -234,29 +353,17 @@ export default function ProgrammeEditor() {
           }
         );
 
-        const data = await res.json();
+        const data: ProgrammeResponse = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to fetch programme");
 
         setDisplayName(data.name);
         setDescription(data.description || "");
         setBodyFocus(data.bodyPartFocus || "Full Body");
 
-        // Fetch available exercises based on body focus
-        const muscleGroups = getMuscleGroupsForFocus(
-          data.bodyPartFocus || "Full Body"
-        );
-        const exercisePromises = muscleGroups.map((group) =>
-          fetchAvailableExercises(group)
-        );
-        const exerciseArrays = await Promise.all(exercisePromises);
-        const availableExercises = exerciseArrays.flat();
-        setAllExercises(availableExercises);
-
         // Group current programme exercises by day
         const grouped: Record<number, ProgrammeExercise[]> = {};
-        const selectedExerciseIds = new Set<string>();
 
-        data.exercises?.forEach((item: any) => {
+        data.exercises?.forEach((item: ProgrammeExerciseResponse) => {
           const day = item.dayNumber ?? 1;
           if (!grouped[day]) grouped[day] = [];
 
@@ -270,10 +377,9 @@ export default function ProgrammeEditor() {
           };
 
           grouped[day].push(programmeExercise);
-          selectedExerciseIds.add(programmeExercise.exerciseId);
         });
 
-        // Create days array with available exercises
+        // Create days array
         const daysPerWeek = data.daysPerWeek || 3;
         const loadedDays: ProgrammeDay[] = [];
 
@@ -281,11 +387,9 @@ export default function ProgrammeEditor() {
           loadedDays.push({
             dayNumber: i,
             exercises: grouped[i] || [],
-            availableExercises: availableExercises.map((ex) => ({
-              ...ex,
-              isSelected: selectedExerciseIds.has(ex.id),
-            })),
+            availableExercises: [],
             showAvailable: false,
+            hasChanges: false,
           });
         }
 
@@ -338,30 +442,57 @@ export default function ProgrammeEditor() {
         <p className="text-xs text-[#FBA3FF] mt-1">{bodyFocus}</p>
       </div>
 
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-900/20 border border-red-500/50 rounded-lg px-4 py-2 mb-4">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
       {/* Loading or Error */}
       {loading ? (
         <p className="text-white text-center">Loading...</p>
-      ) : error ? (
-        <p className="text-red-400 text-center">{error}</p>
       ) : (
         <div className="space-y-8">
           {days.map((day) => {
             const isOpen = openDays[day.dayNumber];
+            const isSaving = savingDay === day.dayNumber;
+
             return (
               <div key={day.dayNumber} className="space-y-2">
                 {/* Day Header */}
-                <div
-                  className="flex items-center gap-2 cursor-pointer"
-                  onClick={() => toggleDay(day.dayNumber)}
-                >
-                  {isOpen ? (
-                    <ChevronDown className="text-green-500 w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="text-green-500 w-4 h-4" />
+                <div className="flex items-center justify-between">
+                  <div
+                    className="flex items-center gap-2 cursor-pointer"
+                    onClick={() => toggleDay(day.dayNumber)}
+                  >
+                    {isOpen ? (
+                      <ChevronDown className="text-green-500 w-4 h-4" />
+                    ) : (
+                      <ChevronRight className="text-green-500 w-4 h-4" />
+                    )}
+                    <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                      Day {day.dayNumber}
+                    </h2>
+                    {day.hasChanges && (
+                      <div className="w-2 h-2 bg-orange-500 rounded-full ml-2"></div>
+                    )}
+                  </div>
+
+                  {/* Confirm Day Button */}
+                  {isOpen && day.hasChanges && (
+                    <button
+                      onClick={() => handleConfirmDay(day.dayNumber)}
+                      disabled={isSaving}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                        isSaving
+                          ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+                          : "bg-green-600 hover:bg-green-700 text-white"
+                      }`}
+                    >
+                      {isSaving ? "Saving..." : "Confirm Day"}
+                    </button>
                   )}
-                  <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                    Day {day.dayNumber}
-                  </h2>
                 </div>
 
                 {/* Exercise List */}
@@ -372,12 +503,21 @@ export default function ProgrammeEditor() {
                       day.exercises.map((ex) => (
                         <div
                           key={ex.id}
-                          className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center justify-between"
+                          className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${
+                            ex.id.startsWith("temp-")
+                              ? "bg-[#1A1D23] border-orange-500/50" // Temporary/unsaved exercise
+                              : "bg-[#1C1F26] border-[#2F3544]" // Saved exercise
+                          }`}
                         >
                           <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
                           <div className="flex-1 text-center">
-                            <p className="font-semibold text-white">
+                            <p className="font-semibold text-white flex items-center justify-center gap-2">
                               {ex.name}
+                              {ex.id.startsWith("temp-") && (
+                                <span className="text-xs text-orange-400">
+                                  (unsaved)
+                                </span>
+                              )}
                             </p>
                             <div className="flex justify-center gap-3 text-sm mt-1">
                               <span className="text-[#00FFAD]">
@@ -389,7 +529,7 @@ export default function ProgrammeEditor() {
                             </div>
                           </div>
                           <XCircle
-                            className="text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400"
+                            className="text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400 transition-colors"
                             onClick={() =>
                               handleRemoveExercise(
                                 ex.id,
@@ -401,7 +541,7 @@ export default function ProgrammeEditor() {
                         </div>
                       ))
                     ) : (
-                      <p className="text-[#5E6272] text-sm">
+                      <p className="text-[#5E6272] text-sm text-center py-4">
                         No exercises selected yet.
                       </p>
                     )}
@@ -409,7 +549,7 @@ export default function ProgrammeEditor() {
                     {/* Add Exercise Button */}
                     <button
                       onClick={() => toggleAvailableExercises(day.dayNumber)}
-                      className="text-sm text-blue-400 flex items-center gap-1 hover:underline"
+                      className="w-full text-sm text-blue-400 flex items-center justify-center gap-2 py-2 hover:text-blue-300 transition-colors"
                     >
                       <Plus size={16} />
                       {day.showAvailable
@@ -421,7 +561,7 @@ export default function ProgrammeEditor() {
                     {day.showAvailable && (
                       <div className="mt-3 space-y-2 border-t border-[#2F3544] pt-3">
                         <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                          Available Exercises
+                          Available Exercises ({bodyFocus})
                         </h4>
                         {day.availableExercises.length > 0 ? (
                           day.availableExercises
@@ -429,7 +569,7 @@ export default function ProgrammeEditor() {
                             .map((ex) => (
                               <div
                                 key={ex.id}
-                                className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554]"
+                                className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors"
                                 onClick={() =>
                                   handleAddExercise(ex.id, day.dayNumber)
                                 }
@@ -446,14 +586,23 @@ export default function ProgrammeEditor() {
                                     <span className="text-[#6B7280]">
                                       {ex.category}
                                     </span>
+                                    {ex.equipment && (
+                                      <span className="text-[#6B7280]">
+                                        {ex.equipment}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                                 <Plus className="text-blue-400 w-5 h-5 ml-3" />
                               </div>
                             ))
+                        ) : day.availableExercises.length === 0 ? (
+                          <p className="text-[#5E6272] text-sm text-center py-4">
+                            Loading exercises...
+                          </p>
                         ) : (
-                          <p className="text-[#5E6272] text-sm">
-                            No available exercises found.
+                          <p className="text-[#5E6272] text-sm text-center py-4">
+                            All available exercises have been added.
                           </p>
                         )}
                       </div>

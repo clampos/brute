@@ -1,5 +1,5 @@
 import React from "react";
-import { Home, Dumbbell, Settings, LogOut } from "lucide-react";
+import { Home, Dumbbell, Calendar, Settings, LogOut } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 interface BottomBarProps {
@@ -13,6 +13,7 @@ export default function BottomBar({ onLogout }: BottomBarProps) {
   const navItems = [
     { icon: <Home size={22} />, path: "/dashboard", label: "Dashboard" },
     { icon: <Dumbbell size={22} />, path: "/programmes", label: "Programmes" },
+    { icon: <Calendar size={22} />, path: "/workouts", label: "Workouts" },
     { icon: <Settings size={22} />, path: "/settings", label: "Settings" },
   ];
 
