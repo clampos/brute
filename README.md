@@ -35,8 +35,13 @@ brute
 │  │  │  │  └─ migration.sql
 │  │  │  ├─ 20250707141705_add_workout_and_programme_fields
 │  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250721150027_add_is_selected
+│  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250721150356_add_is_selected
+│  │  │  │  └─ migration.sql
 │  │  │  └─ migration_lock.toml
-│  │  └─ schema.prisma
+│  │  ├─ schema.prisma
+│  │  └─ seed.ts
 │  ├─ prisma.ts
 │  ├─ programmes.ts
 │  ├─ protected.ts
@@ -60,6 +65,7 @@ brute
 │  │  ├─ ProtectedRoute.tsx
 │  │  ├─ ResetPassword.tsx
 │  │  └─ ScreenWrapper.tsx
+│  ├─ images.d.ts
 │  ├─ index.css
 │  ├─ main.tsx
 │  ├─ screens
@@ -70,7 +76,8 @@ brute
 │  │  ├─ Programmes.tsx
 │  │  ├─ Settings.tsx
 │  │  ├─ Signup.tsx
-│  │  └─ SubscriptionSuccess.tsx
+│  │  ├─ SubscriptionSuccess.tsx
+│  │  └─ Workouts.tsx
 │  ├─ services
 │  │  └─ authService.ts
 │  └─ utils
