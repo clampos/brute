@@ -441,6 +441,48 @@ router.get('/settings', authenticateToken, async (req: Request, res: Response): 
   }
 });
 
+// GET /user/profile
+router.get("/user/profile", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      bodyweight: true,
+      height: true,
+      age: true,
+      gender: true,
+    },
+  });
+
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  res.json(user);
+});
+
+// PUT /user/profile
+router.put("/user/profile", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { bodyweight, height, age, gender } = req.body;
+  const userId = (req as any).user.userId;
+
+  try {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        bodyweight,
+        height,
+        age,
+        gender,
+      },
+    });
+
+    res.status(200).json({ message: "Profile updated" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Update failed" });
+  }
+});
+
+
 // GET /auth/programmes
 router.get('/programmes', authenticateToken, async (req: Request, res: Response): Promise<any> => {
   try {
