@@ -36,6 +36,60 @@ export default function Settings() {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const navigate = useNavigate();
 
+  const [bodyweight, setBodyweight] = useState<number | null>(null);
+  const [height, setHeight] = useState<number | null>(null);
+  const [age, setAge] = useState<number | null>(null);
+  const [gender, setGender] = useState<string | null>(null);
+  const [fitnessGoal, setFitnessGoal] = useState<string | null>(null);
+
+  // Fetch user profile info
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    fetch("http://localhost:4242/user/profile", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setBodyweight(data.bodyweight ?? null);
+        setHeight(data.height ?? null);
+        setAge(data.age ?? null);
+        setGender(data.gender ?? null);
+        setFitnessGoal(data.fitnessGoal ?? null);
+      })
+      .catch((err) => console.error("Failed to load profile:", err));
+  }, []);
+
+  const handleProfileSave = async () => {
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch("http://localhost:4242/user/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          bodyweight,
+          height,
+          age,
+          gender,
+          fitnessGoal,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save profile");
+
+      alert("Profile updated successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("There was a problem updating your profile.");
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("token");
 
@@ -320,6 +374,65 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {/* Personal Profile Section */}
+          <div className="bg-[#262A34] rounded-xl p-4">
+            <h4 className="text-white font-semibold mb-3">Personal Profile</h4>
+            <div className="space-y-3 text-white">
+              <div className="flex flex-col">
+                <label className="text-sm text-[#5E6272] mb-1">
+                  Bodyweight (kg)
+                </label>
+                <input
+                  type="number"
+                  value={bodyweight ?? ""}
+                  onChange={(e) => setBodyweight(parseFloat(e.target.value))}
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                />
+              </div>
+              <div className="flex flex-col">
+                <label className="text-sm text-[#5E6272] mb-1">
+                  Height (cm)
+                </label>
+                <input
+                  type="number"
+                  value={height ?? ""}
+                  onChange={(e) => setHeight(parseFloat(e.target.value))}
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                />
+              </div>
+              <div className="flex flex-col">
+                <label className="text-sm text-[#5E6272] mb-1">Age</label>
+                <input
+                  type="number"
+                  value={age ?? ""}
+                  onChange={(e) => setAge(parseInt(e.target.value))}
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                />
+              </div>
+              <div className="flex flex-col">
+                <label className="text-sm text-[#5E6272] mb-1">Gender</label>
+                <select
+                  value={gender ?? ""}
+                  onChange={(e) => setGender(e.target.value)}
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                >
+                  <option value="">Select</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Non-binary">Non-binary</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <button
+                onClick={handleProfileSave}
+                className="w-full mt-4 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white"
+              >
+                Save Profile
+              </button>
+            </div>
+          </div>
 
           {/* General Settings Section */}
           <div className="bg-[#262A34] rounded-xl p-4">
