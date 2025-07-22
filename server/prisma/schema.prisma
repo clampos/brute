@@ -60,6 +60,7 @@ model Exercise {
   muscleGroup String   @map("muscle_group") // Primary muscle group
   category    String   // Compound, Isolation, Cardio, etc.
   equipment   String?  // Barbell, Dumbbell, Bodyweight, etc.
+  isSelected  Boolean  @default(false) // Selected as part of programme or not
   instructions String? // How to perform the exercise
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -80,6 +81,7 @@ model ProgrammeExercise {
   sets        Int    @default(3)
   reps        String @default("8-12") // Can be "8-12", "10", "AMRAP", etc.
   restSeconds Int?   @map("rest_seconds") // Rest between sets in seconds
+  isSelected  Boolean  @default(false) // Selected as part of programme or not
   notes       String?
 
   // Relationships
