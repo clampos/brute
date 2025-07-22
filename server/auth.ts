@@ -634,13 +634,14 @@ router.get("/exercises/random", authenticateToken, async (req, res): Promise<any
   const { focus } = req.query;
 
   try {
-    const matchingExercises = await prisma.exercise.findMany({
-      where: {
-        muscleGroup: {
-          contains: focus as string,
-        },
-      },
-    });
+  const matchingExercises = await prisma.exercise.findMany({
+  where: {
+    muscleGroup: {
+      equals: focus as string,
+    },
+  },
+});
+
 
     if (matchingExercises.length === 0) {
       return res.status(404).json({ error: "No exercises found for that focus" });
@@ -653,6 +654,114 @@ router.get("/exercises/random", authenticateToken, async (req, res): Promise<any
   } catch (err) {
     console.error("Error fetching random exercise:", err);
     return res.status(500).json({ error: "Failed to get random exercise" });
+  }
+});
+
+// Add these endpoints to your auth.ts file
+
+// GET /auth/exercises - Get exercises by muscle group
+router.get("/exercises", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { muscleGroup, category, equipment } = req.query;
+
+  try {
+    const whereClause: any = {};
+
+    if (muscleGroup) {
+      whereClause.muscleGroup = {
+        equals: muscleGroup as string,
+        mode: 'insensitive',
+      };
+    }
+
+    if (category) {
+      whereClause.category = {
+        equals: category as string,
+        mode: 'insensitive',
+      };
+    }
+
+    if (equipment) {
+      whereClause.equipment = {
+        equals: equipment as string,
+        mode: 'insensitive',
+      };
+    }
+
+    const exercises = await prisma.exercise.findMany({
+      where: whereClause,
+      orderBy: {
+        name: 'asc',
+      },
+    });
+
+    res.json(exercises);
+  } catch (error) {
+    console.error('Error fetching exercises:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /auth/exercises/all - Get all exercises
+router.get("/exercises/all", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const exercises = await prisma.exercise.findMany({
+      orderBy: [
+        { muscleGroup: 'asc' },
+        { name: 'asc' }
+      ],
+    });
+
+    res.json(exercises);
+  } catch (error) {
+    console.error('Error fetching all exercises:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /auth/exercises - Create new exercise (for admin use)
+router.post("/exercises", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { name, muscleGroup, category, equipment, instructions } = req.body;
+
+  if (!name || !muscleGroup || !category) {
+    return res.status(400).json({ error: 'Name, muscleGroup, and category are required' });
+  }
+
+  try {
+    const exercise = await prisma.exercise.create({
+      data: {
+        name,
+        muscleGroup,
+        category,
+        equipment,
+        instructions,
+      },
+    });
+
+    res.status(201).json(exercise);
+  } catch (error) {
+    console.error('Error creating exercise:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /auth/muscle-groups - Get all unique muscle groups
+router.get("/muscle-groups", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await prisma.exercise.findMany({
+      select: {
+        muscleGroup: true,
+      },
+      distinct: ['muscleGroup'],
+      orderBy: {
+        muscleGroup: 'asc',
+      },
+    });
+
+    const muscleGroups = result.map(r => r.muscleGroup);
+    res.json(muscleGroups);
+  } catch (error) {
+    console.error('Error fetching muscle groups:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

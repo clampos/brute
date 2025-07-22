@@ -7,21 +7,36 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
+  Circle,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
 
 type Exercise = {
+  isSelected: any;
+  id: string;
+  name: string;
+  muscleGroup: string;
+  category: string;
+  equipment?: string;
+  instructions?: string;
+};
+
+type ProgrammeExercise = {
   id: string;
   name: string;
   sets: number;
   reps: string;
+  exerciseId: string;
+  isSelected: boolean;
 };
 
 type ProgrammeDay = {
   dayNumber: number;
-  exercises: Exercise[];
+  exercises: ProgrammeExercise[];
+  availableExercises: Exercise[];
+  showAvailable: boolean;
 };
 
 export default function ProgrammeEditor() {
@@ -35,6 +50,7 @@ export default function ProgrammeEditor() {
   const [openDays, setOpenDays] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [allExercises, setAllExercises] = useState<Exercise[]>([]);
 
   const toggleDay = (dayNumber: number) => {
     setOpenDays((prev) => ({
@@ -43,12 +59,22 @@ export default function ProgrammeEditor() {
     }));
   };
 
-  const handleAddExercise = async (dayNumber: number) => {
+  const toggleAvailableExercises = (dayNumber: number) => {
+    setDays((prevDays) =>
+      prevDays.map((day) =>
+        day.dayNumber === dayNumber
+          ? { ...day, showAvailable: !day.showAvailable }
+          : day
+      )
+    );
+  };
+
+  // Fetch all exercises based on body focus
+  const fetchAvailableExercises = async (focus: string) => {
     try {
-      // Fetch a random exercise matching the programme's body focus
       const res = await fetch(
-        `http://localhost:4242/auth/exercises/random?focus=${encodeURIComponent(
-          bodyFocus
+        `http://localhost:4242/auth/exercises?muscleGroup=${encodeURIComponent(
+          focus
         )}`,
         {
           headers: {
@@ -58,12 +84,23 @@ export default function ProgrammeEditor() {
       );
 
       if (!res.ok) {
-        throw new Error("Failed to fetch random exercise");
+        console.error("Failed to fetch exercises:", res.status);
+        return [];
       }
 
-      const randomExercise = await res.json();
+      const exercises = await res.json();
+      return exercises || [];
+    } catch (err) {
+      console.error("Error fetching exercises:", err);
+      return [];
+    }
+  };
 
-      // POST that exercise to the programme
+  const handleAddExercise = async (exerciseId: string, dayNumber: number) => {
+    try {
+      const exercise = allExercises.find((ex) => ex.id === exerciseId);
+      if (!exercise) return;
+
       const postRes = await fetch(
         `http://localhost:4242/auth/programmes/${programmeId}/exercises`,
         {
@@ -73,21 +110,22 @@ export default function ProgrammeEditor() {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
           body: JSON.stringify({
-            exerciseId: randomExercise.id,
+            exerciseId: exercise.id,
             dayNumber,
             sets: 3,
-            reps: "10",
+            reps: "8-12",
           }),
         }
       );
 
       if (!postRes.ok) {
-        throw new Error("Failed to add exercise to programme");
+        const errorText = await postRes.text();
+        console.error("Failed to add exercise:", postRes.status, errorText);
+        throw new Error("Failed to add exercise");
       }
 
-      const newExercise = await postRes.json();
+      const newProgrammeExercise = await postRes.json();
 
-      // Add to UI
       setDays((prevDays) =>
         prevDays.map((day) =>
           day.dayNumber === dayNumber
@@ -96,12 +134,17 @@ export default function ProgrammeEditor() {
                 exercises: [
                   ...day.exercises,
                   {
-                    id: newExercise.id,
-                    name: randomExercise.name,
-                    sets: newExercise.sets,
-                    reps: newExercise.reps,
+                    id: newProgrammeExercise.id,
+                    name: exercise.name,
+                    sets: newProgrammeExercise.sets,
+                    reps: newProgrammeExercise.reps,
+                    exerciseId: exercise.id,
+                    isSelected: true,
                   },
                 ],
+                availableExercises: day.availableExercises.map((ex) =>
+                  ex.id === exerciseId ? { ...ex, isSelected: true } : ex
+                ),
               }
             : day
         )
@@ -112,12 +155,13 @@ export default function ProgrammeEditor() {
   };
 
   const handleRemoveExercise = async (
+    programmeExerciseId: string,
     exerciseId: string,
     dayNumber: number
   ) => {
     try {
       await fetch(
-        `http://localhost:4242/auth/programmes/exercises/${exerciseId}`,
+        `http://localhost:4242/auth/programmes/exercises/${programmeExerciseId}`,
         {
           method: "DELETE",
           headers: {
@@ -131,7 +175,12 @@ export default function ProgrammeEditor() {
           day.dayNumber === dayNumber
             ? {
                 ...day,
-                exercises: day.exercises.filter((ex) => ex.id !== exerciseId),
+                exercises: day.exercises.filter(
+                  (ex) => ex.id !== programmeExerciseId
+                ),
+                availableExercises: day.availableExercises.map((ex) =>
+                  ex.id === exerciseId ? { ...ex, isSelected: false } : ex
+                ),
               }
             : day
         )
@@ -145,6 +194,26 @@ export default function ProgrammeEditor() {
     localStorage.removeItem("token");
     localStorage.removeItem("installPromptDismissed");
     navigate("/login");
+  };
+
+  // Get muscle groups to focus on based on body part focus
+  const getMuscleGroupsForFocus = (focus: string): string[] => {
+    switch (focus.toLowerCase()) {
+      case "full body":
+        return ["Chest", "Back", "Shoulders", "Legs", "Arms", "Core"];
+      case "upper body":
+        return ["Chest", "Back", "Shoulders", "Arms"];
+      case "lower body":
+        return ["Legs", "Glutes", "Core"];
+      case "push":
+        return ["Chest", "Shoulders", "Triceps"];
+      case "pull":
+        return ["Back", "Biceps"];
+      case "legs":
+        return ["Legs", "Glutes"];
+      default:
+        return [focus];
+    }
   };
 
   // Load programme data
@@ -172,25 +241,53 @@ export default function ProgrammeEditor() {
         setDescription(data.description || "");
         setBodyFocus(data.bodyPartFocus || "Full Body");
 
-        const grouped: Record<number, Exercise[]> = {};
+        // Fetch available exercises based on body focus
+        const muscleGroups = getMuscleGroupsForFocus(
+          data.bodyPartFocus || "Full Body"
+        );
+        const exercisePromises = muscleGroups.map((group) =>
+          fetchAvailableExercises(group)
+        );
+        const exerciseArrays = await Promise.all(exercisePromises);
+        const availableExercises = exerciseArrays.flat();
+        setAllExercises(availableExercises);
+
+        // Group current programme exercises by day
+        const grouped: Record<number, ProgrammeExercise[]> = {};
+        const selectedExerciseIds = new Set<string>();
+
         data.exercises?.forEach((item: any) => {
           const day = item.dayNumber ?? 1;
           if (!grouped[day]) grouped[day] = [];
 
-          grouped[day].push({
+          const programmeExercise = {
             id: item.id,
             name: item.exercise?.name || "Unnamed",
             sets: item.sets ?? 3,
-            reps: item.reps ?? "10",
-          });
+            reps: item.reps ?? "8-12",
+            exerciseId: item.exercise?.id || item.exerciseId,
+            isSelected: true,
+          };
+
+          grouped[day].push(programmeExercise);
+          selectedExerciseIds.add(programmeExercise.exerciseId);
         });
 
-        const loadedDays: ProgrammeDay[] = Object.entries(grouped).map(
-          ([dayStr, exercises]) => ({
-            dayNumber: Number(dayStr),
-            exercises,
-          })
-        );
+        // Create days array with available exercises
+        const daysPerWeek = data.daysPerWeek || 3;
+        const loadedDays: ProgrammeDay[] = [];
+
+        for (let i = 1; i <= daysPerWeek; i++) {
+          loadedDays.push({
+            dayNumber: i,
+            exercises: grouped[i] || [],
+            availableExercises: availableExercises.map((ex) => ({
+              ...ex,
+              isSelected: selectedExerciseIds.has(ex.id),
+            })),
+            showAvailable: false,
+          });
+        }
 
         setDays(loadedDays);
         setOpenDays(
@@ -238,6 +335,7 @@ export default function ProgrammeEditor() {
       <div className="mt-6 mb-4 text-center">
         <h3 className="text-white text-xl font-semibold">{displayName}</h3>
         <p className="text-sm text-[#5E6272]">{description}</p>
+        <p className="text-xs text-[#FBA3FF] mt-1">{bodyFocus}</p>
       </div>
 
       {/* Loading or Error */}
@@ -269,6 +367,7 @@ export default function ProgrammeEditor() {
                 {/* Exercise List */}
                 {isOpen && (
                   <div className="space-y-2">
+                    {/* Selected Exercises */}
                     {day.exercises.length > 0 ? (
                       day.exercises.map((ex) => (
                         <div
@@ -284,31 +383,81 @@ export default function ProgrammeEditor() {
                               <span className="text-[#00FFAD]">
                                 {ex.sets} sets
                               </span>
-                              <span className="text-[#FBA3FF]">
-                                {bodyFocus}
+                              <span className="text-[#5E6272]">
+                                {ex.reps} reps
                               </span>
                             </div>
                           </div>
                           <XCircle
-                            className="text-red-500 w-5 h-5 ml-3 cursor-pointer"
+                            className="text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400"
                             onClick={() =>
-                              handleRemoveExercise(ex.id, day.dayNumber)
+                              handleRemoveExercise(
+                                ex.id,
+                                ex.exerciseId,
+                                day.dayNumber
+                              )
                             }
                           />
                         </div>
                       ))
                     ) : (
-                      <p className="text-white text-sm">No exercises yet.</p>
+                      <p className="text-[#5E6272] text-sm">
+                        No exercises selected yet.
+                      </p>
                     )}
 
-                    {/* Add Exercise */}
+                    {/* Add Exercise Button */}
                     <button
-                      onClick={() => handleAddExercise(day.dayNumber)}
+                      onClick={() => toggleAvailableExercises(day.dayNumber)}
                       className="text-sm text-blue-400 flex items-center gap-1 hover:underline"
                     >
                       <Plus size={16} />
-                      Add Exercise
+                      {day.showAvailable
+                        ? "Hide Available Exercises"
+                        : "Add Exercise"}
                     </button>
+
+                    {/* Available Exercises */}
+                    {day.showAvailable && (
+                      <div className="mt-3 space-y-2 border-t border-[#2F3544] pt-3">
+                        <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                          Available Exercises
+                        </h4>
+                        {day.availableExercises.length > 0 ? (
+                          day.availableExercises
+                            .filter((ex) => !ex.isSelected)
+                            .map((ex) => (
+                              <div
+                                key={ex.id}
+                                className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554]"
+                                onClick={() =>
+                                  handleAddExercise(ex.id, day.dayNumber)
+                                }
+                              >
+                                <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
+                                <div className="flex-1 text-center">
+                                  <p className="font-semibold text-[#9CA3AF]">
+                                    {ex.name}
+                                  </p>
+                                  <div className="flex justify-center gap-3 text-sm mt-1">
+                                    <span className="text-[#6B7280]">
+                                      {ex.muscleGroup}
+                                    </span>
+                                    <span className="text-[#6B7280]">
+                                      {ex.category}
+                                    </span>
+                                  </div>
+                                </div>
+                                <Plus className="text-blue-400 w-5 h-5 ml-3" />
+                              </div>
+                            ))
+                        ) : (
+                          <p className="text-[#5E6272] text-sm">
+                            No available exercises found.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
