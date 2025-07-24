@@ -807,4 +807,26 @@ router.get("/muscle-groups", authenticateToken, async (req: Request, res: Respon
   }
 });
 
+// POST /auth/user-programs
+router.post("/user-programs", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { programmeId, startDate } = req.body;
+  const userId = (req as any).user.userId; // Assuming user ID is available from auth middleware
+
+  try {
+    const userProgram = await prisma.userProgram.create({
+      data: {
+        userId,
+        programmeId,
+        startDate: new Date(startDate),
+        status: 'ACTIVE',
+      },
+    });
+
+    res.status(201).json(userProgram);
+  } catch (error) {
+    console.error('Error creating user program:', error);
+    res.status(500).json({ error: 'Failed to create user program' });
+  }
+});
+
 export default router;

@@ -387,7 +387,7 @@ export default function Settings() {
                   type="number"
                   value={bodyweight ?? ""}
                   onChange={(e) => setBodyweight(parseFloat(e.target.value))}
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
                 />
               </div>
               <div className="flex flex-col">
@@ -398,7 +398,7 @@ export default function Settings() {
                   type="number"
                   value={height ?? ""}
                   onChange={(e) => setHeight(parseFloat(e.target.value))}
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
                 />
               </div>
               <div className="flex flex-col">
@@ -407,7 +407,7 @@ export default function Settings() {
                   type="number"
                   value={age ?? ""}
                   onChange={(e) => setAge(parseInt(e.target.value))}
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
                 />
               </div>
               <div className="flex flex-col">
