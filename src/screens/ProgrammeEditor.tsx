@@ -10,13 +10,14 @@ import {
   Circle,
   Check,
   X,
+  Save,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
 
 type Exercise = {
-  isSelected: boolean; // Changed from 'any' to 'boolean'
+  isSelected: boolean;
   id: string;
   name: string;
   muscleGroup: string;
@@ -39,7 +40,7 @@ type ProgrammeDay = {
   exercises: ProgrammeExercise[];
   availableExercises: Exercise[];
   showAvailable: boolean;
-  hasChanges: boolean; // Track if there are unsaved changes
+  hasChanges: boolean;
 };
 
 // Add proper type for the API response
@@ -61,6 +62,7 @@ type ProgrammeResponse = {
   bodyPartFocus?: string;
   daysPerWeek?: number;
   exercises?: ProgrammeExerciseResponse[];
+  error?: string; // Added error property
 };
 
 export default function ProgrammeEditor() {
@@ -76,6 +78,7 @@ export default function ProgrammeEditor() {
   const [error, setError] = useState("");
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
   const [savingDay, setSavingDay] = useState<number | null>(null);
+  const [submittingProgramme, setSubmittingProgramme] = useState(false);
 
   const toggleDay = (dayNumber: number) => {
     setOpenDays((prev) => ({
@@ -248,7 +251,7 @@ export default function ProgrammeEditor() {
 
       // Then add all current exercises (including new ones)
       const exercisesToAdd = day.exercises.filter((ex) => ex.isSelected);
-      const addedExercises = [];
+      const addedExercises: ProgrammeExercise[] = []; // Fixed type annotation
 
       for (const exercise of exercisesToAdd) {
         const postRes = await fetch(
@@ -306,6 +309,51 @@ export default function ProgrammeEditor() {
       setError("Failed to save exercises for this day");
     } finally {
       setSavingDay(null);
+    }
+  };
+
+  const handleSubmitProgramme = async () => {
+    // Check if there are any unsaved changes
+    const hasUnsavedChanges = days.some((day) => day.hasChanges);
+    if (hasUnsavedChanges) {
+      setError("Please confirm all days before submitting the programme");
+      return;
+    }
+
+    setSubmittingProgramme(true);
+    try {
+      // Create a UserProgram entry to enable workout generation
+      const response = await fetch(`http://localhost:4242/auth/user-programs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          programmeId: programmeId,
+          startDate: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to submit programme");
+      }
+
+      const userProgram = await response.json();
+
+      // Navigate to workout or programmes list with success message
+      navigate("/programmes", {
+        state: {
+          message:
+            "Programme successfully submitted! You can now start workouts.",
+        },
+      });
+    } catch (err: any) {
+      console.error("Error submitting programme:", err);
+      setError(err.message || "Failed to submit programme");
+    } finally {
+      setSubmittingProgramme(false);
     }
   };
 
@@ -408,6 +456,10 @@ export default function ProgrammeEditor() {
     fetchProgramme();
   }, [programmeId]);
 
+  // Check if programme is ready to submit (no unsaved changes)
+  const isReadyToSubmit =
+    days.length > 0 && !days.some((day) => day.hasChanges);
+
   return (
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
@@ -446,6 +498,28 @@ export default function ProgrammeEditor() {
       {error && (
         <div className="bg-red-900/20 border border-red-500/50 rounded-lg px-4 py-2 mb-4">
           <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Submit Programme Button */}
+      {!loading && (
+        <div className="mb-6 flex justify-center">
+          <button
+            onClick={handleSubmitProgramme}
+            disabled={submittingProgramme || !isReadyToSubmit}
+            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 transition-all ${
+              submittingProgramme || !isReadyToSubmit
+                ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+                : "bg-[#00FFAD] hover:bg-[#00E599] text-black"
+            }`}
+          >
+            <Save size={16} />
+            {submittingProgramme
+              ? "Submitting..."
+              : isReadyToSubmit
+              ? "Submit Programme"
+              : "Confirm All Days First"}
+          </button>
         </div>
       )}
 
