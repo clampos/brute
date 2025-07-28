@@ -3,7 +3,13 @@ import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
-import { Calendar, ChevronDown, ChevronRight, Clock } from "lucide-react";
+import {
+  Calendar,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+} from "lucide-react";
 
 export default function Workouts() {
   const navigate = useNavigate();
@@ -126,13 +132,12 @@ export default function Workouts() {
       </div>
 
       {/* Top Bar */}
-      <div className="flex justify-between items-center mt-4 px-2">
-        <h2 className="text-white font-semibold text-xl">Workouts</h2>
-        <img
-          src={icon}
-          alt="User Avatar"
-          className="w-10 h-10 rounded-full object-cover"
-        />
+      <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
+        <Calendar className="text-white w-6 h-6" />
+        <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
+          Workouts
+        </h2>
+        <MoreHorizontal className="text-white w-6 h-6" />
       </div>
 
       {/* Start New Workout */}
