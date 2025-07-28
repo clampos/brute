@@ -444,40 +444,55 @@ router.get('/settings', authenticateToken, async (req: Request, res: Response): 
 // GET /user/profile
 router.get("/user/profile", authenticateToken, async (req: Request, res: Response): Promise<any> => {
   const userId = (req as any).user.userId;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      bodyweight: true,
-      height: true,
-      age: true,
-      gender: true,
-    },
-  });
+  
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        bodyweight: true,
+        height: true,
+        birthday: true,
+        gender: true,
+      },
+    });
 
-  if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-  res.json(user);
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
 });
 
 // PUT /user/profile
 router.put("/user/profile", authenticateToken, async (req: Request, res: Response): Promise<any> => {
-  const { bodyweight, height, age, gender } = req.body;
+  const { bodyweight, height, birthday, gender } = req.body;
   const userId = (req as any).user.userId;
 
   try {
+    // Validate birthday if provided
+    let birthdayDate = null;
+    if (birthday) {
+      birthdayDate = new Date(birthday);
+      if (isNaN(birthdayDate.getTime())) {
+        return res.status(400).json({ error: "Invalid birthday format" });
+      }
+    }
+
     await prisma.user.update({
       where: { id: userId },
       data: {
-        bodyweight,
-        height,
-        age,
-        gender,
+        bodyweight: bodyweight || null,
+        height: height || null,
+        birthday: birthdayDate,
+        gender: gender || null,
       },
     });
 
-    res.status(200).json({ message: "Profile updated" });
+    res.status(200).json({ message: "Profile updated successfully" });
   } catch (err) {
-    console.error(err);
+    console.error("Profile update error:", err);
     res.status(500).json({ error: "Update failed" });
   }
 });

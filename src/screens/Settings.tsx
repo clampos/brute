@@ -38,57 +38,316 @@ export default function Settings() {
 
   const [bodyweight, setBodyweight] = useState<number | null>(null);
   const [height, setHeight] = useState<number | null>(null);
-  const [age, setAge] = useState<number | null>(null);
+  const [birthday, setBirthday] = useState<string>("");
   const [gender, setGender] = useState<string | null>(null);
-  const [fitnessGoal, setFitnessGoal] = useState<string | null>(null);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  // Helper function to calculate age from birthday
+  const calculateAge = (birthdayString: string): number | null => {
+    if (!birthdayString) return null;
+    const today = new Date();
+    const birthDate = new Date(birthdayString);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (
+      monthDiff < 0 ||
+      (monthDiff === 0 && today.getDate() < birthDate.getDate())
+    ) {
+      age--;
+    }
+    return age;
+  };
 
   // Fetch user profile info
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) return;
+    if (!token) {
+      navigate("/login");
+      return;
+    }
 
-    fetch("http://localhost:4242/user/profile", {
+    console.log("Fetching profile with token:", token.substring(0, 20) + "...");
+
+    fetch("http://localhost:4242/auth/user/profile", {
       headers: {
         Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
     })
-      .then((res) => res.json())
+      .then((res) => {
+        console.log("Profile fetch response status:", res.status);
+        if (!res.ok) {
+          if (res.status === 401) {
+            localStorage.removeItem("token");
+            navigate("/login");
+            return;
+          }
+          throw new Error(`Failed to fetch profile: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((data) => {
+        console.log("Profile data received:", data);
         setBodyweight(data.bodyweight ?? null);
         setHeight(data.height ?? null);
-        setAge(data.age ?? null);
+        setBirthday(
+          data.birthday
+            ? new Date(data.birthday).toISOString().split("T")[0]
+            : ""
+        );
         setGender(data.gender ?? null);
-        setFitnessGoal(data.fitnessGoal ?? null);
+        setProfilePhoto(data.profilePhoto ?? null);
+        setProfileError(null);
       })
-      .catch((err) => console.error("Failed to load profile:", err));
-  }, []);
+      .catch((err) => {
+        console.error("Failed to load profile:", err);
+        setProfileError("Failed to load profile data");
+        // Don't redirect on profile fetch error - user might still want to use other features
+      });
+  }, [navigate]);
+
+  const handleProfilePhotoUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File size must be less than 5MB");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    setPhotoUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("profilePhoto", file);
+
+      const response = await fetch(
+        "http://localhost:4242/auth/user/profile-photo",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem("token");
+          navigate("/login");
+          return;
+        }
+        throw new Error("Failed to upload photo");
+      }
+
+      const result = await response.json();
+      setProfilePhoto(result.profilePhoto);
+      alert("Profile photo updated successfully!");
+    } catch (error) {
+      console.error("Error uploading photo:", error);
+      alert("Failed to upload photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const handleRemoveProfilePhoto = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    setPhotoUploading(true);
+
+    try {
+      const response = await fetch(
+        "http://localhost:4242/auth/user/profile-photo",
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem("token");
+          navigate("/login");
+          return;
+        }
+        throw new Error("Failed to remove photo");
+      }
+
+      setProfilePhoto(null);
+      alert("Profile photo removed successfully!");
+    } catch (error) {
+      console.error("Error removing photo:", error);
+      alert("Failed to remove photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
 
   const handleProfileSave = async () => {
     const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileError(null);
+
+    const profileData = {
+      bodyweight: bodyweight || null,
+      height: height || null,
+      birthday: birthday || null,
+      gender: gender || null,
+    };
+
+    console.log("Saving profile data:", profileData);
+
     try {
-      const res = await fetch("http://localhost:4242/user/profile", {
+      const res = await fetch("http://localhost:4242/auth/user/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          bodyweight,
-          height,
-          age,
-          gender,
-          fitnessGoal,
-        }),
+        body: JSON.stringify(profileData),
       });
 
-      if (!res.ok) throw new Error("Failed to save profile");
+      console.log("Profile update response status:", res.status);
 
+      if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          navigate("/login");
+          return;
+        }
+
+        // Get more specific error information
+        let errorData;
+        try {
+          errorData = await res.json();
+        } catch {
+          errorData = { error: "Unknown error" };
+        }
+
+        console.error("Profile update failed:", res.status, errorData);
+        throw new Error(errorData.error || `Server error: ${res.status}`);
+      }
+
+      const result = await res.json();
+      console.log("Profile update result:", result);
+
+      setProfileError(null);
       alert("Profile updated successfully!");
-    } catch (err) {
-      console.error(err);
-      alert("There was a problem updating your profile.");
+
+      // Optionally refresh the profile data to confirm it was saved
+      try {
+        const refreshRes = await fetch(
+          "http://localhost:4242/auth/user/profile",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (refreshRes.ok) {
+          const refreshedData = await refreshRes.json();
+          console.log("Refreshed profile data:", refreshedData);
+          setBodyweight(refreshedData.bodyweight ?? null);
+          setHeight(refreshedData.height ?? null);
+          setBirthday(
+            refreshedData.birthday
+              ? new Date(refreshedData.birthday).toISOString().split("T")[0]
+              : ""
+          );
+          setGender(refreshedData.gender ?? null);
+          setProfilePhoto(refreshedData.profilePhoto ?? null);
+        }
+      } catch (refreshErr) {
+        console.warn("Failed to refresh profile data:", refreshErr);
+        // Don't show error for refresh failure
+      }
+    } catch (err: any) {
+      console.error("Profile save error:", err);
+      setProfileError(err.message || "Failed to update profile");
+    } finally {
+      setProfileSaving(false);
     }
   };
+
+  // Fetch user profile info
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    console.log("Fetching profile with token:", token.substring(0, 20) + "...");
+
+    fetch("http://localhost:4242/auth/user/profile", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    })
+      .then((res) => {
+        console.log("Profile fetch response status:", res.status);
+        if (!res.ok) {
+          if (res.status === 401) {
+            localStorage.removeItem("token");
+            navigate("/login");
+            return;
+          }
+          throw new Error(`Failed to fetch profile: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Profile data received:", data);
+        setBodyweight(data.bodyweight ?? null);
+        setHeight(data.height ?? null);
+        setBirthday(
+          data.birthday
+            ? new Date(data.birthday).toISOString().split("T")[0]
+            : ""
+        );
+        setGender(data.gender ?? null);
+        setProfileError(null);
+      })
+      .catch((err) => {
+        console.error("Failed to load profile:", err);
+        setProfileError("Failed to load profile data");
+        // Don't redirect on profile fetch error - user might still want to use other features
+      });
+  }, [navigate]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -378,6 +637,14 @@ export default function Settings() {
           {/* Personal Profile Section */}
           <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">Personal Profile</h4>
+
+            {/* Show profile error if there is one */}
+            {profileError && (
+              <div className="mb-4 p-3 bg-red-900/20 border border-red-500 rounded-lg">
+                <p className="text-red-400 text-sm">{profileError}</p>
+              </div>
+            )}
+
             <div className="space-y-3 text-white">
               <div className="flex flex-col">
                 <label className="text-sm text-[#5E6272] mb-1">
@@ -386,8 +653,14 @@ export default function Settings() {
                 <input
                   type="number"
                   value={bodyweight ?? ""}
-                  onChange={(e) => setBodyweight(parseFloat(e.target.value))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setBodyweight(value === "" ? null : parseFloat(value));
+                  }}
+                  step="0.1"
+                  min="0"
                   className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
+                  placeholder="Enter your weight"
                 />
               </div>
               <div className="flex flex-col">
@@ -397,24 +670,36 @@ export default function Settings() {
                 <input
                   type="number"
                   value={height ?? ""}
-                  onChange={(e) => setHeight(parseFloat(e.target.value))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setHeight(value === "" ? null : parseFloat(value));
+                  }}
+                  step="0.1"
+                  min="0"
                   className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
+                  placeholder="Enter your height"
                 />
               </div>
               <div className="flex flex-col">
-                <label className="text-sm text-[#5E6272] mb-1">Age</label>
+                <label className="text-sm text-[#5E6272] mb-1">
+                  Date of Birth{" "}
+                  {birthday && calculateAge(birthday) !== null
+                    ? `(Age: ${calculateAge(birthday)})`
+                    : ""}
+                </label>
                 <input
-                  type="number"
-                  value={age ?? ""}
-                  onChange={(e) => setAge(parseInt(e.target.value))}
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
+                  type="date"
+                  value={birthday}
+                  onChange={(e) => setBirthday(e.target.value)}
+                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                  placeholder="Select your birth date"
                 />
               </div>
               <div className="flex flex-col">
                 <label className="text-sm text-[#5E6272] mb-1">Gender</label>
                 <select
                   value={gender ?? ""}
-                  onChange={(e) => setGender(e.target.value)}
+                  onChange={(e) => setGender(e.target.value || null)}
                   className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
                 >
                   <option value="">Select</option>
@@ -427,9 +712,10 @@ export default function Settings() {
 
               <button
                 onClick={handleProfileSave}
-                className="w-full mt-4 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white"
+                disabled={profileSaving}
+                className="w-full mt-4 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Save Profile
+                {profileSaving ? "Saving..." : "Save Profile"}
               </button>
             </div>
           </div>
