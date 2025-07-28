@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { SettingsIcon, MoreHorizontal, Copy, Check, X } from "lucide-react";
+import {
+  Camera,
+  SettingsIcon,
+  MoreHorizontal,
+  Copy,
+  Check,
+  X,
+} from "lucide-react";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
@@ -636,6 +643,54 @@ export default function Settings() {
             )}
 
             <div className="space-y-3 text-white">
+              <div className="flex flex-col items-center space-y-2 mb-4">
+                <div className="w-24 h-24 rounded-full bg-[#1F222B] border-2 border-[#5E6272] overflow-hidden flex items-center justify-center">
+                  {profilePhoto ? (
+                    <img
+                      src={profilePhoto}
+                      alt="Profile"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-[#5E6272] text-xl select-none">
+                      No Photo
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-3">
+                  <label
+                    htmlFor="profilePhotoUpload"
+                    className={`cursor-pointer bg-[#86FF99] text-black px-4 py-2 rounded font-semibold hover:bg-[#6bd664] transition flex items-center gap-2 select-none ${
+                      photoUploading ? "opacity-50 cursor-not-allowed" : ""
+                    }`}
+                    aria-disabled={photoUploading}
+                  >
+                    <Camera size={16} />
+                    {photoUploading ? "Uploading..." : "Upload"}
+                    <input
+                      type="file"
+                      id="profilePhotoUpload"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleProfilePhotoUpload}
+                      disabled={photoUploading}
+                    />
+                  </label>
+
+                  {profilePhoto && (
+                    <button
+                      onClick={handleRemoveProfilePhoto}
+                      disabled={photoUploading}
+                      className="bg-red-600 hover:bg-red-700 active:bg-red-800 rounded px-4 py-2 font-semibold text-white select-none disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label="Remove Profile Photo"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="flex flex-col">
                 <label className="text-sm text-[#5E6272] mb-1">
                   Bodyweight (kg)
