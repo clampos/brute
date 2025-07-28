@@ -1,105 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import logo from "../assets/logo.png";
-import icon from "../assets/icon_placeholder.png";
+import React, { useEffect } from "react";
+import { MoreHorizontal, Dumbbell, Play, Calendar } from "lucide-react";
 import BottomBar from "../components/BottomBar";
-import {
-  Calendar,
-  MoreHorizontal,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-} from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function Workouts() {
   const navigate = useNavigate();
-  const [firstName, setFirstName] = useState("John");
-  const [surname, setSurname] = useState("Doe");
-  const [loading, setLoading] = useState(true);
-  const [workoutsData, setWorkoutsData] = useState<Record<string, any[]>>({});
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    const fetchData = async () => {
-      try {
-        // Fetch user
-        const userRes = await fetch("http://localhost:4242/api/dashboard", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!userRes.ok) throw new Error("Unauthorized");
-
-        const userData = await userRes.json();
-        setFirstName(userData.firstName);
-        setSurname(userData.surname);
-
-        // For now, we'll simulate workout data
-        // In a real app, you'd fetch from: http://localhost:4242/auth/workouts
-        const mockWorkouts = [
-          {
-            id: 1,
-            name: "Upper Body Strength",
-            date: "2024-07-22",
-            duration: 45,
-            status: "completed",
-            programme: "Push Pull Legs",
-          },
-          {
-            id: 2,
-            name: "Lower Body Power",
-            date: "2024-07-21",
-            duration: 50,
-            status: "completed",
-            programme: "Push Pull Legs",
-          },
-          {
-            id: 3,
-            name: "Cardio Session",
-            date: "2024-07-20",
-            duration: 30,
-            status: "completed",
-            programme: "Full Body",
-          },
-        ];
-
-        // Group by date (you could group by week, month, or programme)
-        const grouped: Record<string, any[]> = {};
-        mockWorkouts.forEach((workout: any) => {
-          const dateKey = new Date(workout.date).toLocaleDateString("en-US", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          });
-          if (!grouped[dateKey]) grouped[dateKey] = [];
-          grouped[dateKey].push(workout);
-        });
-
-        setWorkoutsData(grouped);
-
-        // Initialize open state for all sections
-        const initialOpen: Record<string, boolean> = {};
-        Object.keys(grouped).forEach((key) => {
-          initialOpen[key] = true;
-        });
-        setOpenSections(initialOpen);
-      } catch (err) {
-        console.error("Error:", err);
-        localStorage.removeItem("token");
-        navigate("/login");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -107,31 +12,22 @@ export default function Workouts() {
     navigate("/login");
   };
 
-  const toggleSection = (section: string) => {
-    setOpenSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
-  };
-
   return (
     <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
+      className="min-h-screen text-white pb-16"
       style={{
         background:
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
+      {/* Top Logo Bar */}
+      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto pt-4">
+        <span className="text-white text-xl font-bold tracking-wide">
+          BRUTE
+        </span>
       </div>
 
-      {/* Top Bar */}
+      {/* Top Navigation Bar */}
       <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
         <Calendar className="text-white w-6 h-6" />
         <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
@@ -140,82 +36,77 @@ export default function Workouts() {
         <MoreHorizontal className="text-white w-6 h-6" />
       </div>
 
-      {/* Start New Workout */}
-      <div className="w-full px-2 mb-5 mt-6">
-        <div
-          className="bg-[#1C1F26] border border-[#5E6272] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer"
-          onClick={() => navigate("/workout/new")}
-        >
-          <span className="font-semibold text-base text-white">
-            Start New Workout
-          </span>
-          <div className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center font-bold">
-            +
-          </div>
-        </div>
+      {/* Sub Header */}
+      <div className="text-center mt-2">
+        <h3 className="text-lg font-semibold text-white">
+          Full Body – 3 Day Split
+        </h3>
       </div>
 
-      {/* Workout History Sections */}
-      <div className="flex flex-col gap-6 px-2">
-        {loading ? (
-          <div className="text-white">Loading...</div>
-        ) : Object.keys(workoutsData).length > 0 ? (
-          Object.entries(workoutsData).map(([section, workouts], idx) => {
-            const isOpen = openSections[section];
+      {/* Week Info & Timer */}
+      <div className="flex justify-center items-center gap-2 mt-1 text-sm text-[#A0AEC0]">
+        <span className="uppercase text-xs tracking-wide">Week 1, Day 1</span>
+        <span className="flex items-center gap-1 text-[#86FF99] font-medium cursor-pointer">
+          <Play size={14} /> Start Workout Timer
+        </span>
+      </div>
 
-            return (
-              <div key={idx}>
-                <div
-                  className="flex items-center gap-2 cursor-pointer mb-2"
-                  onClick={() => toggleSection(section)}
-                >
-                  {isOpen ? (
-                    <ChevronDown className="text-green-500 w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="text-green-500 w-4 h-4" />
-                  )}
-                  <h3 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                    {section}
-                  </h3>
+      {/* Exercise Cards */}
+      <div className="px-4 mt-4 space-y-4">
+        {[1, 2].map((_, i) => (
+          <div
+            key={i}
+            className={`rounded-xl p-4 ${
+              i === 0 ? "border-2 border-blue-500" : "border border-[#2F3544]"
+            } bg-[#1C1F26]`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <h4 className="text-white font-semibold text-base">
+                  {i === 0 ? "Bench Press (Incline Barbell)" : "Barbell Squat"}
+                </h4>
+                <div className="flex text-sm gap-2 mt-1">
+                  <span className="text-green-400">2 Working Sets</span>
+                  <span className="text-pink-400">
+                    {i === 0 ? "Chest" : "Legs"}
+                  </span>
                 </div>
-
-                {isOpen && (
-                  <div className="flex flex-col gap-3">
-                    {workouts.map((workout: any) => (
-                      <div
-                        key={workout.id}
-                        className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"
-                        onClick={() => navigate(`/workout/${workout.id}`)}
-                      >
-                        <Calendar className="text-green-500 w-5 h-5" />
-                        <div className="flex-1">
-                          <p className="font-semibold text-white">
-                            {workout.name}
-                          </p>
-                          <p className="text-sm text-[#00FFAD]">
-                            {workout.programme} · {workout.duration} min
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1 text-[#5E6272]">
-                          <Clock className="w-4 h-4" />
-                          <span className="text-xs">{workout.status}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            );
-          })
-        ) : (
-          <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
-            <p className="text-[#5E6272] font-semibold text-lg">
-              No workouts yet
-            </p>
+              <MoreHorizontal className="text-white" />
+            </div>
+
+            {/* Input Sets */}
+            {[0, 1].map((_, setIdx) => (
+              <div key={setIdx} className="flex items-center gap-2 mt-3">
+                <div className="w-4 text-[#5E6272]">⋮</div>
+                <input
+                  type="number"
+                  placeholder="Weight"
+                  className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/2 placeholder:text-[#5E6272] text-sm"
+                />
+                <input
+                  type="number"
+                  placeholder="Reps"
+                  className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/2 placeholder:text-[#5E6272] text-sm"
+                />
+                <div className="bg-[#262A34] rounded-full p-1">
+                  <div className="w-4 h-4 bg-[#5E6272] rounded-full" />
+                </div>
+              </div>
+            ))}
+
+            {/* Add Set Button */}
+            <div className="mt-4 flex justify-center">
+              <button className="flex items-center gap-2 text-sm font-medium text-white bg-[#2A2E38] hover:bg-[#3a3f4a] px-4 py-1.5 rounded-full">
+                Add Set{" "}
+                <span className="text-green-400 text-lg leading-none">+</span>
+              </button>
+            </div>
           </div>
-        )}
+        ))}
       </div>
 
+      {/* Bottom Bar */}
       <BottomBar onLogout={handleLogout} />
     </div>
   );
