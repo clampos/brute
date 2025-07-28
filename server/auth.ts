@@ -8,8 +8,40 @@ import { prisma } from './prisma';
 import { authenticateToken } from './authMiddleware';
 import { generateUniqueReferralCode } from './utils/referralUtils';
 import {sendPasswordResetEmail} from '../server/email';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const router = express.Router();
+
+
+// Configure multer storage
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, "../../uploads/profile-photos");
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    const userId = (req as any).user.userId;
+    cb(null, `user-${userId}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: function (req, file, cb) {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed!"));
+    }
+  },
+});
 
 // Stripe setup
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -466,36 +498,47 @@ router.get("/user/profile", authenticateToken, async (req: Request, res: Respons
 });
 
 // PUT /user/profile
-router.put("/user/profile", authenticateToken, async (req: Request, res: Response): Promise<any> => {
-  const { bodyweight, height, birthday, gender } = req.body;
-  const userId = (req as any).user.userId;
+router.put(
+  "/user/profile",
+  authenticateToken,
+  upload.single("profilePhoto"), // This handles single file upload field 'profilePhoto'
+  async (req: Request, res: Response): Promise<any> => {
+    const { bodyweight, height, birthday, gender } = req.body;
+    const userId = (req as any).user.userId;
 
-  try {
-    // Validate birthday if provided
-    let birthdayDate = null;
-    if (birthday) {
-      birthdayDate = new Date(birthday);
-      if (isNaN(birthdayDate.getTime())) {
-        return res.status(400).json({ error: "Invalid birthday format" });
+    try {
+      let birthdayDate = null;
+      if (birthday) {
+        birthdayDate = new Date(birthday);
+        if (isNaN(birthdayDate.getTime())) {
+          return res.status(400).json({ error: "Invalid birthday format" });
+        }
       }
+
+      let profilePhotoPath = undefined;
+      if (req.file) {
+        // You can store relative path or URL depending on your setup
+        profilePhotoPath = `/uploads/profile-photos/${req.file.filename}`;
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          bodyweight: bodyweight || null,
+          height: height || null,
+          birthday: birthdayDate,
+          gender: gender || null,
+          ...(profilePhotoPath ? { profilePhoto: profilePhotoPath } : {}),
+        },
+      });
+
+      res.status(200).json({ message: "Profile updated successfully", profilePhoto: profilePhotoPath });
+    } catch (err) {
+      console.error("Profile update error:", err);
+      res.status(500).json({ error: "Update failed" });
     }
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        bodyweight: bodyweight || null,
-        height: height || null,
-        birthday: birthdayDate,
-        gender: gender || null,
-      },
-    });
-
-    res.status(200).json({ message: "Profile updated successfully" });
-  } catch (err) {
-    console.error("Profile update error:", err);
-    res.status(500).json({ error: "Update failed" });
   }
-});
+);
 
 
 // GET /auth/programmes
