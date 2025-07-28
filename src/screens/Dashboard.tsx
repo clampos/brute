@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ArrowRight, Play, Calendar } from "lucide-react";
+import { ArrowRight, Play, Calendar, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
@@ -37,6 +37,7 @@ export default function Dashboard() {
 
   const [firstName, setFirstName] = useState("John");
   const [surname, setSurname] = useState("Doe");
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -64,6 +65,7 @@ export default function Dashboard() {
         setFirstName(userData.firstName);
         setSurname(userData.surname);
         setMessage(userData.message);
+        setProfilePhoto(userData.profilePhoto);
 
         setLoading(false);
       } catch (err) {
@@ -143,11 +145,22 @@ export default function Dashboard() {
         >
           Dashboard
         </h2>
-        <img
-          src={icon}
-          alt="User Avatar"
-          className="w-10 h-10 rounded-full object-cover"
-        />
+        <div
+          className="w-10 h-10 rounded-full overflow-hidden cursor-pointer border-2 border-[#246BFD] hover:border-[#1a52cc] transition-colors"
+          onClick={() => navigate("/settings")}
+        >
+          {profilePhoto ? (
+            <img
+              src={profilePhoto}
+              alt="Profile"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-[#262A34] flex items-center justify-center">
+              <User size={20} className="text-[#5E6272]" />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Welcome Message */}
