@@ -473,6 +473,110 @@ router.get('/settings', authenticateToken, async (req: Request, res: Response): 
   }
 });
 
+// GET /auth/settings
+router.get('/workouts', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        firstName: true,
+        surname: true,
+        email: true,
+        subscribed: true,
+        referralCode: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error('Settings fetch error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /auth/user/profile-photo - Upload profile photo
+router.post(
+  "/user/profile-photo",
+  authenticateToken,
+  upload.single("profilePhoto"),
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      // Create the relative path that will be stored in the database
+      const profilePhotoPath = `/uploads/profile-photos/${req.file.filename}`;
+
+      // Update user's profile photo in database
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          profilePhoto: profilePhotoPath,
+        },
+      });
+
+      console.log(`✅ Profile photo uploaded for user ${userId}: ${profilePhotoPath}`);
+      
+      res.json({ 
+        message: "Profile photo uploaded successfully",
+        profilePhoto: profilePhotoPath 
+      });
+    } catch (error) {
+      console.error("Profile photo upload error:", error);
+      res.status(500).json({ error: "Failed to upload profile photo" });
+    }
+  }
+);
+
+// DELETE /auth/user/profile-photo - Remove profile photo
+router.delete(
+  "/user/profile-photo",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+
+    try {
+      // Get current profile photo path
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { profilePhoto: true }
+      });
+
+      if (user?.profilePhoto) {
+        // Delete the file from filesystem
+        const filePath = path.join(__dirname, "../../", user.profilePhoto);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+
+      // Update database to remove profile photo
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          profilePhoto: null,
+        },
+      });
+
+      console.log(`✅ Profile photo removed for user ${userId}`);
+      
+      res.json({ message: "Profile photo removed successfully" });
+    } catch (error) {
+      console.error("Profile photo removal error:", error);
+      res.status(500).json({ error: "Failed to remove profile photo" });
+    }
+  }
+);
+
 // GET /user/profile
 router.get("/user/profile", authenticateToken, async (req: Request, res: Response): Promise<any> => {
   const userId = (req as any).user.userId;
@@ -485,6 +589,7 @@ router.get("/user/profile", authenticateToken, async (req: Request, res: Respons
         height: true,
         birthday: true,
         gender: true,
+        profilePhoto: true, // Make sure to include profilePhoto
       },
     });
 
@@ -497,11 +602,10 @@ router.get("/user/profile", authenticateToken, async (req: Request, res: Respons
   }
 });
 
-// PUT /user/profile
+// PUT /user/profile - Updated to handle profile data without photo upload
 router.put(
   "/user/profile",
   authenticateToken,
-  upload.single("profilePhoto"), // This handles single file upload field 'profilePhoto'
   async (req: Request, res: Response): Promise<any> => {
     const { bodyweight, height, birthday, gender } = req.body;
     const userId = (req as any).user.userId;
@@ -515,31 +619,33 @@ router.put(
         }
       }
 
-      let profilePhotoPath = undefined;
-      if (req.file) {
-        // You can store relative path or URL depending on your setup
-        profilePhotoPath = `/uploads/profile-photos/${req.file.filename}`;
-      }
-
-      await prisma.user.update({
+      const updatedUser = await prisma.user.update({
         where: { id: userId },
         data: {
           bodyweight: bodyweight || null,
           height: height || null,
           birthday: birthdayDate,
           gender: gender || null,
-          ...(profilePhotoPath ? { profilePhoto: profilePhotoPath } : {}),
+        },
+        select: {
+          bodyweight: true,
+          height: true,
+          birthday: true,
+          gender: true,
+          profilePhoto: true,
         },
       });
 
-      res.status(200).json({ message: "Profile updated successfully", profilePhoto: profilePhotoPath });
+      res.status(200).json({ 
+        message: "Profile updated successfully", 
+        ...updatedUser 
+      });
     } catch (err) {
       console.error("Profile update error:", err);
       res.status(500).json({ error: "Update failed" });
     }
   }
 );
-
 
 // GET /auth/programmes
 router.get('/programmes', authenticateToken, async (req: Request, res: Response): Promise<any> => {

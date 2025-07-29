@@ -65,7 +65,21 @@ export default function Dashboard() {
         setFirstName(userData.firstName);
         setSurname(userData.surname);
         setMessage(userData.message);
-        setProfilePhoto(userData.profilePhoto);
+
+        // Fetch profile data to get profile photo
+        const profileRes = await fetch(
+          "http://localhost:4242/auth/user/profile",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          setProfilePhoto(profileData.profilePhoto);
+        }
 
         setLoading(false);
       } catch (err) {
@@ -146,20 +160,34 @@ export default function Dashboard() {
           Dashboard
         </h2>
         <div
-          className="w-10 h-10 rounded-full overflow-hidden cursor-pointer border-2 border-[#246BFD] hover:border-[#1a52cc] transition-colors"
+          className="w-10 h-10 rounded-full overflow-hidden cursor-pointer border-2 border-[#246BFD] hover:border-[#1a52cc] transition-colors relative"
           onClick={() => navigate("/settings")}
         >
           {profilePhoto ? (
             <img
-              src={profilePhoto}
+              src={`http://localhost:4242${profilePhoto}`}
               alt="Profile"
               className="w-full h-full object-cover"
+              onError={(e) => {
+                console.error("Failed to load profile image:", profilePhoto);
+                e.currentTarget.style.display = "none";
+                const fallback =
+                  e.currentTarget.parentElement!.querySelector(
+                    ".fallback-icon"
+                  );
+                if (fallback) {
+                  (fallback as HTMLElement).style.display = "flex";
+                }
+              }}
             />
-          ) : (
-            <div className="w-full h-full bg-[#262A34] flex items-center justify-center">
-              <User size={20} className="text-[#5E6272]" />
-            </div>
-          )}
+          ) : null}
+          <div
+            className={`absolute inset-0 w-full h-full bg-[#262A34] flex items-center justify-center fallback-icon ${
+              profilePhoto ? "hidden" : "flex"
+            }`}
+          >
+            <User size={20} className="text-[#5E6272]" />
+          </div>
         </div>
       </div>
 

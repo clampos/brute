@@ -7,9 +7,9 @@ import {
   Copy,
   Check,
   X,
+  User,
 } from "lucide-react";
 import logo from "../assets/logo.png";
-import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
 
 interface ReferralStats {
@@ -107,12 +107,13 @@ export default function Settings() {
         );
         setGender(data.gender ?? null);
         setProfilePhoto(data.profilePhoto ?? null);
+        console.log("Received profile photo path:", data.profilePhoto);
+
         setProfileError(null);
       })
       .catch((err) => {
         console.error("Failed to load profile:", err);
         setProfileError("Failed to load profile data");
-        // Don't redirect on profile fetch error - user might still want to use other features
       });
   }, [navigate]);
 
@@ -121,6 +122,8 @@ export default function Settings() {
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    console.log("Selected file:", file.name, file.type, file.size);
 
     // Validate file type
     if (!file.type.startsWith("image/")) {
@@ -141,10 +144,13 @@ export default function Settings() {
     }
 
     setPhotoUploading(true);
+    setProfileError(null);
 
     try {
       const formData = new FormData();
       formData.append("profilePhoto", file);
+
+      console.log("Uploading file to server...");
 
       const response = await fetch(
         "http://localhost:4242/auth/user/profile-photo",
@@ -152,10 +158,13 @@ export default function Settings() {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
+            // Don't set Content-Type header - let browser set it for FormData
           },
           body: formData,
         }
       );
+
+      console.log("Upload response status:", response.status);
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -163,14 +172,22 @@ export default function Settings() {
           navigate("/login");
           return;
         }
-        throw new Error("Failed to upload photo");
+        const errorData = await response.text();
+        console.error("Upload error response:", errorData);
+        throw new Error(`Upload failed: ${response.status}`);
       }
 
       const result = await response.json();
+      console.log("Upload successful:", result);
+
       setProfilePhoto(result.profilePhoto);
       alert("Profile photo updated successfully!");
+
+      // Clear the file input
+      event.target.value = "";
     } catch (error) {
       console.error("Error uploading photo:", error);
+      setProfileError("Failed to upload photo. Please try again.");
       alert("Failed to upload photo. Please try again.");
     } finally {
       setPhotoUploading(false);
@@ -185,6 +202,7 @@ export default function Settings() {
     }
 
     setPhotoUploading(true);
+    setProfileError(null);
 
     try {
       const response = await fetch(
@@ -210,6 +228,7 @@ export default function Settings() {
       alert("Profile photo removed successfully!");
     } catch (error) {
       console.error("Error removing photo:", error);
+      setProfileError("Failed to remove photo. Please try again.");
       alert("Failed to remove photo. Please try again.");
     } finally {
       setPhotoUploading(false);
@@ -308,53 +327,6 @@ export default function Settings() {
       setProfileSaving(false);
     }
   };
-
-  // Fetch user profile info
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    console.log("Fetching profile with token:", token.substring(0, 20) + "...");
-
-    fetch("http://localhost:4242/auth/user/profile", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    })
-      .then((res) => {
-        console.log("Profile fetch response status:", res.status);
-        if (!res.ok) {
-          if (res.status === 401) {
-            localStorage.removeItem("token");
-            navigate("/login");
-            return;
-          }
-          throw new Error(`Failed to fetch profile: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then((data) => {
-        console.log("Profile data received:", data);
-        setBodyweight(data.bodyweight ?? null);
-        setHeight(data.height ?? null);
-        setBirthday(
-          data.birthday
-            ? new Date(data.birthday).toISOString().split("T")[0]
-            : ""
-        );
-        setGender(data.gender ?? null);
-        setProfileError(null);
-      })
-      .catch((err) => {
-        console.error("Failed to load profile:", err);
-        setProfileError("Failed to load profile data");
-        // Don't redirect on profile fetch error - user might still want to use other features
-      });
-  }, [navigate]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -644,18 +616,35 @@ export default function Settings() {
 
             <div className="space-y-3 text-white">
               <div className="flex flex-col items-center space-y-2 mb-4">
-                <div className="w-24 h-24 rounded-full bg-[#1F222B] border-2 border-[#5E6272] overflow-hidden flex items-center justify-center">
+                <div className="w-24 h-24 rounded-full bg-[#1F222B] border-2 border-[#5E6272] overflow-hidden flex items-center justify-center relative">
                   {profilePhoto ? (
                     <img
-                      src={profilePhoto}
+                      src={`http://localhost:4242${profilePhoto}`}
                       alt="Profile"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        console.error(
+                          "Failed to load profile image:",
+                          profilePhoto
+                        );
+                        e.currentTarget.style.display = "none";
+                        const fallback =
+                          e.currentTarget.parentElement!.querySelector(
+                            ".fallback-icon"
+                          );
+                        if (fallback) {
+                          (fallback as HTMLElement).style.display = "flex";
+                        }
+                      }}
                     />
-                  ) : (
-                    <span className="text-[#5E6272] text-xl select-none">
-                      No Photo
-                    </span>
-                  )}
+                  ) : null}
+                  <div
+                    className={`absolute inset-0 w-full h-full bg-[#1F222B] flex items-center justify-center fallback-icon ${
+                      profilePhoto ? "hidden" : "flex"
+                    }`}
+                  >
+                    <User size={32} className="text-[#5E6272]" />
+                  </div>
                 </div>
 
                 <div className="flex gap-3">

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
-import icon from "../assets/icon_placeholder.png";
 import BottomBar from "../components/BottomBar";
 import {
   Dumbbell,
