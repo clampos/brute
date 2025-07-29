@@ -39,15 +39,22 @@ brute
 │  │  │  │  └─ migration.sql
 │  │  │  ├─ 20250721150356_add_is_selected
 │  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250722165817_add_profile_fields
+│  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250722170447_add_profile_fields
+│  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250728094111_add_birthday_field
+│  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250728131150_add_new_profile_photo
+│  │  │  │  └─ migration.sql
 │  │  │  └─ migration_lock.toml
 │  │  ├─ schema.prisma
 │  │  └─ seed.ts
 │  ├─ prisma.ts
 │  ├─ programmes.ts
 │  ├─ protected.ts
-│  ├─ routes
-│  │  └─ stripe.js
 │  ├─ tsconfig.json
+│  ├─ uploads
 │  ├─ utils
 │  │  └─ referralUtils.ts
 │  └─ webhook.ts

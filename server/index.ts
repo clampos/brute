@@ -5,6 +5,7 @@ import bodyParser from 'body-parser';
 import auth from './auth';
 import protectedRoutes from './protected';
 import webhook from './webhook';
+import path from 'path';
 
 
 dotenv.config();
@@ -16,6 +17,12 @@ app.use(cors());
 
 // ✅ Route-mounted raw body handler
 app.use('/webhook', webhook);
+
+// Serve static files for profile photos
+// Serve static files for profile photos
+app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+
+
 
 // ✅ All other routes use JSON parsing
 app.use(bodyParser.json());
