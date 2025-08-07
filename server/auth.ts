@@ -1047,4 +1047,40 @@ router.post("/user-programs", authenticateToken, async (req: Request, res: Respo
   }
 });
 
+// Add this endpoint to your auth.ts file
+
+// GET /auth/user-programs - Get user's programmes
+router.get("/user-programs", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const userPrograms = await prisma.userProgram.findMany({
+      where: { userId },
+      include: {
+        programme: {
+          include: {
+            exercises: {
+              include: {
+                exercise: true,
+              },
+              orderBy: [
+                { dayNumber: 'asc' },
+                { orderIndex: 'asc' },
+              ],
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    res.json(userPrograms);
+  } catch (error) {
+    console.error('Error fetching user programs:', error);
+    res.status(500).json({ error: 'Failed to fetch user programs' });
+  }
+});
+
 export default router;
