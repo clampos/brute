@@ -1,3 +1,4 @@
+// webhook.ts - Improved version with better error handling
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
@@ -8,15 +9,15 @@ dotenv.config();
 
 const router = express.Router();
 
-// Initialize Stripe instance with secret key
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2025-04-30.basil',
 });
 
-// Helper function to award referral credits (Updated version)
+// Improved helper function with better error handling
 async function awardReferralCredits(referrerId: string, newUserId: string) {
   try {
-    // Get referrer and new user details
+    console.log(`🎁 Starting referral credit award process: ${referrerId} -> ${newUserId}`);
+    
     const referrer = await prisma.user.findUnique({
       where: { id: referrerId }
     });
@@ -30,56 +31,72 @@ async function awardReferralCredits(referrerId: string, newUserId: string) {
       return;
     }
 
-    // Award 1 month credit to the referrer
-    await prisma.user.update({
-      where: { id: referrerId },
-      data: {
-        referralCredits: {
-          increment: 1
-        },
-        freeMonthsEarned: {
-          increment: 1
+    // Award credits in separate transactions to prevent rollback issues
+    try {
+      await prisma.user.update({
+        where: { id: referrerId },
+        data: {
+          referralCredits: {
+            increment: 1
+          },
+          freeMonthsEarned: {
+            increment: 1
+          }
         }
-      }
-    });
+      });
+      console.log(`✅ Referrer credits awarded: ${referrer.firstName} ${referrer.surname}`);
+    } catch (error) {
+      console.error('❌ Failed to award referrer credits:', error);
+    }
 
-    // Award 1 month credit to the new user 
-    // (this is in addition to the discount they already got during signup)
-    await prisma.user.update({
-      where: { id: newUserId },
-      data: {
-        referralCredits: {
-          increment: 1
-        },
-        freeMonthsEarned: {
-          increment: 1  // Track that they earned a free month too
+    try {
+      await prisma.user.update({
+        where: { id: newUserId },
+        data: {
+          referralCredits: {
+            increment: 1
+          },
+          freeMonthsEarned: {
+            increment: 1
+          }
         }
-      }
-    });
+      });
+      console.log(`✅ New user credits awarded: ${newUser.firstName} ${newUser.surname}`);
+    } catch (error) {
+      console.error('❌ Failed to award new user credits:', error);
+    }
 
-    // Create Stripe billing credits for both users
-    // This ensures the credits are actually applied to their accounts
-    await createStripeBillingCredit(referrer.email, 'Referral reward - you referred a friend!');
-    await createStripeBillingCredit(newUser.email, 'Referral bonus - welcome to BRUTE!');
+    // Create Stripe billing credits (don't let this block subscription activation)
+    try {
+      await createStripeBillingCredit(referrer.email, 'Referral reward - you referred a friend!');
+      await createStripeBillingCredit(newUser.email, 'Referral bonus - welcome to BRUTE!');
+    } catch (error) {
+      console.error('❌ Failed to create Stripe billing credits:', error);
+      // Don't throw - this shouldn't prevent subscription from activating
+    }
 
-    // Send reward email to referrer
-    await sendReferralRewardEmail(
-      referrer.email,
-      referrer.firstName,
-      `${newUser.firstName} ${newUser.surname}`,
-      newUser.email
-    );
+    // Send reward email (don't let this block subscription activation)
+    try {
+      await sendReferralRewardEmail(
+        referrer.email,
+        referrer.firstName,
+        `${newUser.firstName} ${newUser.surname}`,
+        newUser.email
+      );
+    } catch (error) {
+      console.error('❌ Failed to send referral reward email:', error);
+      // Don't throw - this shouldn't prevent subscription from activating
+    }
 
-    console.log(`✅ Referral credits awarded: Referrer ${referrer.firstName} ${referrer.surname} and New User ${newUser.firstName} ${newUser.surname}`);
+    console.log(`✅ Referral processing completed successfully`);
   } catch (error) {
-    console.error('❌ Error awarding referral credits:', error);
+    console.error('❌ Error in referral credit process:', error);
+    // Don't throw - this shouldn't prevent subscription from activating
   }
 }
 
-// Helper function to create Stripe billing credits
 async function createStripeBillingCredit(email: string, description: string) {
   try {
-    // Find the customer by email
     const customers = await stripe.customers.list({
       email: email,
       limit: 1
@@ -91,14 +108,11 @@ async function createStripeBillingCredit(email: string, description: string) {
     }
 
     const customer = customers.data[0];
-
-    // Get the subscription price amount (you'll need to fetch this from your price)
     const price = await stripe.prices.retrieve(process.env.STRIPE_PRICE_ID!);
-    const creditAmount = price.unit_amount || 0; // Amount in cents
+    const creditAmount = price.unit_amount || 0;
 
-    // Create a credit balance transaction
     await stripe.customers.createBalanceTransaction(customer.id, {
-      amount: -creditAmount, // Negative amount creates a credit
+      amount: -creditAmount,
       currency: price.currency || 'usd',
       description: description
     });
@@ -106,18 +120,18 @@ async function createStripeBillingCredit(email: string, description: string) {
     console.log(`✅ Stripe billing credit created for ${email}: $${creditAmount/100}`);
   } catch (error) {
     console.error(`❌ Failed to create Stripe billing credit for ${email}:`, error);
+    throw error; // Let caller handle this
   }
 }
 
-// Stripe webhook endpoint
+// Improved webhook handler
 router.post(
   '/',
-  express.raw({ type: 'application/json' }), // Raw body parser required by Stripe
+  express.raw({ type: 'application/json' }),
   async (req: Request, res: Response): Promise<any> => {
     const sig = req.headers['stripe-signature']!;
     let event: Stripe.Event;
 
-    // Verify that the event came from Stripe
     try {
       event = stripe.webhooks.constructEvent(
         req.body,
@@ -126,25 +140,22 @@ router.post(
       );
     } catch (err: any) {
       console.error('❌ Webhook signature verification failed.', err.message);
-      return res.sendStatus(400);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    console.log(`📦 Received event: ${event.type}`);
+    console.log(`📦 Received event: ${event.type} at ${new Date().toISOString()}`);
 
     // Handle successful checkout session
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
+      console.log(`💳 Processing checkout session: ${session.id}`);
 
-      // Attempt to get email directly from session
+      // Get email with fallback logic
       let email: string | null = session.customer_email ?? null;
 
-      // Fallback: retrieve customer details if email is not present
       if (!email && session.customer) {
         try {
-          const customerResult = await stripe.customers.retrieve(
-            session.customer as string
-          );
-
+          const customerResult = await stripe.customers.retrieve(session.customer as string);
           if (customerResult.deleted !== true) {
             email = customerResult.email ?? null;
           }
@@ -153,73 +164,77 @@ router.post(
         }
       }
 
-      if (email) {
-        console.log(`✅ User subscribed: ${email}`);
+      if (!email) {
+        console.error('❌ No email found for checkout session:', session.id);
+        return res.status(400).json({ error: 'No email found' });
+      }
 
-        // Get metadata from session
+      console.log(`✅ Processing subscription for email: ${email}`);
+
+      try {
+        // CRITICAL: Mark user as subscribed FIRST, before any other processing
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+
+        if (!existingUser) {
+          console.error(`❌ User not found for email: ${email}`);
+          return res.status(400).json({ error: 'User not found' });
+        }
+
+        // Update subscription status immediately
+        await prisma.user.update({
+          where: { email },
+          data: { subscribed: true },
+        });
+
+        console.log(`✅ User marked as subscribed: ${email}`);
+
+        // Get metadata for referral processing
         const userId = session.metadata?.userId;
         const referredBy = session.metadata?.referredBy;
         const referralCode = session.metadata?.referralCode;
         const newUserReferralCode = session.metadata?.newUserReferralCode;
 
-        const existingUser = await prisma.user.findUnique({ where: { email } });
-
-        if (existingUser) {
-          // Mark user as subscribed
-          await prisma.user.update({
-            where: { email },
-            data: { subscribed: true },
-          });
-
-          // Handle referral rewards - award credits to both users
-          if (referredBy && referredBy !== '' && userId) {
-            console.log('🎁 Processing referral rewards for:', { referredBy, userId });
+        // Process referrals asynchronously (don't block response)
+        if (referredBy && referredBy !== '' && userId) {
+          console.log('🎁 Processing referral rewards (async):', { referredBy, userId });
+          
+          // Run referral processing in background
+          setImmediate(async () => {
             await awardReferralCredits(referredBy, userId);
             
-            // Send special welcome email for referred users
-            const referrer = await prisma.user.findUnique({
-              where: { id: referredBy }
-            });
-            
-            if (referrer && newUserReferralCode) {
-              await sendReferralWelcomeEmail(
-                email,
-                `${referrer.firstName} ${referrer.surname}`,
-                newUserReferralCode
-              );
+            // Send welcome email
+            try {
+              const referrer = await prisma.user.findUnique({
+                where: { id: referredBy }
+              });
+              
+              if (referrer && newUserReferralCode) {
+                await sendReferralWelcomeEmail(
+                  email,
+                  `${referrer.firstName} ${referrer.surname}`,
+                  newUserReferralCode
+                );
+              }
+            } catch (error) {
+              console.error('❌ Failed to send referral welcome email:', error);
             }
-          } else {
-            // Send regular welcome email
-            await sendConfirmationEmail(email, newUserReferralCode);
-          }
-        } else {
-          // If user doesn't exist, create a placeholder account
-          // This shouldn't happen with your current flow, but good to have as backup
-          const newUser = await prisma.user.create({
-            data: {
-              email,
-              password: '', // No password because user signed up via Stripe checkout
-              subscribed: true,
-              firstName: 'Unknown',
-              surname: 'Unknown',
-              referralCode: newUserReferralCode || `Unknown${Date.now()}`,
-            },
           });
-          
-          // If this was a referral, award credits
-          if (referredBy && referredBy !== '') {
-            await awardReferralCredits(referredBy, newUser.id.toString());
-          }
-          
-          await sendConfirmationEmail(email, newUserReferralCode);
+        } else {
+          // Send regular welcome email asynchronously
+          setImmediate(async () => {
+            try {
+              await sendConfirmationEmail(email, newUserReferralCode);
+            } catch (error) {
+              console.error('❌ Failed to send confirmation email:', error);
+            }
+          });
         }
 
-        // Log referral info for debugging
-        if (referralCode) {
-          console.log(`🎁 Referral used: ${referralCode} by ${email}`);
-        }
-      } else {
-        console.warn('⚠️ Email not found in session or customer object.');
+        console.log(`✅ Subscription processing completed for: ${email}`);
+
+      } catch (error) {
+        console.error('❌ Error processing subscription:', error);
+        return res.status(500).json({ error: 'Failed to process subscription' });
       }
     }
 
@@ -255,7 +270,7 @@ router.post(
       console.log(`ℹ️ Ignored event type: ${event.type}`);
     }
 
-    // Acknowledge receipt of the event
+    // Always acknowledge receipt quickly
     res.json({ received: true });
   }
 );

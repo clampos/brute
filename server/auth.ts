@@ -180,27 +180,81 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
   }
 });
 
+// Add this improved version to your auth.ts file
+
 // GET /auth/token?email=...
 router.get('/token', async (req: Request, res: Response): Promise<any> => {
   const email = req.query.email as string;
 
+  console.log(`🔍 Token request for email: ${email} at ${new Date().toISOString()}`);
+
   if (!email) {
+    console.error('❌ Token request missing email');
     return res.status(400).json({ error: 'Email required' });
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  try {
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        subscribed: true,
+        createdAt: true,
+        firstName: true,
+        surname: true
+      }
+    });
 
-  if (!user || !user.subscribed) {
-    return res.status(403).json({ error: 'User not found or not subscribed' });
+    console.log(`📊 User found:`, {
+      id: user?.id,
+      email: user?.email,
+      subscribed: user?.subscribed,
+      createdAt: user?.createdAt,
+      name: user ? `${user.firstName} ${user.surname}` : 'N/A'
+    });
+
+    if (!user) {
+      console.error(`❌ User not found for email: ${email}`);
+      return res.status(404).json({ 
+        error: 'User not found',
+        debug: { email, timestamp: new Date().toISOString() }
+      });
+    }
+
+    if (!user.subscribed) {
+      console.error(`❌ User not subscribed: ${email}`, {
+        userId: user.id,
+        subscribed: user.subscribed,
+        createdAt: user.createdAt
+      });
+      return res.status(403).json({ 
+        error: 'User not subscribed',
+        debug: { 
+          email, 
+          userId: user.id, 
+          subscribed: user.subscribed,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET!,
+      { expiresIn: '1d' }
+    );
+
+    console.log(`✅ Token generated successfully for: ${email}`);
+    res.json({ token });
+    
+  } catch (error) {
+    console.error('❌ Database error in token endpoint:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      debug: { email, timestamp: new Date().toISOString() }
+    });
   }
-
-  const token = jwt.sign(
-    { userId: user.id, email: user.email },
-    process.env.JWT_SECRET!,
-    { expiresIn: '1d' }
-  );
-
-  res.json({ token });
 });
 
 // Get user's referral stats
