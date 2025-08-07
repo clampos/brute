@@ -41,6 +41,8 @@ type ProgrammeDay = {
   availableExercises: Exercise[];
   showAvailable: boolean;
   hasChanges: boolean;
+  exerciseOptions: Exercise[]; // Initial 3 exercise options
+  showMoreOptions: boolean; // Whether to show additional options
 };
 
 // Add proper type for the API response
@@ -62,7 +64,7 @@ type ProgrammeResponse = {
   bodyPartFocus?: string;
   daysPerWeek?: number;
   exercises?: ProgrammeExerciseResponse[];
-  error?: string; // Added error property
+  error?: string;
 };
 
 export default function ProgrammeEditor() {
@@ -87,14 +89,70 @@ export default function ProgrammeEditor() {
     }));
   };
 
+  // Get 3 random exercises for initial display
+  const getRandomExercises = (
+    exercises: Exercise[],
+    count: number = 3
+  ): Exercise[] => {
+    const shuffled = [...exercises].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, count);
+  };
+
+  // Load initial exercise options for a day
+  const loadInitialExerciseOptions = async (dayNumber: number) => {
+    try {
+      const muscleGroups = getMuscleGroupsForFocus(bodyFocus);
+      const exercisePromises = muscleGroups.map((group) =>
+        fetchAvailableExercises(group)
+      );
+      const exerciseArrays = await Promise.all(exercisePromises);
+      const fetchedExercises = exerciseArrays.flat();
+
+      // Remove duplicates based on exercise ID
+      const uniqueExercises = fetchedExercises.filter(
+        (exercise, index, self) =>
+          index === self.findIndex((e) => e.id === exercise.id)
+      );
+
+      const initialOptions = getRandomExercises(uniqueExercises, 3);
+
+      setDays((prevDays) =>
+        prevDays.map((day) =>
+          day.dayNumber === dayNumber
+            ? {
+                ...day,
+                exerciseOptions: initialOptions.map((ex) => ({
+                  ...ex,
+                  isSelected: day.exercises.some(
+                    (existing) => existing.exerciseId === ex.id
+                  ),
+                })),
+                availableExercises: uniqueExercises.map((ex) => ({
+                  ...ex,
+                  isSelected: day.exercises.some(
+                    (existing) => existing.exerciseId === ex.id
+                  ),
+                })),
+              }
+            : day
+        )
+      );
+
+      setAllExercises(uniqueExercises);
+    } catch (err) {
+      console.error("Error loading initial exercise options:", err);
+      setError("Failed to load exercise options");
+    }
+  };
+
   const toggleAvailableExercises = async (dayNumber: number) => {
     const currentDay = days.find((d) => d.dayNumber === dayNumber);
-    const isCurrentlyShowing = currentDay?.showAvailable || false;
+    const isCurrentlyShowing = currentDay?.showMoreOptions || false;
 
     setDays((prevDays) =>
       prevDays.map((day) =>
         day.dayNumber === dayNumber
-          ? { ...day, showAvailable: !day.showAvailable }
+          ? { ...day, showMoreOptions: !day.showMoreOptions }
           : day
       )
     );
@@ -192,10 +250,13 @@ export default function ProgrammeEditor() {
           ? {
               ...day,
               exercises: [...day.exercises, tempProgrammeExercise],
+              exerciseOptions: day.exerciseOptions.map((ex) =>
+                ex.id === exerciseId ? { ...ex, isSelected: true } : ex
+              ),
               availableExercises: day.availableExercises.map((ex) =>
                 ex.id === exerciseId ? { ...ex, isSelected: true } : ex
               ),
-              hasChanges: true, // Mark day as having changes
+              hasChanges: true,
             }
           : day
       )
@@ -215,10 +276,13 @@ export default function ProgrammeEditor() {
               exercises: day.exercises.filter(
                 (ex) => ex.id !== programmeExerciseId
               ),
+              exerciseOptions: day.exerciseOptions.map((ex) =>
+                ex.id === exerciseId ? { ...ex, isSelected: false } : ex
+              ),
               availableExercises: day.availableExercises.map((ex) =>
                 ex.id === exerciseId ? { ...ex, isSelected: false } : ex
               ),
-              hasChanges: true, // Mark day as having changes
+              hasChanges: true,
             }
           : day
       )
@@ -251,7 +315,7 @@ export default function ProgrammeEditor() {
 
       // Then add all current exercises (including new ones)
       const exercisesToAdd = day.exercises.filter((ex) => ex.isSelected);
-      const addedExercises: ProgrammeExercise[] = []; // Fixed type annotation
+      const addedExercises: ProgrammeExercise[] = [];
 
       for (const exercise of exercisesToAdd) {
         const postRes = await fetch(
@@ -293,8 +357,8 @@ export default function ProgrammeEditor() {
             ? {
                 ...day,
                 exercises: addedExercises,
-                hasChanges: false, // Clear the changes flag
-                showAvailable: false, // Hide available exercises after confirming
+                hasChanges: false,
+                showMoreOptions: false,
               }
             : day
         )
@@ -436,7 +500,9 @@ export default function ProgrammeEditor() {
             dayNumber: i,
             exercises: grouped[i] || [],
             availableExercises: [],
+            exerciseOptions: [],
             showAvailable: false,
+            showMoreOptions: false,
             hasChanges: false,
           });
         }
@@ -445,6 +511,11 @@ export default function ProgrammeEditor() {
         setOpenDays(
           Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
         );
+
+        // Load initial exercise options for each day
+        for (const day of loadedDays) {
+          await loadInitialExerciseOptions(day.dayNumber);
+        }
       } catch (err: any) {
         console.error("Error loading programme:", err);
         setError(err.message || "Unknown error occurred");
@@ -569,118 +640,170 @@ export default function ProgrammeEditor() {
                   )}
                 </div>
 
-                {/* Exercise List */}
+                {/* Exercise Content */}
                 {isOpen && (
-                  <div className="space-y-2">
+                  <div className="space-y-4">
                     {/* Selected Exercises */}
-                    {day.exercises.length > 0 ? (
-                      day.exercises.map((ex) => (
-                        <div
-                          key={ex.id}
-                          className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${
-                            ex.id.startsWith("temp-")
-                              ? "bg-[#1A1D23] border-orange-500/50" // Temporary/unsaved exercise
-                              : "bg-[#1C1F26] border-[#2F3544]" // Saved exercise
-                          }`}
-                        >
-                          <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
-                          <div className="flex-1 text-center">
-                            <p className="font-semibold text-white flex items-center justify-center gap-2">
-                              {ex.name}
-                              {ex.id.startsWith("temp-") && (
-                                <span className="text-xs text-orange-400">
-                                  (unsaved)
-                                </span>
-                              )}
-                            </p>
-                            <div className="flex justify-center gap-3 text-sm mt-1">
-                              <span className="text-[#00FFAD]">
-                                {ex.sets} sets
-                              </span>
-                              <span className="text-[#5E6272]">
-                                {ex.reps} reps
-                              </span>
-                            </div>
-                          </div>
-                          <XCircle
-                            className="text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400 transition-colors"
-                            onClick={() =>
-                              handleRemoveExercise(
-                                ex.id,
-                                ex.exerciseId,
-                                day.dayNumber
-                              )
-                            }
-                          />
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-[#5E6272] text-sm text-center py-4">
-                        No exercises selected yet.
-                      </p>
-                    )}
-
-                    {/* Add Exercise Button */}
-                    <button
-                      onClick={() => toggleAvailableExercises(day.dayNumber)}
-                      className="w-full text-sm text-blue-400 flex items-center justify-center gap-2 py-2 hover:text-blue-300 transition-colors"
-                    >
-                      <Plus size={16} />
-                      {day.showAvailable
-                        ? "Hide Available Exercises"
-                        : "Add Exercise"}
-                    </button>
-
-                    {/* Available Exercises */}
-                    {day.showAvailable && (
-                      <div className="mt-3 space-y-2 border-t border-[#2F3544] pt-3">
+                    {day.exercises.length > 0 && (
+                      <div className="space-y-2">
                         <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                          Available Exercises ({bodyFocus})
+                          Selected Exercises
                         </h4>
-                        {day.availableExercises.length > 0 ? (
-                          day.availableExercises
-                            .filter((ex) => !ex.isSelected)
-                            .map((ex) => (
-                              <div
-                                key={ex.id}
-                                className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors"
-                                onClick={() =>
-                                  handleAddExercise(ex.id, day.dayNumber)
-                                }
-                              >
-                                <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
-                                <div className="flex-1 text-center">
-                                  <p className="font-semibold text-[#9CA3AF]">
-                                    {ex.name}
-                                  </p>
-                                  <div className="flex justify-center gap-3 text-sm mt-1">
-                                    <span className="text-[#6B7280]">
-                                      {ex.muscleGroup}
-                                    </span>
-                                    <span className="text-[#6B7280]">
-                                      {ex.category}
-                                    </span>
-                                    {ex.equipment && (
-                                      <span className="text-[#6B7280]">
-                                        {ex.equipment}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <Plus className="text-blue-400 w-5 h-5 ml-3" />
+                        {day.exercises.map((ex) => (
+                          <div
+                            key={ex.id}
+                            className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${
+                              ex.id.startsWith("temp-")
+                                ? "bg-[#1A1D23] border-orange-500/50"
+                                : "bg-[#1C1F26] border-[#2F3544]"
+                            }`}
+                          >
+                            <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
+                            <div className="flex-1 text-center">
+                              <p className="font-semibold text-white flex items-center justify-center gap-2">
+                                {ex.name}
+                                {ex.id.startsWith("temp-") && (
+                                  <span className="text-xs text-orange-400">
+                                    (unsaved)
+                                  </span>
+                                )}
+                              </p>
+                              <div className="flex justify-center gap-3 text-sm mt-1">
+                                <span className="text-[#00FFAD]">
+                                  {ex.sets} sets
+                                </span>
+                                <span className="text-[#5E6272]">
+                                  {ex.reps} reps
+                                </span>
                               </div>
-                            ))
-                        ) : day.availableExercises.length === 0 ? (
-                          <p className="text-[#5E6272] text-sm text-center py-4">
-                            Loading exercises...
-                          </p>
-                        ) : (
-                          <p className="text-[#5E6272] text-sm text-center py-4">
-                            All available exercises have been added.
-                          </p>
-                        )}
+                            </div>
+                            <XCircle
+                              className="text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400 transition-colors"
+                              onClick={() =>
+                                handleRemoveExercise(
+                                  ex.id,
+                                  ex.exerciseId,
+                                  day.dayNumber
+                                )
+                              }
+                            />
+                          </div>
+                        ))}
                       </div>
                     )}
+
+                    {/* Initial Exercise Options (Always show 3) */}
+                    <div className="space-y-2">
+                      <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                        Recommended for {bodyFocus}
+                      </h4>
+                      {day.exerciseOptions.length > 0 ? (
+                        day.exerciseOptions
+                          .filter((ex) => !ex.isSelected)
+                          .map((ex) => (
+                            <div
+                              key={ex.id}
+                              className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors"
+                              onClick={() =>
+                                handleAddExercise(ex.id, day.dayNumber)
+                              }
+                            >
+                              <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
+                              <div className="flex-1 text-center">
+                                <p className="font-semibold text-[#9CA3AF]">
+                                  {ex.name}
+                                </p>
+                                <div className="flex justify-center gap-3 text-sm mt-1">
+                                  <span className="text-[#6B7280]">
+                                    {ex.muscleGroup}
+                                  </span>
+                                  <span className="text-[#6B7280]">
+                                    {ex.category}
+                                  </span>
+                                  {ex.equipment && (
+                                    <span className="text-[#6B7280]">
+                                      {ex.equipment}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <Plus className="text-blue-400 w-5 h-5 ml-3" />
+                            </div>
+                          ))
+                      ) : (
+                        <p className="text-[#5E6272] text-sm text-center py-4">
+                          Loading exercise options...
+                        </p>
+                      )}
+
+                      {/* Add More Exercise Button */}
+                      <button
+                        onClick={() => toggleAvailableExercises(day.dayNumber)}
+                        className="w-full text-sm text-blue-400 flex items-center justify-center gap-2 py-2 hover:text-blue-300 transition-colors"
+                      >
+                        <Plus size={16} />
+                        {day.showMoreOptions
+                          ? "Hide More Options"
+                          : "Add More Exercises"}
+                      </button>
+
+                      {/* Additional Available Exercises */}
+                      {day.showMoreOptions && (
+                        <div className="mt-3 space-y-2 border-t border-[#2F3544] pt-3">
+                          <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                            All Available Exercises ({bodyFocus})
+                          </h4>
+                          {day.availableExercises.length > 0 ? (
+                            day.availableExercises
+                              .filter((ex) => !ex.isSelected)
+                              .filter(
+                                (ex) =>
+                                  !day.exerciseOptions.some(
+                                    (opt) => opt.id === ex.id
+                                  )
+                              ) // Don't show exercises already in initial options
+                              .map((ex) => (
+                                <div
+                                  key={ex.id}
+                                  className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors"
+                                  onClick={() =>
+                                    handleAddExercise(ex.id, day.dayNumber)
+                                  }
+                                >
+                                  <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
+                                  <div className="flex-1 text-center">
+                                    <p className="font-semibold text-[#9CA3AF]">
+                                      {ex.name}
+                                    </p>
+                                    <div className="flex justify-center gap-3 text-sm mt-1">
+                                      <span className="text-[#6B7280]">
+                                        {ex.muscleGroup}
+                                      </span>
+                                      <span className="text-[#6B7280]">
+                                        {ex.category}
+                                      </span>
+                                      {ex.equipment && (
+                                        <span className="text-[#6B7280]">
+                                          {ex.equipment}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <Plus className="text-blue-400 w-5 h-5 ml-3" />
+                                </div>
+                              ))
+                          ) : day.availableExercises.length === 0 ? (
+                            <p className="text-[#5E6272] text-sm text-center py-4">
+                              Loading exercises...
+                            </p>
+                          ) : (
+                            <p className="text-[#5E6272] text-sm text-center py-4">
+                              All available exercises have been added.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
