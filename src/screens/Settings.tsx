@@ -8,6 +8,8 @@ import {
   Check,
   X,
   User,
+  Edit3,
+  Save,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import BottomBar from "../components/BottomBar";
@@ -24,6 +26,13 @@ interface ReferralStats {
     createdAt: string;
     subscribed: boolean;
   }>;
+}
+
+interface EditingState {
+  bodyweight: boolean;
+  height: boolean;
+  birthday: boolean;
+  gender: boolean;
 }
 
 export default function Settings() {
@@ -48,9 +57,22 @@ export default function Settings() {
   const [birthday, setBirthday] = useState<string>("");
   const [gender, setGender] = useState<string | null>(null);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
-  const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+
+  // Individual field editing states
+  const [editing, setEditing] = useState<EditingState>({
+    bodyweight: false,
+    height: false,
+    birthday: false,
+    gender: false,
+  });
+  const [fieldLoading, setFieldLoading] = useState<EditingState>({
+    bodyweight: false,
+    height: false,
+    birthday: false,
+    gender: false,
+  });
 
   // Helper function to calculate age from birthday
   const calculateAge = (birthdayString: string): number | null => {
@@ -235,14 +257,15 @@ export default function Settings() {
     }
   };
 
-  const handleProfileSave = async () => {
+  // Individual field save function
+  const handleFieldSave = async (field: keyof EditingState) => {
     const token = localStorage.getItem("token");
     if (!token) {
       navigate("/login");
       return;
     }
 
-    setProfileSaving(true);
+    setFieldLoading({ ...fieldLoading, [field]: true });
     setProfileError(null);
 
     const profileData = {
@@ -252,7 +275,7 @@ export default function Settings() {
       gender: gender || null,
     };
 
-    console.log("Saving profile data:", profileData);
+    console.log(`Saving ${field} field:`, profileData);
 
     try {
       const res = await fetch("http://localhost:4242/auth/user/profile", {
@@ -273,7 +296,6 @@ export default function Settings() {
           return;
         }
 
-        // Get more specific error information
         let errorData;
         try {
           errorData = await res.json();
@@ -288,43 +310,42 @@ export default function Settings() {
       const result = await res.json();
       console.log("Profile update result:", result);
 
+      // Exit editing mode for this field
+      setEditing({ ...editing, [field]: false });
       setProfileError(null);
-      alert("Profile updated successfully!");
 
-      // Optionally refresh the profile data to confirm it was saved
-      try {
-        const refreshRes = await fetch(
-          "http://localhost:4242/auth/user/profile",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        if (refreshRes.ok) {
-          const refreshedData = await refreshRes.json();
-          console.log("Refreshed profile data:", refreshedData);
-          setBodyweight(refreshedData.bodyweight ?? null);
-          setHeight(refreshedData.height ?? null);
-          setBirthday(
-            refreshedData.birthday
-              ? new Date(refreshedData.birthday).toISOString().split("T")[0]
-              : ""
-          );
-          setGender(refreshedData.gender ?? null);
-          setProfilePhoto(refreshedData.profilePhoto ?? null);
-        }
-      } catch (refreshErr) {
-        console.warn("Failed to refresh profile data:", refreshErr);
-        // Don't show error for refresh failure
-      }
+      // Show subtle success feedback
+      const successTimeout = setTimeout(() => {
+        // Could add a success state here if needed
+      }, 1000);
     } catch (err: any) {
       console.error("Profile save error:", err);
       setProfileError(err.message || "Failed to update profile");
     } finally {
-      setProfileSaving(false);
+      setFieldLoading({ ...fieldLoading, [field]: false });
+    }
+  };
+
+  const toggleEdit = (field: keyof EditingState) => {
+    setEditing({ ...editing, [field]: !editing[field] });
+  };
+
+  const formatDisplayValue = (field: keyof EditingState, value: any) => {
+    switch (field) {
+      case "bodyweight":
+        return value ? `${value} kg` : "Not set";
+      case "height":
+        return value ? `${value} cm` : "Not set";
+      case "birthday":
+        if (!value) return "Not set";
+        const age = calculateAge(value);
+        return `${new Date(value).toLocaleDateString()} ${
+          age !== null ? `(Age: ${age})` : ""
+        }`;
+      case "gender":
+        return value || "Not set";
+      default:
+        return value || "Not set";
     }
   };
 
@@ -614,8 +635,9 @@ export default function Settings() {
               </div>
             )}
 
-            <div className="space-y-3 text-white">
-              <div className="flex flex-col items-center space-y-2 mb-4">
+            <div className="space-y-4 text-white">
+              {/* Profile Photo Section */}
+              <div className="flex flex-col items-center space-y-2 mb-6">
                 <div className="w-24 h-24 rounded-full bg-[#1F222B] border-2 border-[#5E6272] overflow-hidden flex items-center justify-center relative">
                   {profilePhoto ? (
                     <img
@@ -680,77 +702,198 @@ export default function Settings() {
                 </div>
               </div>
 
-              <div className="flex flex-col">
-                <label className="text-sm text-[#5E6272] mb-1">
-                  Bodyweight (kg)
-                </label>
-                <input
-                  type="number"
-                  value={bodyweight ?? ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setBodyweight(value === "" ? null : parseFloat(value));
-                  }}
-                  step="0.1"
-                  min="0"
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
-                  placeholder="Enter your weight"
-                />
-              </div>
-              <div className="flex flex-col">
-                <label className="text-sm text-[#5E6272] mb-1">
-                  Height (cm)
-                </label>
-                <input
-                  type="number"
-                  value={height ?? ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setHeight(value === "" ? null : parseFloat(value));
-                  }}
-                  step="0.1"
-                  min="0"
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
-                  placeholder="Enter your height"
-                />
-              </div>
-              <div className="flex flex-col">
-                <label className="text-sm text-[#5E6272] mb-1">
-                  Date of Birth{" "}
-                  {birthday && calculateAge(birthday) !== null
-                    ? `(Age: ${calculateAge(birthday)})`
-                    : ""}
-                </label>
-                <input
-                  type="date"
-                  value={birthday}
-                  onChange={(e) => setBirthday(e.target.value)}
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                  placeholder="Select your birth date"
-                />
-              </div>
-              <div className="flex flex-col">
-                <label className="text-sm text-[#5E6272] mb-1">Gender</label>
-                <select
-                  value={gender ?? ""}
-                  onChange={(e) => setGender(e.target.value || null)}
-                  className="p-3 rounded bg-[#1F222B] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                >
-                  <option value="">Select</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Non-binary">Non-binary</option>
-                  <option value="Other">Other</option>
-                </select>
+              {/* Bodyweight Field */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
+                <div className="flex-1">
+                  <label className="block text-sm text-[#5E6272] mb-1">
+                    Bodyweight
+                  </label>
+                  {editing.bodyweight ? (
+                    <input
+                      type="number"
+                      value={bodyweight ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setBodyweight(value === "" ? null : parseFloat(value));
+                      }}
+                      step="0.1"
+                      min="0"
+                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
+                      placeholder="Enter weight in kg"
+                      autoFocus
+                    />
+                  ) : (
+                    <p className="text-white">
+                      {formatDisplayValue("bodyweight", bodyweight)}
+                    </p>
+                  )}
+                </div>
+                <div className="ml-3">
+                  {editing.bodyweight ? (
+                    <button
+                      onClick={() => handleFieldSave("bodyweight")}
+                      disabled={fieldLoading.bodyweight}
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fieldLoading.bodyweight ? (
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Save size={16} />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => toggleEdit("bodyweight")}
+                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
+                    >
+                      <Edit3 size={16} className="text-[#5E6272]" />
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <button
-                onClick={handleProfileSave}
-                disabled={profileSaving}
-                className="w-full mt-4 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {profileSaving ? "Saving..." : "Save Profile"}
-              </button>
+              {/* Height Field */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
+                <div className="flex-1">
+                  <label className="block text-sm text-[#5E6272] mb-1">
+                    Height
+                  </label>
+                  {editing.height ? (
+                    <input
+                      type="number"
+                      value={height ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setHeight(value === "" ? null : parseFloat(value));
+                      }}
+                      step="0.1"
+                      min="0"
+                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
+                      placeholder="Enter height in cm"
+                      autoFocus
+                    />
+                  ) : (
+                    <p className="text-white">
+                      {formatDisplayValue("height", height)}
+                    </p>
+                  )}
+                </div>
+                <div className="ml-3">
+                  {editing.height ? (
+                    <button
+                      onClick={() => handleFieldSave("height")}
+                      disabled={fieldLoading.height}
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fieldLoading.height ? (
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Save size={16} />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => toggleEdit("height")}
+                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
+                    >
+                      <Edit3 size={16} className="text-[#5E6272]" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Birthday Field */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
+                <div className="flex-1">
+                  <label className="block text-sm text-[#5E6272] mb-1">
+                    Date of Birth
+                  </label>
+                  {editing.birthday ? (
+                    <input
+                      type="date"
+                      value={birthday}
+                      onChange={(e) => setBirthday(e.target.value)}
+                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                      autoFocus
+                    />
+                  ) : (
+                    <p className="text-white">
+                      {formatDisplayValue("birthday", birthday)}
+                    </p>
+                  )}
+                </div>
+                <div className="ml-3">
+                  {editing.birthday ? (
+                    <button
+                      onClick={() => handleFieldSave("birthday")}
+                      disabled={fieldLoading.birthday}
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fieldLoading.birthday ? (
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Save size={16} />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => toggleEdit("birthday")}
+                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
+                    >
+                      <Edit3 size={16} className="text-[#5E6272]" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Gender Field */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
+                <div className="flex-1">
+                  <label className="block text-sm text-[#5E6272] mb-1">
+                    Gender
+                  </label>
+                  {editing.gender ? (
+                    <select
+                      value={gender ?? ""}
+                      onChange={(e) => setGender(e.target.value || null)}
+                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                      autoFocus
+                    >
+                      <option value="">Select</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Non-binary">Non-binary</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  ) : (
+                    <p className="text-white">
+                      {formatDisplayValue("gender", gender)}
+                    </p>
+                  )}
+                </div>
+                <div className="ml-3">
+                  {editing.gender ? (
+                    <button
+                      onClick={() => handleFieldSave("gender")}
+                      disabled={fieldLoading.gender}
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {fieldLoading.gender ? (
+                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Save size={16} />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => toggleEdit("gender")}
+                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
+                    >
+                      <Edit3 size={16} className="text-[#5E6272]" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
