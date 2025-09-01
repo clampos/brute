@@ -11,6 +11,7 @@ import {sendPasswordResetEmail} from '../server/email';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { ProgressiveOverloadService, WorkoutData } from './utils/progressiveOverloadService';
 
 const router = express.Router();
 
@@ -1080,6 +1081,360 @@ router.get("/user-programs", authenticateToken, async (req: Request, res: Respon
   } catch (error) {
     console.error('Error fetching user programs:', error);
     res.status(500).json({ error: 'Failed to fetch user programs' });
+  }
+});
+
+// POST /auth/workouts - Save completed workout with progression calculation
+router.post('/workouts', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+  const { exercises, duration, notes } = req.body;
+
+  if (!exercises || !Array.isArray(exercises)) {
+    return res.status(400).json({ error: 'Exercises data is required' });
+  }
+
+  try {
+    // Validate exercise data
+    const workoutData: WorkoutData[] = exercises.map((exercise: any) => {
+      if (!exercise.exerciseId || !exercise.sets || !Array.isArray(exercise.sets)) {
+        throw new Error(`Invalid exercise data for exercise ${exercise.exerciseId}`);
+      }
+
+      return {
+        exerciseId: exercise.exerciseId,
+        sets: exercise.sets.map((set: any) => ({
+          weight: parseFloat(set.weight) || 0,
+          reps: parseInt(set.reps) || 0,
+          rpe: set.rpe ? parseInt(set.rpe) : undefined,
+          completed: set.completed !== false, // default to true if not specified
+        }))
+      };
+    });
+
+    // Save workout and get recommendations
+    const result = await ProgressiveOverloadService.saveWorkoutAndCalculateProgression(
+      userId,
+      workoutData
+    );
+
+    // Update workout with duration if provided
+    if (duration) {
+      await prisma.workout.update({
+        where: { id: result.workoutId },
+        data: { 
+          duration: parseInt(duration),
+          notes: notes || null
+        }
+      });
+    }
+
+    console.log(`✅ Workout saved for user ${userId}, workout ID: ${result.workoutId}`);
+    
+    res.json({
+      workoutId: result.workoutId,
+      recommendations: result.recommendations,
+      message: 'Workout saved successfully'
+    });
+  } catch (error) {
+    console.error('❌ Error saving workout:', error);
+    res.status(500).json({ 
+      error: 'Failed to save workout',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// GET /auth/workouts/recommendations?exerciseIds=id1,id2,id3 - Get progression recommendations
+router.get('/workouts/recommendations', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+  const exerciseIdsParam = req.query.exerciseIds as string;
+
+  if (!exerciseIdsParam) {
+    return res.status(400).json({ error: 'exerciseIds parameter is required' });
+  }
+
+  try {
+    const exerciseIds = exerciseIdsParam.split(',').map(id => id.trim());
+    
+    const recommendations = await ProgressiveOverloadService.getProgressionRecommendations(
+      userId,
+      exerciseIds
+    );
+
+    res.json({ recommendations });
+  } catch (error) {
+    console.error('❌ Error getting recommendations:', error);
+    res.status(500).json({ 
+      error: 'Failed to get recommendations',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// GET /auth/workouts/history/:exerciseId - Get workout history for specific exercise
+router.get('/workouts/history/:exerciseId', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+  const { exerciseId } = req.params;
+  const limit = parseInt(req.query.limit as string) || 10;
+
+  try {
+    const workoutHistory = await prisma.workoutSet.findMany({
+      where: {
+        workoutExercise: {
+          exerciseId,
+          workout: {
+            userProgram: {
+              userId
+            }
+          }
+        }
+      },
+      include: {
+        workoutExercise: {
+          include: {
+            exercise: {
+              select: {
+                name: true,
+                muscleGroup: true
+              }
+            },
+            workout: {
+              select: {
+                completedAt: true,
+                weekNumber: true,
+                dayNumber: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        workoutExercise: {
+          workout: {
+            completedAt: 'desc'
+          }
+        }
+      },
+      take: limit * 5 // Approximate sets per workout
+    });
+
+    // Group by workout session
+    const groupedHistory = workoutHistory.reduce((acc: any, set) => {
+      const workoutId = set.workoutExercise.id;
+      if (!acc[workoutId]) {
+        acc[workoutId] = {
+          date: set.workoutExercise.workout.completedAt,
+          weekNumber: set.workoutExercise.workout.weekNumber,
+          dayNumber: set.workoutExercise.workout.dayNumber,
+          exercise: {
+            name: set.workoutExercise.exercise.name,
+            muscleGroup: set.workoutExercise.exercise.muscleGroup
+          },
+          sets: []
+        };
+      }
+      acc[workoutId].sets.push({
+        setNumber: set.setNumber,
+        weight: set.weight,
+        reps: set.reps,
+        rpe: set.rpe,
+        completed: set.completed
+      });
+      return acc;
+    }, {});
+
+    const history = Object.values(groupedHistory).slice(0, limit);
+
+    res.json({ history });
+  } catch (error) {
+    console.error('❌ Error getting workout history:', error);
+    res.status(500).json({ 
+      error: 'Failed to get workout history',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// GET /auth/workouts/stats/:exerciseId - Get performance stats for exercise
+router.get('/workouts/stats/:exerciseId', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+  const { exerciseId } = req.params;
+
+  try {
+    const allSets = await prisma.workoutSet.findMany({
+      where: {
+        workoutExercise: {
+          exerciseId,
+          workout: {
+            userProgram: {
+              userId
+            }
+          }
+        },
+        completed: true
+      },
+      include: {
+        workoutExercise: {
+          include: {
+            exercise: {
+              select: {
+                name: true,
+                muscleGroup: true
+              }
+            },
+            workout: {
+              select: {
+                completedAt: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        workoutExercise: {
+          workout: {
+            completedAt: 'asc'
+          }
+        }
+      }
+    });
+
+    if (allSets.length === 0) {
+      return res.json({
+        exerciseName: 'Unknown',
+        totalWorkouts: 0,
+        totalSets: 0,
+        totalVolume: 0,
+        maxWeight: 0,
+        maxReps: 0,
+        maxVolume: 0,
+        averageRpe: null,
+        progressionData: []
+      });
+    }
+
+    // Calculate stats
+    const totalSets = allSets.length;
+const totalVolume = allSets.reduce((sum, set) => sum + ((set.weight ?? 0) * (set.reps ?? 0)), 0);
+const maxWeight = Math.max(...allSets.map(set => set.weight ?? 0));
+const maxReps = Math.max(...allSets.map(set => set.reps ?? 0));
+const maxVolume = Math.max(...allSets.map(set => (set.weight ?? 0) * (set.reps ?? 0)));
+
+    
+    const setsWithRpe = allSets.filter(set => set.rpe !== null);
+    const averageRpe = setsWithRpe.length > 0 ? 
+      setsWithRpe.reduce((sum, set) => sum + set.rpe!, 0) / setsWithRpe.length : null;
+
+    // Group by workout for progression data (last 12 workouts)
+    const workoutGroups = allSets.reduce((acc: any, set) => {
+      const workoutDate = set.workoutExercise.workout.completedAt.toISOString().split('T')[0];
+      if (!acc[workoutDate]) {
+        acc[workoutDate] = {
+          date: workoutDate,
+          sets: []
+        };
+      }
+      acc[workoutDate].sets.push(set);
+      return acc;
+    }, {});
+
+    const progressionData = Object.values(workoutGroups)
+      .slice(-12)
+      .map((workout: any) => {
+        const bestSet = workout.sets.reduce((best: any, current: any) => {
+          const currentVolume = current.weight * current.reps;
+          const bestVolume = best.weight * best.reps;
+          return currentVolume > bestVolume ? current : best;
+        });
+        
+        return {
+          date: workout.date,
+          maxWeight: Math.max(...workout.sets.map((s: any) => s.weight)),
+          maxReps: Math.max(...workout.sets.map((s: any) => s.reps)),
+          bestVolume: bestSet.weight * bestSet.reps,
+          averageRpe: workout.sets.filter((s: any) => s.rpe).length > 0 ?
+            workout.sets.reduce((sum: number, s: any) => sum + (s.rpe || 0), 0) / 
+            workout.sets.filter((s: any) => s.rpe).length : null
+        };
+      });
+
+    const uniqueWorkouts = new Set(allSets.map(set => 
+      set.workoutExercise.workout.completedAt.toISOString().split('T')[0]
+    )).size;
+
+    res.json({
+      exerciseName: allSets[0]?.workoutExercise.exercise.name || 'Unknown',
+      muscleGroup: allSets[0]?.workoutExercise.exercise.muscleGroup || 'Unknown',
+      totalWorkouts: uniqueWorkouts,
+      totalSets,
+      totalVolume,
+      maxWeight,
+      maxReps,
+      maxVolume,
+      averageRpe,
+      progressionData
+    });
+  } catch (error) {
+    console.error('❌ Error getting workout stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to get workout stats',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// POST /auth/workouts/complete-day - Mark current day as complete and advance
+router.post('/workouts/complete-day', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const userProgram = await prisma.userProgram.findFirst({
+      where: { 
+        userId,
+        status: 'ACTIVE'
+      },
+      include: {
+        programme: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!userProgram) {
+      return res.status(404).json({ error: 'No active program found' });
+    }
+
+    let newDay = userProgram.currentDay + 1;
+    let newWeek = userProgram.currentWeek;
+
+    // If we've completed all days in the week, advance to next week
+    if (newDay > userProgram.programme.daysPerWeek) {
+      newDay = 1;
+      newWeek += 1;
+    }
+
+    // Update user program
+    await prisma.userProgram.update({
+      where: { id: userProgram.id },
+      data: {
+        currentDay: newDay,
+        currentWeek: newWeek,
+        updatedAt: new Date()
+      }
+    });
+
+    console.log(`✅ User ${userId} advanced to Week ${newWeek}, Day ${newDay}`);
+
+    res.json({
+      currentWeek: newWeek,
+      currentDay: newDay,
+      message: `Advanced to Week ${newWeek}, Day ${newDay}`
+    });
+  } catch (error) {
+    console.error('❌ Error completing day:', error);
+    res.status(500).json({ 
+      error: 'Failed to complete day',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
