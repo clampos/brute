@@ -42,6 +42,7 @@ type UserProgram = {
     description?: string;
     bodyPartFocus: string;
     daysPerWeek: number;
+    weeks: number; // ✅ ADD THIS LINE
     exercises: ProgrammeExercise[];
   };
   currentWeek: number;
