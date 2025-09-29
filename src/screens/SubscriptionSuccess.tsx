@@ -6,6 +6,7 @@ export default function SubscriptionSuccess() {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState("Processing your subscription...");
   const [retryCount, setRetryCount] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<string>("");
   const email = searchParams.get("email");
 
   useEffect(() => {
@@ -15,58 +16,100 @@ export default function SubscriptionSuccess() {
       return;
     }
 
-    const fetchToken = async (retries = 15) => {
+    const fetchToken = async (retries = 20) => {
       try {
-        setRetryCount(16 - retries);
-        setStatus(`Verifying subscription... (${16 - retries}/15)`);
+        const attemptNumber = 21 - retries;
+        setRetryCount(attemptNumber);
+        setStatus(`Verifying subscription... (${attemptNumber}/20)`);
+
+        console.log(
+          `🔄 Attempt ${attemptNumber}/20: Fetching token for ${email}`
+        );
 
         const res = await fetch(
           `http://localhost:4242/auth/token?email=${encodeURIComponent(email)}`
         );
 
+        const responseData = await res.json();
+        console.log(`📊 Response status: ${res.status}`, responseData);
+
         if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
           console.log(
             `⏳ Subscription not ready yet... retries left: ${retries}`,
-            errorData
+            responseData
           );
 
+          // Update status with more informative message
+          if (res.status === 404) {
+            setStatus(`Waiting for account creation... (${attemptNumber}/20)`);
+            setDebugInfo("User account is being created in the database...");
+          } else if (res.status === 403) {
+            setStatus(
+              `Waiting for webhook to process... (${attemptNumber}/20)`
+            );
+            setDebugInfo(
+              responseData.debug?.message ||
+                "Stripe webhook is processing your subscription..."
+            );
+          } else {
+            setStatus(`Processing... (${attemptNumber}/20)`);
+            setDebugInfo(
+              responseData.debug?.message || "Verifying subscription status..."
+            );
+          }
+
           if (retries > 0) {
-            // Exponential backoff - start with 2s, then 4s, 6s, etc.
-            const delay = Math.min(2000 + (16 - retries) * 500, 5000);
+            // Progressive backoff: start with 3s, increase gradually
+            const delay = Math.min(3000 + attemptNumber * 500, 6000);
+            console.log(`⏰ Waiting ${delay}ms before next attempt...`);
             setTimeout(() => fetchToken(retries - 1), delay);
           } else {
             setStatus(
-              "Subscription verification failed. Redirecting to login..."
+              "Subscription verification took longer than expected. Please try logging in."
             );
-            console.error("Failed to retrieve token after all retries");
+            setDebugInfo(
+              "If you continue to have issues, please contact support at info@brutegym.com"
+            );
+            console.error("❌ Failed to retrieve token after all retries");
             setTimeout(
-              () => navigate("/login?error=subscription_failed"),
-              3000
+              () => navigate("/login?error=subscription_timeout"),
+              5000
             );
           }
           return;
         }
 
-        const data = await res.json();
-        localStorage.setItem("token", data.token);
+        // Success! Token retrieved
+        console.log(
+          `✅ Token retrieved successfully on attempt ${attemptNumber}`
+        );
+        localStorage.setItem("token", responseData.token);
         setStatus("Success! Redirecting to dashboard...");
+        setDebugInfo("Your subscription is now active!");
 
         // Add delay before navigating
         setTimeout(() => {
           navigate("/dashboard");
         }, 2000);
       } catch (err) {
-        console.error("Error fetching token:", err);
-        setStatus("Error occurred. Redirecting to login...");
-        setTimeout(() => navigate("/login?error=network_error"), 3000);
+        console.error("❌ Error fetching token:", err);
+        setStatus("Network error. Please check your connection.");
+        setDebugInfo("Failed to connect to server. Retrying...");
+
+        if (retries > 0) {
+          setTimeout(() => fetchToken(retries - 1), 3000);
+        } else {
+          setStatus("Error occurred. Redirecting to login...");
+          setTimeout(() => navigate("/login?error=network_error"), 3000);
+        }
       }
     };
 
     // Add initial delay to allow webhook processing
+    console.log("⏰ Initial 3-second delay to allow webhook to process...");
     setTimeout(() => {
       fetchToken();
-    }, 3000); // 3 second initial delay
+    }, 3000);
   }, [navigate, searchParams, email]);
 
   return (
@@ -75,9 +118,24 @@ export default function SubscriptionSuccess() {
       <h1 className="text-3xl font-bold mb-4">Welcome to BRUTE! 💪</h1>
       <p className="text-lg mb-2">Subscription complete for:</p>
       <p className="text-blue-300 text-lg font-semibold mb-4">{email}</p>
-      <p className="text-sm text-white/70">{status}</p>
+      <p className="text-sm text-white/70 mb-2">{status}</p>
       {retryCount > 0 && (
-        <p className="text-xs text-white/50 mt-2">Attempt {retryCount} of 15</p>
+        <div className="mt-2">
+          <p className="text-xs text-white/50">Attempt {retryCount} of 20</p>
+          {debugInfo && (
+            <p className="text-xs text-white/40 mt-2 max-w-md">{debugInfo}</p>
+          )}
+        </div>
+      )}
+
+      {retryCount > 10 && (
+        <div className="mt-4 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg max-w-md">
+          <p className="text-xs text-blue-300">
+            Taking longer than usual? This can happen if Stripe's webhook is
+            delayed. Your subscription is likely being processed - please wait a
+            bit longer.
+          </p>
+        </div>
       )}
     </div>
   );

@@ -19,7 +19,7 @@ import logo from "../assets/logo.png";
 type WorkoutSet = {
   weight: string;
   reps: string;
-  rpe?: string; // Rate of Perceived Exertion
+  rpe?: string;
   completed: boolean;
 };
 
@@ -94,7 +94,6 @@ export default function Workouts() {
     navigate("/login");
   };
 
-  // Start or resume timer
   const startTimer = () => {
     if (!timerRunning && !workoutStartTime) {
       setWorkoutStartTime(new Date());
@@ -102,12 +101,10 @@ export default function Workouts() {
     setTimerRunning(true);
   };
 
-  // Pause timer
   const pauseTimer = () => {
     setTimerRunning(false);
   };
 
-  // Format seconds as mm:ss
   const formatTime = (secs: number) => {
     const mins = Math.floor(secs / 60);
     const seconds = secs % 60;
@@ -116,7 +113,6 @@ export default function Workouts() {
       .padStart(2, "0")}`;
   };
 
-  // Toggle day expansion
   const toggleDay = (dayNumber: number) => {
     setWorkoutDays((prev) =>
       prev.map((day) =>
@@ -127,7 +123,6 @@ export default function Workouts() {
     );
   };
 
-  // Update exercise set data
   const updateSetData = (
     dayNumber: number,
     exerciseId: string,
@@ -156,7 +151,6 @@ export default function Workouts() {
     );
   };
 
-  // Toggle set completion
   const toggleSetCompletion = (
     dayNumber: number,
     exerciseId: string,
@@ -185,7 +179,6 @@ export default function Workouts() {
     );
   };
 
-  // Add a set to an exercise
   const addSet = (dayNumber: number, exerciseId: string) => {
     setWorkoutDays((prev) =>
       prev.map((day) =>
@@ -214,7 +207,6 @@ export default function Workouts() {
     );
   };
 
-  // Save workout and get next session recommendations
   const saveWorkout = async () => {
     if (!userProgram || !workoutStartTime) {
       setError("Cannot save workout - missing program or start time");
@@ -223,7 +215,6 @@ export default function Workouts() {
 
     setSavingWorkout(true);
     try {
-      // Prepare workout data for current day
       const currentDay = workoutDays.find(
         (day) => day.dayNumber === userProgram.currentDay
       );
@@ -232,7 +223,6 @@ export default function Workouts() {
         throw new Error("Current day not found");
       }
 
-      // Only include exercises that have at least one completed set
       const exercisesWithData = currentDay.exercises.filter((exercise) =>
         exercise.workoutSets.some(
           (set) => set.completed && set.weight && set.reps
@@ -241,6 +231,7 @@ export default function Workouts() {
 
       if (exercisesWithData.length === 0) {
         setError("Please complete at least one set before saving");
+        setSavingWorkout(false);
         return;
       }
 
@@ -258,7 +249,7 @@ export default function Workouts() {
 
       const duration = Math.floor(
         (new Date().getTime() - workoutStartTime.getTime()) / 1000 / 60
-      ); // Duration in minutes
+      );
 
       const response = await fetch("http://localhost:4242/auth/workouts", {
         method: "POST",
@@ -279,7 +270,6 @@ export default function Workouts() {
 
       const result = await response.json();
 
-      // Show success and recommendations
       alert(
         `Workout saved successfully!\n\nRecommendations for next session:\n${result.recommendations
           .map(
@@ -291,7 +281,6 @@ export default function Workouts() {
           .join("\n\n")}`
       );
 
-      // Advance to next day
       await advanceToNextDay();
     } catch (err: any) {
       console.error("Error saving workout:", err);
@@ -301,7 +290,6 @@ export default function Workouts() {
     }
   };
 
-  // Advance to next day
   const advanceToNextDay = async () => {
     try {
       const response = await fetch(
@@ -321,7 +309,6 @@ export default function Workouts() {
 
       const result = await response.json();
 
-      // Update user program state
       setUserProgram((prev) =>
         prev
           ? {
@@ -332,12 +319,10 @@ export default function Workouts() {
           : prev
       );
 
-      // Reset timer and workout state
       setTimerRunning(false);
       setSecondsElapsed(0);
       setWorkoutStartTime(null);
 
-      // Reload recommendations for new day
       loadProgressionRecommendations();
     } catch (err: any) {
       console.error("Error advancing to next day:", err);
@@ -345,7 +330,6 @@ export default function Workouts() {
     }
   };
 
-  // Get exercise name by ID
   const getExerciseName = (exerciseId: string): string => {
     for (const day of workoutDays) {
       const exercise = day.exercises.find((ex) => ex.exerciseId === exerciseId);
@@ -354,7 +338,6 @@ export default function Workouts() {
     return "Unknown Exercise";
   };
 
-  // Load progression recommendations for current day exercises
   const loadProgressionRecommendations = async () => {
     if (!userProgram) return;
 
@@ -385,7 +368,6 @@ export default function Workouts() {
 
       const result = await response.json();
 
-      // Update workoutDays with recommendations
       setWorkoutDays((prev) =>
         prev.map((day) =>
           day.dayNumber === userProgram.currentDay
@@ -411,7 +393,6 @@ export default function Workouts() {
     }
   };
 
-  // Fetch user's active programme
   useEffect(() => {
     const fetchUserProgram = async () => {
       try {
@@ -432,6 +413,8 @@ export default function Workouts() {
         }
 
         const userPrograms = await response.json();
+        console.log("📊 User programs response:", userPrograms);
+
         const activeProgram =
           userPrograms.find((up: any) => up.status === "ACTIVE") ||
           userPrograms[0];
@@ -443,6 +426,8 @@ export default function Workouts() {
           setLoading(false);
           return;
         }
+
+        console.log("✅ Active program found:", activeProgram);
 
         const programmeResponse = await fetch(
           `http://localhost:4242/auth/programmes/${activeProgram.programmeId}`,
@@ -458,6 +443,7 @@ export default function Workouts() {
         }
 
         const programmeData = await programmeResponse.json();
+        console.log("📊 Programme data:", programmeData);
 
         const fullUserProgram = {
           ...activeProgram,
@@ -466,16 +452,34 @@ export default function Workouts() {
 
         setUserProgram(fullUserProgram);
 
+        // FIXED: Check if exercises exist and log them
+        if (!programmeData.exercises || programmeData.exercises.length === 0) {
+          console.error("❌ No exercises found in programme!");
+          setError(
+            "This programme has no exercises configured. Please add exercises in the Programme Editor."
+          );
+          setLoading(false);
+          return;
+        }
+
+        console.log(
+          `✅ Found ${programmeData.exercises.length} exercises in programme`
+        );
+
         // Group exercises by day
         const groupedExercises: Record<number, WorkoutExercise[]> = {};
 
         programmeData.exercises.forEach((exercise: ProgrammeExercise) => {
           const day = exercise.dayNumber;
+          console.log(
+            `📝 Processing exercise for day ${day}:`,
+            exercise.exercise.name
+          );
+
           if (!groupedExercises[day]) {
             groupedExercises[day] = [];
           }
 
-          // Initialize with empty workout sets
           const initialSets: WorkoutSet[] = Array.from(
             { length: exercise.sets },
             () => ({
@@ -497,16 +501,22 @@ export default function Workouts() {
           });
         });
 
+        console.log("📊 Grouped exercises by day:", groupedExercises);
+
         // Create workout days
         const days: WorkoutDay[] = [];
         for (let i = 1; i <= programmeData.daysPerWeek; i++) {
+          const dayExercises = groupedExercises[i] || [];
+          console.log(`Day ${i}: ${dayExercises.length} exercises`);
+
           days.push({
             dayNumber: i,
-            exercises: groupedExercises[i] || [],
+            exercises: dayExercises,
             isExpanded: i === activeProgram.currentDay,
           });
         }
 
+        console.log("✅ Final workout days structure:", days);
         setWorkoutDays(days);
       } catch (err: any) {
         console.error("Error fetching user program:", err);
@@ -519,14 +529,12 @@ export default function Workouts() {
     fetchUserProgram();
   }, []);
 
-  // Load recommendations after data is loaded
   useEffect(() => {
     if (userProgram && workoutDays.length > 0) {
       loadProgressionRecommendations();
     }
   }, [userProgram?.currentDay]);
 
-  // Timer effect
   useEffect(() => {
     if (timerRunning) {
       intervalRef.current = setInterval(() => {
@@ -599,7 +607,6 @@ export default function Workouts() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
       <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
         <img
           src={logo}
@@ -608,7 +615,6 @@ export default function Workouts() {
         />
       </div>
 
-      {/* Top Bar */}
       <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
         <Calendar className="text-white w-6 h-6" />
         <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
@@ -617,7 +623,6 @@ export default function Workouts() {
         <MoreHorizontal className="text-white w-6 h-6" />
       </div>
 
-      {/* Programme Info */}
       <div className="text-center mt-2">
         <h3 className="text-lg font-semibold text-white">
           {userProgram?.programme.name || "Loading..."}
@@ -632,7 +637,6 @@ export default function Workouts() {
         </p>
       </div>
 
-      {/* Week Info & Timer */}
       <div className="flex justify-center items-center gap-2 mt-1 text-sm text-[#A0AEC0]">
         <span className="uppercase text-xs tracking-wide">
           Week {userProgram?.currentWeek || 1}, Day{" "}
@@ -676,7 +680,6 @@ export default function Workouts() {
         )}
       </div>
 
-      {/* Save Workout Button */}
       {workoutStartTime && (
         <div className="flex justify-center mt-4">
           <button
@@ -694,11 +697,9 @@ export default function Workouts() {
         </div>
       )}
 
-      {/* Workout Days */}
       <div className="px-4 mt-6 space-y-4">
         {workoutDays.map((day) => (
           <div key={day.dayNumber} className="space-y-2">
-            {/* Day Header */}
             <div
               className="flex items-center gap-2 cursor-pointer"
               onClick={() => toggleDay(day.dayNumber)}
@@ -722,7 +723,6 @@ export default function Workouts() {
               </span>
             </div>
 
-            {/* Day Exercises */}
             {day.isExpanded && (
               <div className="space-y-3">
                 {day.exercises.map((exercise, index) => (
@@ -749,7 +749,6 @@ export default function Workouts() {
                           </span>
                         </div>
 
-                        {/* Progressive Overload Recommendation */}
                         {exercise.recommendation && (
                           <div className="mt-2 p-2 bg-blue-900/20 border border-blue-500/30 rounded-lg">
                             <div className="flex items-center gap-1 mb-1">
@@ -771,7 +770,6 @@ export default function Workouts() {
                       <MoreHorizontal className="text-white" />
                     </div>
 
-                    {/* Input Sets */}
                     {exercise.workoutSets.map((set, setIdx) => (
                       <div
                         key={setIdx}
@@ -858,7 +856,6 @@ export default function Workouts() {
                       </div>
                     ))}
 
-                    {/* Add Set Button */}
                     <div className="mt-4 flex justify-center">
                       <button
                         onClick={() =>

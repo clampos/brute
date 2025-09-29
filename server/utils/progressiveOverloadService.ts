@@ -1,367 +1,396 @@
-// server/services/progressiveOverloadService.ts
-import { prisma } from "../prisma";
+// server/utils/progressiveOverloadService.ts
+import { prisma } from '../prisma';
+
+export interface WorkoutSetData {
+  weight: number;
+  reps: number;
+  rpe?: number;
+  completed: boolean;
+}
 
 export interface WorkoutData {
   exerciseId: string;
-  sets: Array<{
-    weight: number;
-    reps: number;
-    rpe?: number; // Rate of Perceived Exertion (1-10)
-    completed: boolean;
-  }>;
+  sets: WorkoutSetData[];
 }
 
-export interface ProgressiveOverloadRecommendation {
+export interface ProgressionRecommendation {
   exerciseId: string;
   recommendedWeight: number;
   recommendedReps: number;
-  progressionType: 'weight' | 'reps' | 'both';
+  recommendedRPE: number;
+  progressionType: 'NORMAL' | 'REP_CAP' | 'FAILURE' | 'MANUAL_JUMP' | 'UNDERPERFORMANCE' | 'OVERPERFORMANCE' | 'INITIAL';
   reasoning: string;
 }
 
+interface PerformanceHistory {
+  weekNumber: number;
+  actualReps: number;
+  targetReps: number;
+  weight: number;
+}
+
 export class ProgressiveOverloadService {
+  // Constants
+  private static readonly REP_CAP = 15;
+  private static readonly REP_FAIL = 5;
+  private static readonly WEIGHT_INCREASE_PERCENT = 0.05;
+  private static readonly WEIGHT_DECREASE_PERCENT = 0.10;
+  private static readonly MANUAL_INCREASE_THRESHOLD = 1.10;
+  private static readonly OVERPERFORMANCE_THRESHOLD = 1.10;
   
   /**
-   * Save workout data and calculate next session recommendations
+   * Generate RPE progression table based on program length
    */
-  static async saveWorkoutAndCalculateProgression(
-    userId: string,
-    workoutData: WorkoutData[]
-  ): Promise<{ 
-    workoutId: string; 
-    recommendations: ProgressiveOverloadRecommendation[] 
-  }> {
+  private static generateRPETable(programLength: number): number[] {
+    const rpeTable: number[] = [];
     
-    // Create workout entry
-    const workout = await prisma.workout.create({
-      data: {
-        userProgramId: await this.getCurrentUserProgramId(userId),
-        weekNumber: await this.getCurrentWeek(userId),
-        dayNumber: await this.getCurrentDay(userId),
-        completedAt: new Date(),
-        duration: null, // Can be calculated from timer data
-      }
-    });
-
-    const recommendations: ProgressiveOverloadRecommendation[] = [];
-
-    // Process each exercise
-    for (const exerciseData of workoutData) {
-      // Save workout exercise and sets
-      const workoutExercise = await prisma.workoutExercise.create({
-        data: {
-          workoutId: workout.id,
-          exerciseId: exerciseData.exerciseId,
-          orderIndex: 0, // You might want to track this properly
-        }
-      });
-
-      // Save individual sets
-      for (let i = 0; i < exerciseData.sets.length; i++) {
-        const set = exerciseData.sets[i];
-        await prisma.workoutSet.create({
-          data: {
-            workoutExerciseId: workoutExercise.id,
-            setNumber: i + 1,
-            weight: set.weight,
-            reps: set.reps,
-            rpe: set.rpe,
-            completed: set.completed,
-          }
-        });
-      }
-
-      // Calculate progression for next workout
-      const recommendation = await this.calculateProgression(
-        userId,
-        exerciseData.exerciseId
-      );
-      recommendations.push(recommendation);
+    // Week 1 always starts at RPE 7
+    rpeTable[0] = 7;
+    
+    // Handle edge cases
+    if (programLength === 1) return [7];
+    if (programLength === 2) return [7, 5];
+    if (programLength === 3) return [7, 10, 5];
+    
+    // Penultimate week = RPE 10
+    rpeTable[programLength - 2] = 10;
+    
+    // Last week = RPE 5 (deload)
+    rpeTable[programLength - 1] = 5;
+    
+    // Calculate intermediate weeks
+    const numIntermediate = programLength - 3;
+    const rpeRange = 10 - 7; // 3 RPE points to spread
+    
+    for (let i = 1; i <= numIntermediate; i++) {
+      // Spread evenly between 7 and 10, rounded down
+      const rpe = Math.floor(7 + (rpeRange / (numIntermediate + 1)) * i);
+      rpeTable[i] = rpe;
     }
-
-    return {
-      workoutId: workout.id,
-      recommendations
-    };
+    
+    return rpeTable;
   }
 
   /**
-   * Get progression recommendations for upcoming workout
+   * Get performance history for an exercise over the last N weeks
    */
-  static async getProgressionRecommendations(
+  private static async getPerformanceHistory(
     userId: string,
-    exerciseIds: string[]
-  ): Promise<ProgressiveOverloadRecommendation[]> {
-    const recommendations: ProgressiveOverloadRecommendation[] = [];
-
-    for (const exerciseId of exerciseIds) {
-      const recommendation = await this.calculateProgression(userId, exerciseId);
-      recommendations.push(recommendation);
-    }
-
-    return recommendations;
-  }
-
-  /**
-   * Core progression calculation algorithm
-   */
-  private static async calculateProgression(
-    userId: string,
-    exerciseId: string
-  ): Promise<ProgressiveOverloadRecommendation> {
-    
-    // Get user's workout history for this exercise (last 3 sessions)
-    const recentWorkouts = await prisma.workoutSet.findMany({
+    exerciseId: string,
+    weeks: number = 2
+  ): Promise<PerformanceHistory[]> {
+    const workouts = await prisma.workout.findMany({
       where: {
-        workoutExercise: {
-          exerciseId,
-          workout: {
-            userProgram: {
-              userId
-            }
-          }
+        userProgram: {
+          userId,
+          status: 'ACTIVE'
         },
-        completed: true
+        exercises: {
+          some: {
+            exerciseId
+          }
+        }
       },
       include: {
-        workoutExercise: {
+        exercises: {
+          where: {
+            exerciseId
+          },
           include: {
-            workout: {
-              select: {
-                completedAt: true
+            sets: {
+              where: {
+                completed: true
+              },
+              orderBy: {
+                setNumber: 'asc'
               }
             }
           }
         }
       },
       orderBy: {
-        workoutExercise: {
-          workout: {
-            completedAt: 'desc'
-          }
-        }
+        completedAt: 'desc'
       },
-      take: 15 // Last 5 workouts * ~3 sets each
+      take: weeks
     });
 
-    if (recentWorkouts.length === 0) {
-      // First time doing this exercise - use program defaults
-      return {
-        exerciseId,
-        recommendedWeight: 0, // User should input starting weight
-        recommendedReps: 8,
-        progressionType: 'both',
-        reasoning: 'First time performing this exercise. Start with a comfortable weight.'
-      };
-    }
+    return workouts.map(workout => {
+      const exercise = workout.exercises[0];
+      if (!exercise || exercise.sets.length === 0) {
+        return {
+          weekNumber: workout.weekNumber || 0,
+          actualReps: 0,
+          targetReps: 0,
+          weight: 0
+        };
+      }
 
-    // Group sets by workout session
-    const workoutSessions = this.groupSetsByWorkout(recentWorkouts);
-    const lastSession = workoutSessions[0]; // Most recent
-    
-    // Calculate best performance metrics
-    const lastSessionBest = this.getBestSetFromSession(lastSession);
-    const allTimeBest = this.getBestSetFromAllSessions(workoutSessions);
-    
-    // Determine progression strategy
-    return this.determineProgression(
-      exerciseId,
-      lastSessionBest,
-      allTimeBest,
-      workoutSessions
-    );
+      // Get best set (highest volume)
+      const bestSet = exercise.sets.reduce((best, current) => {
+        const bestVolume = (best.weight || 0) * (best.reps || 0);
+        const currentVolume = (current.weight || 0) * (current.reps || 0);
+        return currentVolume > bestVolume ? current : best;
+      });
+
+      return {
+        weekNumber: workout.weekNumber || 0,
+        actualReps: bestSet.reps || 0,
+        targetReps: bestSet.targetReps || bestSet.reps || 0,
+        weight: bestSet.weight || 0
+      };
+    }).reverse(); // Reverse to get chronological order
   }
 
   /**
-   * Group workout sets by session
+   * Calculate volume-preserving reps when weight changes
    */
-  private static groupSetsByWorkout(sets: any[]): any[][] {
-    const grouped: { [key: string]: any[] } = {};
+  private static calculateVolumePreservingReps(
+    previousWeight: number,
+    previousReps: number,
+    newWeight: number,
+    sets: number
+  ): number {
+    const previousVolume = sets * previousReps * previousWeight;
+    let newReps = Math.round(previousVolume / (sets * newWeight));
     
-    sets.forEach(set => {
-      const workoutId = set.workoutExercise.workout.id;
-      if (!grouped[workoutId]) {
-        grouped[workoutId] = [];
+    // Clamp between 8-12 for volume preservation
+    return Math.max(8, Math.min(12, newReps));
+  }
+
+  /**
+   * Get current program details for a user
+   */
+  private static async getUserProgramDetails(userId: string) {
+    const userProgram = await prisma.userProgram.findFirst({
+      where: {
+        userId,
+        status: 'ACTIVE'
+      },
+      include: {
+        programme: true
+      },
+      orderBy: {
+        createdAt: 'desc'
       }
-      grouped[workoutId].push(set);
     });
 
-    // Return as array sorted by date (most recent first)
-    return Object.values(grouped).sort((a, b) => 
-      new Date(b[0].workoutExercise.workout.completedAt).getTime() - 
-      new Date(a[0].workoutExercise.workout.completedAt).getTime()
-    );
-  }
+    if (!userProgram) {
+      throw new Error('No active program found for user');
+    }
 
-  /**
-   * Get best set from a session (highest volume = weight * reps)
-   */
-  private static getBestSetFromSession(sets: any[]): any {
-    return sets.reduce((best, current) => {
-      const currentVolume = current.weight * current.reps;
-      const bestVolume = best.weight * best.reps;
-      return currentVolume > bestVolume ? current : best;
-    });
-  }
-
-  /**
-   * Get best set from all sessions
-   */
-  private static getBestSetFromAllSessions(sessions: any[][]): any {
-    const allSets = sessions.flat();
-    return this.getBestSetFromSession(allSets);
-  }
-
-  /**
-   * Core progression logic
-   */
-  private static determineProgression(
-    exerciseId: string,
-    lastBest: any,
-    allTimeBest: any,
-    sessions: any[][]
-  ): ProgressiveOverloadRecommendation {
-    
-    const lastWeight = lastBest.weight;
-    const lastReps = lastBest.reps;
-    const lastRpe = lastBest.rpe;
-    
-    // Progressive overload rules:
-    
-    // 1. If RPE < 7 and completed all reps: increase weight by 2.5-5%
-    if (lastRpe && lastRpe < 7 && this.completedTargetReps(sessions[0], lastReps)) {
-      const increase = lastWeight * 0.025; // 2.5% increase
-      const newWeight = Math.round((lastWeight + increase) * 4) / 4; // Round to nearest 0.25kg
-      
-      return {
-        exerciseId,
-        recommendedWeight: newWeight,
-        recommendedReps: lastReps,
-        progressionType: 'weight',
-        reasoning: `RPE was ${lastRpe}/10 - increase weight by ${increase.toFixed(1)}kg`
-      };
-    }
-    
-    // 2. If RPE 7-8 and completed all reps: add reps first, then weight
-    if (lastRpe && lastRpe >= 7 && lastRpe <= 8 && this.completedTargetReps(sessions[0], lastReps)) {
-      if (lastReps < 12) {
-        return {
-          exerciseId,
-          recommendedWeight: lastWeight,
-          recommendedReps: lastReps + 1,
-          progressionType: 'reps',
-          reasoning: `RPE was ${lastRpe}/10 - add 1 rep before increasing weight`
-        };
-      } else {
-        // At 12+ reps, increase weight and drop reps
-        const increase = lastWeight * 0.025;
-        const newWeight = Math.round((lastWeight + increase) * 4) / 4;
-        
-        return {
-          exerciseId,
-          recommendedWeight: newWeight,
-          recommendedReps: Math.max(6, lastReps - 2),
-          progressionType: 'both',
-          reasoning: `At high reps (${lastReps}) - increase weight and reduce reps`
-        };
-      }
-    }
-    
-    // 3. If RPE 9-10 or failed to complete target reps: maintain or reduce
-    if (lastRpe && lastRpe >= 9 || !this.completedTargetReps(sessions[0], lastReps)) {
-      return {
-        exerciseId,
-        recommendedWeight: lastWeight,
-        recommendedReps: lastReps,
-        progressionType: 'both',
-        reasoning: lastRpe >= 9 ? 
-          `RPE was ${lastRpe}/10 - maintain current load` : 
-          'Did not complete all target reps - maintain current load'
-      };
-    }
-    
-    // 4. No RPE data - use conservative progression
-    if (this.completedTargetReps(sessions[0], lastReps)) {
-      if (lastReps < 10) {
-        return {
-          exerciseId,
-          recommendedWeight: lastWeight,
-          recommendedReps: lastReps + 1,
-          progressionType: 'reps',
-          reasoning: 'No RPE data - conservative rep progression'
-        };
-      } else {
-        const increase = lastWeight * 0.02; // 2% increase
-        const newWeight = Math.round((lastWeight + increase) * 4) / 4;
-        
-        return {
-          exerciseId,
-          recommendedWeight: newWeight,
-          recommendedReps: Math.max(6, lastReps - 1),
-          progressionType: 'both',
-          reasoning: 'No RPE data - small weight increase with rep reduction'
-        };
-      }
-    }
-    
-    // Default: maintain current load
     return {
-      exerciseId,
-      recommendedWeight: lastWeight,
-      recommendedReps: lastReps,
-      progressionType: 'both',
-      reasoning: 'Maintain current load - assess form and recovery'
+      userProgram,
+      currentWeek: userProgram.currentWeek,
+      programLength: userProgram.programme.weeks,
+      currentDay: userProgram.currentDay
     };
   }
 
   /**
-   * Check if user completed target reps in most sets
+   * Main method to calculate progression recommendations
    */
-  private static completedTargetReps(sessionSets: any[], targetReps: number): boolean {
-    const completedSets = sessionSets.filter(set => set.reps >= targetReps);
-    return completedSets.length >= (sessionSets.length * 0.7); // 70% of sets completed
+  static async getProgressionRecommendations(
+    userId: string,
+    exerciseIds: string[]
+  ): Promise<ProgressionRecommendation[]> {
+    const recommendations: ProgressionRecommendation[] = [];
+    
+    try {
+      // Get user's current program details
+      const { currentWeek, programLength } = await this.getUserProgramDetails(userId);
+      
+      // Generate RPE table for the program
+      const rpeTable = this.generateRPETable(programLength);
+      const currentRPE = rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
+      
+      for (const exerciseId of exerciseIds) {
+        // Get performance history
+        const history = await this.getPerformanceHistory(userId, exerciseId, 3);
+        
+        // If no history, provide initial recommendations
+        if (history.length === 0) {
+          recommendations.push({
+            exerciseId,
+            recommendedWeight: 20, // Default starting weight
+            recommendedReps: 8,
+            recommendedRPE: currentRPE,
+            progressionType: 'INITIAL',
+            reasoning: `Starting weight for Week ${currentWeek}. Aim for RPE ${currentRPE}.`
+          });
+          continue;
+        }
+        
+        // Get last session data
+        const lastSession = history[history.length - 1];
+        const currentWeight = lastSession.weight;
+        const lastReps = lastSession.actualReps;
+        const lastTargetReps = lastSession.targetReps || lastReps;
+        
+        // Assume 3 sets as default (you can make this configurable)
+        const sets = 3;
+        
+        // Check for manual weight increase (if we have previous session)
+        let manualIncrease = false;
+        if (history.length >= 2) {
+          const previousWeight = history[history.length - 2].weight;
+          manualIncrease = previousWeight > 0 && (currentWeight / previousWeight) > this.MANUAL_INCREASE_THRESHOLD;
+        }
+        
+        let recommendedWeight = currentWeight;
+        let recommendedReps = lastTargetReps;
+        let progressionType: ProgressionRecommendation['progressionType'] = 'NORMAL';
+        let reasoning = '';
+        
+        // Step 1: Manual Weight Jump
+        if (manualIncrease) {
+          recommendedWeight = currentWeight; // Keep user's manual weight
+          recommendedReps = lastTargetReps; // Maintain target
+          progressionType = 'MANUAL_JUMP';
+          reasoning = `Manual weight increase detected. Focus on RPE ${currentRPE} for this week.`;
+        }
+        
+        // Step 2: Check for consistent underperformance (last 2 weeks)
+        else if (history.length >= 2) {
+          const underperformed = history.slice(-2).every(week => 
+            week.targetReps > 0 && week.actualReps < week.targetReps
+          );
+          
+          if (underperformed) {
+            recommendedWeight = currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT);
+            recommendedReps = Math.max(1, Math.floor(lastTargetReps * 0.9));
+            progressionType = 'UNDERPERFORMANCE';
+            reasoning = `Underperformance detected. Reducing weight by 10% and target reps by 10%.`;
+          }
+          
+          // Step 3: Check for consistent overperformance
+          else {
+            const overperformed = history.slice(-2).every(week => 
+              week.targetReps > 0 && week.actualReps > week.targetReps * this.OVERPERFORMANCE_THRESHOLD
+            );
+            
+            if (overperformed) {
+              recommendedWeight = currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
+              recommendedReps = this.calculateVolumePreservingReps(
+                currentWeight,
+                lastReps,
+                recommendedWeight,
+                sets
+              );
+              progressionType = 'OVERPERFORMANCE';
+              reasoning = `Consistently exceeding targets! Increasing weight by 5% with volume-preserving reps.`;
+            }
+          }
+        }
+        
+        // Step 4: Low rep failure
+        if (progressionType === 'NORMAL' && lastReps < this.REP_FAIL) {
+          recommendedWeight = currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT);
+          recommendedReps = this.REP_FAIL;
+          progressionType = 'FAILURE';
+          reasoning = `Rep count too low. Reducing weight by 10% and resetting to ${this.REP_FAIL} reps.`;
+        }
+        
+        // Step 5: Rep cap reached
+        else if (progressionType === 'NORMAL' && lastReps >= this.REP_CAP) {
+          recommendedWeight = currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
+          recommendedReps = this.calculateVolumePreservingReps(
+            currentWeight,
+            lastReps,
+            recommendedWeight,
+            sets
+          );
+          progressionType = 'REP_CAP';
+          reasoning = `Rep cap reached! Increasing weight by 5% with volume-preserving reps.`;
+        }
+        
+        // Step 6: Normal progression
+        else if (progressionType === 'NORMAL') {
+          recommendedWeight = currentWeight;
+          recommendedReps = Math.min(lastReps + 1, this.REP_CAP);
+          reasoning = `Standard progression: Add 1 rep per set. Target RPE ${currentRPE}.`;
+        }
+        
+        // Round weight to nearest 0.5kg
+        recommendedWeight = Math.round(recommendedWeight * 2) / 2;
+        
+        recommendations.push({
+          exerciseId,
+          recommendedWeight,
+          recommendedReps,
+          recommendedRPE: currentRPE,
+          progressionType,
+          reasoning
+        });
+      }
+      
+      return recommendations;
+    } catch (error) {
+      console.error('Error calculating progression recommendations:', error);
+      return recommendations;
+    }
   }
 
   /**
-   * Helper methods for getting user context
+   * Save workout and calculate next session progression
    */
-  private static async getCurrentUserProgramId(userId: string): Promise<string> {
-    const userProgram = await prisma.userProgram.findFirst({
-      where: { 
-        userId,
-        status: 'ACTIVE'
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    if (!userProgram) {
-      throw new Error('No active program found for user');
+  static async saveWorkoutAndCalculateProgression(
+    userId: string,
+    workoutData: WorkoutData[]
+  ): Promise<{ workoutId: string; recommendations: ProgressionRecommendation[] }> {
+    try {
+      // Get user program
+      const { userProgram, currentWeek, currentDay } = await this.getUserProgramDetails(userId);
+      
+      // Create workout record
+      const workout = await prisma.workout.create({
+        data: {
+          userProgramId: userProgram.id,
+          weekNumber: currentWeek,
+          dayNumber: currentDay,
+          completedAt: new Date()
+        }
+      });
+      
+      // Save workout exercises and sets
+      for (const exercise of workoutData) {
+        const workoutExercise = await prisma.workoutExercise.create({
+          data: {
+            workoutId: workout.id,
+            exerciseId: exercise.exerciseId,
+            orderIndex: 0
+          }
+        });
+        
+        // Save sets with target reps for tracking
+        for (let i = 0; i < exercise.sets.length; i++) {
+          const set = exercise.sets[i];
+          await prisma.workoutSet.create({
+            data: {
+              workoutExerciseId: workoutExercise.id,
+              setNumber: i + 1,
+              weight: set.weight,
+              reps: set.reps,
+              targetReps: set.reps, // Store as target for next session comparison
+              rpe: set.rpe,
+              completed: set.completed
+            }
+          });
+        }
+      }
+      
+      // Get all exercise IDs for next session recommendations
+      const exerciseIds = workoutData.map(ex => ex.exerciseId);
+      
+      // Calculate recommendations for next session
+      const recommendations = await this.getProgressionRecommendations(userId, exerciseIds);
+      
+      return {
+        workoutId: workout.id,
+        recommendations
+      };
+    } catch (error) {
+      console.error('Error saving workout:', error);
+      throw error;
     }
-    
-    return userProgram.id;
-  }
-
-  private static async getCurrentWeek(userId: string): Promise<number> {
-    const userProgram = await prisma.userProgram.findFirst({
-      where: { 
-        userId,
-        status: 'ACTIVE'
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    return userProgram?.currentWeek || 1;
-  }
-
-  private static async getCurrentDay(userId: string): Promise<number> {
-    const userProgram = await prisma.userProgram.findFirst({
-      where: { 
-        userId,
-        status: 'ACTIVE'
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    return userProgram?.currentDay || 1;
   }
 }

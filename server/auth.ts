@@ -183,7 +183,9 @@ router.post('/signup', async (req: Request, res: Response): Promise<any> => {
 
 // Add this improved version to your auth.ts file
 
-// GET /auth/token?email=...
+// Only showing the fixed /auth/token endpoint - add this to your existing auth.ts
+
+// GET /auth/token?email=... - IMPROVED VERSION with detailed logging
 router.get('/token', async (req: Request, res: Response): Promise<any> => {
   const email = req.query.email as string;
 
@@ -203,57 +205,78 @@ router.get('/token', async (req: Request, res: Response): Promise<any> => {
         subscribed: true,
         createdAt: true,
         firstName: true,
-        surname: true
+        surname: true,
+        updatedAt: true
       }
     });
 
-    console.log(`📊 User found:`, {
+    console.log(`📊 User lookup result:`, {
+      found: !!user,
       id: user?.id,
       email: user?.email,
       subscribed: user?.subscribed,
       createdAt: user?.createdAt,
-      name: user ? `${user.firstName} ${user.surname}` : 'N/A'
+      updatedAt: user?.updatedAt,
+      name: user ? `${user.firstName} ${user.surname}` : 'N/A',
+      timeSinceCreation: user ? `${Math.round((Date.now() - new Date(user.createdAt).getTime()) / 1000)}s` : 'N/A',
+      timeSinceUpdate: user ? `${Math.round((Date.now() - new Date(user.updatedAt).getTime()) / 1000)}s` : 'N/A'
     });
 
     if (!user) {
       console.error(`❌ User not found for email: ${email}`);
       return res.status(404).json({ 
         error: 'User not found',
-        debug: { email, timestamp: new Date().toISOString() }
-      });
-    }
-
-    if (!user.subscribed) {
-      console.error(`❌ User not subscribed: ${email}`, {
-        userId: user.id,
-        subscribed: user.subscribed,
-        createdAt: user.createdAt
-      });
-      return res.status(403).json({ 
-        error: 'User not subscribed',
         debug: { 
           email, 
-          userId: user.id, 
-          subscribed: user.subscribed,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          message: 'User does not exist in database'
         }
       });
     }
 
+    if (!user.subscribed) {
+      console.error(`❌ User not subscribed yet: ${email}`, {
+        userId: user.id,
+        subscribed: user.subscribed,
+        createdAt: user.createdAt,
+        timeSinceCreation: `${Math.round((Date.now() - new Date(user.createdAt).getTime()) / 1000)}s`,
+        message: 'Webhook may still be processing'
+      });
+      return res.status(403).json({ 
+        error: 'Subscription not active yet',
+        debug: { 
+          email, 
+          userId: user.id, 
+          subscribed: user.subscribed,
+          timestamp: new Date().toISOString(),
+          message: 'Webhook is still processing your subscription. Please wait...'
+        }
+      });
+    }
+
+    // Generate JWT token
     const token = jwt.sign(
       { userId: user.id, email: user.email },
       process.env.JWT_SECRET!,
       { expiresIn: '1d' }
     );
 
-    console.log(`✅ Token generated successfully for: ${email}`);
+    console.log(`✅ Token generated successfully for: ${email}`, {
+      userId: user.id,
+      tokenLength: token.length
+    });
+    
     res.json({ token });
     
   } catch (error) {
     console.error('❌ Database error in token endpoint:', error);
     res.status(500).json({ 
       error: 'Internal server error',
-      debug: { email, timestamp: new Date().toISOString() }
+      debug: { 
+        email, 
+        timestamp: new Date().toISOString(),
+        message: 'Database query failed'
+      }
     });
   }
 });
