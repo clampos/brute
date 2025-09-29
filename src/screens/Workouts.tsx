@@ -1,20 +1,15 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import BottomBar from "../components/BottomBar";
+import InstallPrompt from "../components/InstallPrompt";
 import {
   MoreHorizontal,
-  Dumbbell,
-  Play,
   Calendar,
-  PauseCircleIcon,
-  ChevronDown,
-  ChevronRight,
+  Play,
+  Pause,
   Check,
-  TrendingUp,
-  History,
   Target,
 } from "lucide-react";
-import BottomBar from "../components/BottomBar";
-import { useNavigate } from "react-router-dom";
-import logo from "../assets/logo.png";
 
 type WorkoutSet = {
   weight: string;
@@ -37,12 +32,6 @@ type WorkoutExercise = {
     progressionType: string;
     reasoning: string;
   };
-};
-
-type WorkoutDay = {
-  dayNumber: number;
-  exercises: WorkoutExercise[];
-  isExpanded: boolean;
 };
 
 type UserProgram = {
@@ -72,8 +61,6 @@ type ProgrammeExercise = {
 };
 
 export default function Workouts() {
-  const navigate = useNavigate();
-
   // Timer state
   const [timerRunning, setTimerRunning] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -81,17 +68,27 @@ export default function Workouts() {
 
   // Programme state
   const [userProgram, setUserProgram] = useState<UserProgram | null>(null);
-  const [workoutDays, setWorkoutDays] = useState<WorkoutDay[]>([]);
+  const [todayExercises, setTodayExercises] = useState<WorkoutExercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingWorkout, setSavingWorkout] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
 
+  const navigate = useNavigate();
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("installPromptDismissed");
     navigate("/login");
+  };
+
+  const calculateProgress = (userProgram: UserProgram) => {
+    const totalDays =
+      userProgram.programme.weeks * userProgram.programme.daysPerWeek;
+    const completedDays =
+      (userProgram.currentWeek - 1) * userProgram.programme.daysPerWeek +
+      (userProgram.currentDay - 1);
+    return Math.round((completedDays / totalDays) * 100);
   };
 
   const startTimer = () => {
@@ -113,96 +110,58 @@ export default function Workouts() {
       .padStart(2, "0")}`;
   };
 
-  const toggleDay = (dayNumber: number) => {
-    setWorkoutDays((prev) =>
-      prev.map((day) =>
-        day.dayNumber === dayNumber
-          ? { ...day, isExpanded: !day.isExpanded }
-          : day
-      )
-    );
-  };
-
   const updateSetData = (
-    dayNumber: number,
     exerciseId: string,
     setIndex: number,
     field: "weight" | "reps" | "rpe",
     value: string
   ) => {
-    setWorkoutDays((prev) =>
-      prev.map((day) =>
-        day.dayNumber === dayNumber
+    setTodayExercises((prev) =>
+      prev.map((exercise) =>
+        exercise.exerciseId === exerciseId
           ? {
-              ...day,
-              exercises: day.exercises.map((exercise) =>
-                exercise.exerciseId === exerciseId
-                  ? {
-                      ...exercise,
-                      workoutSets: exercise.workoutSets.map((set, idx) =>
-                        idx === setIndex ? { ...set, [field]: value } : set
-                      ),
-                    }
-                  : exercise
+              ...exercise,
+              workoutSets: exercise.workoutSets.map((set, idx) =>
+                idx === setIndex ? { ...set, [field]: value } : set
               ),
             }
-          : day
+          : exercise
       )
     );
   };
 
-  const toggleSetCompletion = (
-    dayNumber: number,
-    exerciseId: string,
-    setIndex: number
-  ) => {
-    setWorkoutDays((prev) =>
-      prev.map((day) =>
-        day.dayNumber === dayNumber
+  const toggleSetCompletion = (exerciseId: string, setIndex: number) => {
+    setTodayExercises((prev) =>
+      prev.map((exercise) =>
+        exercise.exerciseId === exerciseId
           ? {
-              ...day,
-              exercises: day.exercises.map((exercise) =>
-                exercise.exerciseId === exerciseId
-                  ? {
-                      ...exercise,
-                      workoutSets: exercise.workoutSets.map((set, idx) =>
-                        idx === setIndex
-                          ? { ...set, completed: !set.completed }
-                          : set
-                      ),
-                    }
-                  : exercise
+              ...exercise,
+              workoutSets: exercise.workoutSets.map((set, idx) =>
+                idx === setIndex ? { ...set, completed: !set.completed } : set
               ),
             }
-          : day
+          : exercise
       )
     );
   };
 
-  const addSet = (dayNumber: number, exerciseId: string) => {
-    setWorkoutDays((prev) =>
-      prev.map((day) =>
-        day.dayNumber === dayNumber
+  const addSet = (exerciseId: string) => {
+    setTodayExercises((prev) =>
+      prev.map((exercise) =>
+        exercise.exerciseId === exerciseId
           ? {
-              ...day,
-              exercises: day.exercises.map((exercise) =>
-                exercise.exerciseId === exerciseId
-                  ? {
-                      ...exercise,
-                      workoutSets: [
-                        ...exercise.workoutSets,
-                        {
-                          weight: "",
-                          reps: "",
-                          rpe: "",
-                          completed: false,
-                        },
-                      ],
-                    }
-                  : exercise
-              ),
+              ...exercise,
+              workoutSets: [
+                ...exercise.workoutSets,
+                {
+                  weight: "",
+                  reps: "",
+                  rpe: "",
+                  completed: false,
+                },
+              ],
             }
-          : day
+          : exercise
       )
     );
   };
@@ -215,15 +174,7 @@ export default function Workouts() {
 
     setSavingWorkout(true);
     try {
-      const currentDay = workoutDays.find(
-        (day) => day.dayNumber === userProgram.currentDay
-      );
-
-      if (!currentDay) {
-        throw new Error("Current day not found");
-      }
-
-      const exercisesWithData = currentDay.exercises.filter((exercise) =>
+      const exercisesWithData = todayExercises.filter((exercise) =>
         exercise.workoutSets.some(
           (set) => set.completed && set.weight && set.reps
         )
@@ -323,7 +274,8 @@ export default function Workouts() {
       setSecondsElapsed(0);
       setWorkoutStartTime(null);
 
-      loadProgressionRecommendations();
+      // Reload the workout for the new day
+      window.location.reload();
     } catch (err: any) {
       console.error("Error advancing to next day:", err);
       setError(err.message || "Failed to advance to next day");
@@ -331,25 +283,16 @@ export default function Workouts() {
   };
 
   const getExerciseName = (exerciseId: string): string => {
-    for (const day of workoutDays) {
-      const exercise = day.exercises.find((ex) => ex.exerciseId === exerciseId);
-      if (exercise) return exercise.name;
-    }
-    return "Unknown Exercise";
+    const exercise = todayExercises.find((ex) => ex.exerciseId === exerciseId);
+    return exercise ? exercise.name : "Unknown Exercise";
   };
 
   const loadProgressionRecommendations = async () => {
-    if (!userProgram) return;
+    if (!userProgram || todayExercises.length === 0) return;
 
     setLoadingRecommendations(true);
     try {
-      const currentDay = workoutDays.find(
-        (day) => day.dayNumber === userProgram.currentDay
-      );
-
-      if (!currentDay) return;
-
-      const exerciseIds = currentDay.exercises.map((ex) => ex.exerciseId);
+      const exerciseIds = todayExercises.map((ex) => ex.exerciseId);
 
       const response = await fetch(
         `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
@@ -368,23 +311,16 @@ export default function Workouts() {
 
       const result = await response.json();
 
-      setWorkoutDays((prev) =>
-        prev.map((day) =>
-          day.dayNumber === userProgram.currentDay
-            ? {
-                ...day,
-                exercises: day.exercises.map((exercise) => {
-                  const recommendation = result.recommendations.find(
-                    (rec: any) => rec.exerciseId === exercise.exerciseId
-                  );
-                  return {
-                    ...exercise,
-                    recommendation,
-                  };
-                }),
-              }
-            : day
-        )
+      setTodayExercises((prev) =>
+        prev.map((exercise) => {
+          const recommendation = result.recommendations.find(
+            (rec: any) => rec.exerciseId === exercise.exerciseId
+          );
+          return {
+            ...exercise,
+            recommendation,
+          };
+        })
       );
     } catch (err: any) {
       console.error("Error loading recommendations:", err);
@@ -452,7 +388,6 @@ export default function Workouts() {
 
         setUserProgram(fullUserProgram);
 
-        // FIXED: Check if exercises exist and log them
         if (!programmeData.exercises || programmeData.exercises.length === 0) {
           console.error("❌ No exercises found in programme!");
           setError(
@@ -462,62 +397,51 @@ export default function Workouts() {
           return;
         }
 
-        console.log(
-          `✅ Found ${programmeData.exercises.length} exercises in programme`
+        // FIXED: Only get exercises for the current day
+        const currentDayExercises = programmeData.exercises.filter(
+          (exercise: ProgrammeExercise) =>
+            exercise.dayNumber === activeProgram.currentDay
         );
 
-        // Group exercises by day
-        const groupedExercises: Record<number, WorkoutExercise[]> = {};
+        console.log(
+          `✅ Found ${currentDayExercises.length} exercises for Day ${activeProgram.currentDay}`
+        );
 
-        programmeData.exercises.forEach((exercise: ProgrammeExercise) => {
-          const day = exercise.dayNumber;
-          console.log(
-            `📝 Processing exercise for day ${day}:`,
-            exercise.exercise.name
+        if (currentDayExercises.length === 0) {
+          setError(
+            `No exercises scheduled for Day ${activeProgram.currentDay}. Please add exercises in the Programme Editor.`
           );
-
-          if (!groupedExercises[day]) {
-            groupedExercises[day] = [];
-          }
-
-          const initialSets: WorkoutSet[] = Array.from(
-            { length: exercise.sets },
-            () => ({
-              weight: "",
-              reps: "",
-              rpe: "",
-              completed: false,
-            })
-          );
-
-          groupedExercises[day].push({
-            id: exercise.id,
-            name: exercise.exercise.name,
-            muscleGroup: exercise.exercise.muscleGroup,
-            sets: exercise.sets,
-            reps: exercise.reps,
-            exerciseId: exercise.exercise.id,
-            workoutSets: initialSets,
-          });
-        });
-
-        console.log("📊 Grouped exercises by day:", groupedExercises);
-
-        // Create workout days
-        const days: WorkoutDay[] = [];
-        for (let i = 1; i <= programmeData.daysPerWeek; i++) {
-          const dayExercises = groupedExercises[i] || [];
-          console.log(`Day ${i}: ${dayExercises.length} exercises`);
-
-          days.push({
-            dayNumber: i,
-            exercises: dayExercises,
-            isExpanded: i === activeProgram.currentDay,
-          });
+          setLoading(false);
+          return;
         }
 
-        console.log("✅ Final workout days structure:", days);
-        setWorkoutDays(days);
+        // Create workout exercises for today only
+        const workoutExercises: WorkoutExercise[] = currentDayExercises.map(
+          (exercise: ProgrammeExercise) => {
+            const initialSets: WorkoutSet[] = Array.from(
+              { length: exercise.sets },
+              () => ({
+                weight: "",
+                reps: "",
+                rpe: "",
+                completed: false,
+              })
+            );
+
+            return {
+              id: exercise.id,
+              name: exercise.exercise.name,
+              muscleGroup: exercise.exercise.muscleGroup,
+              sets: exercise.sets,
+              reps: exercise.reps,
+              exerciseId: exercise.exercise.id,
+              workoutSets: initialSets,
+            };
+          }
+        );
+
+        console.log("✅ Today's workout exercises:", workoutExercises);
+        setTodayExercises(workoutExercises);
       } catch (err: any) {
         console.error("Error fetching user program:", err);
         setError(err.message || "Failed to load workout programme");
@@ -530,7 +454,7 @@ export default function Workouts() {
   }, []);
 
   useEffect(() => {
-    if (userProgram && workoutDays.length > 0) {
+    if (userProgram && todayExercises.length > 0) {
       loadProgressionRecommendations();
     }
   }, [userProgram?.currentDay]);
@@ -574,27 +498,17 @@ export default function Workouts() {
             "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
         }}
       >
-        <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-          <img
-            src={logo}
-            alt="Logo"
-            className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-          />
-        </div>
-
         <div className="flex-1 flex flex-col justify-center items-center">
           <div className="bg-red-900/20 border border-red-500/50 rounded-lg px-6 py-4 mb-4 max-w-md">
             <p className="text-red-400 text-sm text-center">{error}</p>
           </div>
           <button
-            onClick={() => navigate("/programmes")}
+            onClick={() => (window.location.href = "/programmes")}
             className="px-6 py-3 bg-[#00FFAD] hover:bg-[#00E599] text-black rounded-lg font-medium"
           >
             Go to Programmes
           </button>
         </div>
-
-        <BottomBar onLogout={handleLogout} />
       </div>
     );
   }
@@ -607,22 +521,6 @@ export default function Workouts() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
-      </div>
-
-      <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
-        <Calendar className="text-white w-6 h-6" />
-        <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
-          Workouts
-        </h2>
-        <MoreHorizontal className="text-white w-6 h-6" />
-      </div>
-
       <div className="text-center mt-2">
         <h3 className="text-lg font-semibold text-white">
           {userProgram?.programme.name || "Loading..."}
@@ -658,7 +556,7 @@ export default function Workouts() {
                 className="bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-full p-1 flex items-center justify-center"
                 aria-label="Pause Workout Timer"
               >
-                <PauseCircleIcon size={16} />
+                <Pause size={16} />
               </button>
             ) : (
               <button
@@ -698,195 +596,148 @@ export default function Workouts() {
       )}
 
       <div className="px-4 mt-6 space-y-4">
-        {workoutDays.map((day) => (
-          <div key={day.dayNumber} className="space-y-2">
+        <h3 className="text-sm text-white font-semibold tracking-widest uppercase text-center">
+          Today's Workout - Day {userProgram?.currentDay}
+        </h3>
+
+        {todayExercises.length > 0 ? (
+          todayExercises.map((exercise, index) => (
             <div
-              className="flex items-center gap-2 cursor-pointer"
-              onClick={() => toggleDay(day.dayNumber)}
+              key={exercise.id}
+              className={`rounded-xl p-4 ${
+                index === 0
+                  ? "border-2 border-blue-500"
+                  : "border border-[#2F3544]"
+              } bg-[#1C1F26]`}
             >
-              {day.isExpanded ? (
-                <ChevronDown className="text-green-500 w-4 h-4" />
-              ) : (
-                <ChevronRight className="text-green-500 w-4 h-4" />
-              )}
-              <h3 className="text-sm text-white font-semibold tracking-widest uppercase">
-                Day {day.dayNumber}
-                {day.dayNumber === userProgram?.currentDay && (
-                  <span className="ml-2 text-xs text-[#00FFAD] normal-case">
-                    (Current)
-                  </span>
-                )}
-              </h3>
-              <span className="text-xs text-[#5E6272]">
-                {day.exercises.length} exercise
-                {day.exercises.length !== 1 ? "s" : ""}
-              </span>
-            </div>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h4 className="text-white font-semibold text-base">
+                    {exercise.name}
+                  </h4>
+                  <div className="flex text-sm gap-2 mt-1">
+                    <span className="text-green-400">
+                      {exercise.sets} Working Set
+                      {exercise.sets !== 1 ? "s" : ""}
+                    </span>
+                    <span className="text-pink-400">
+                      {exercise.muscleGroup}
+                    </span>
+                  </div>
 
-            {day.isExpanded && (
-              <div className="space-y-3">
-                {day.exercises.map((exercise, index) => (
-                  <div
-                    key={exercise.id}
-                    className={`rounded-xl p-4 ${
-                      day.dayNumber === userProgram?.currentDay && index === 0
-                        ? "border-2 border-blue-500"
-                        : "border border-[#2F3544]"
-                    } bg-[#1C1F26]`}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h4 className="text-white font-semibold text-base">
-                          {exercise.name}
-                        </h4>
-                        <div className="flex text-sm gap-2 mt-1">
-                          <span className="text-green-400">
-                            {exercise.sets} Working Set
-                            {exercise.sets !== 1 ? "s" : ""}
-                          </span>
-                          <span className="text-pink-400">
-                            {exercise.muscleGroup}
-                          </span>
-                        </div>
-
-                        {exercise.recommendation && (
-                          <div className="mt-2 p-2 bg-blue-900/20 border border-blue-500/30 rounded-lg">
-                            <div className="flex items-center gap-1 mb-1">
-                              <Target size={12} className="text-blue-400" />
-                              <span className="text-xs text-blue-400 font-semibold">
-                                Recommended Target
-                              </span>
-                            </div>
-                            <p className="text-xs text-blue-300">
-                              {exercise.recommendation.recommendedWeight}kg ×{" "}
-                              {exercise.recommendation.recommendedReps} reps
-                            </p>
-                            <p className="text-xs text-blue-200 mt-1">
-                              {exercise.recommendation.reasoning}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                      <MoreHorizontal className="text-white" />
-                    </div>
-
-                    {exercise.workoutSets.map((set, setIdx) => (
-                      <div
-                        key={setIdx}
-                        className="flex items-center gap-2 mt-3"
-                      >
-                        <div className="w-4 text-[#5E6272]">⋮</div>
-                        <input
-                          type="number"
-                          placeholder="Weight (kg)"
-                          value={set.weight}
-                          onChange={(e) =>
-                            updateSetData(
-                              day.dayNumber,
-                              exercise.exerciseId,
-                              setIdx,
-                              "weight",
-                              e.target.value
-                            )
-                          }
-                          className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/3 placeholder:text-[#5E6272] text-sm"
-                          style={{ MozAppearance: "textfield" }}
-                          inputMode="decimal"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Reps"
-                          value={set.reps}
-                          onChange={(e) =>
-                            updateSetData(
-                              day.dayNumber,
-                              exercise.exerciseId,
-                              setIdx,
-                              "reps",
-                              e.target.value
-                            )
-                          }
-                          className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/4 placeholder:text-[#5E6272] text-sm"
-                          style={{ MozAppearance: "textfield" }}
-                          inputMode="numeric"
-                        />
-                        <input
-                          type="number"
-                          placeholder="RPE"
-                          value={set.rpe}
-                          onChange={(e) =>
-                            updateSetData(
-                              day.dayNumber,
-                              exercise.exerciseId,
-                              setIdx,
-                              "rpe",
-                              e.target.value
-                            )
-                          }
-                          className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/4 placeholder:text-[#5E6272] text-sm"
-                          style={{ MozAppearance: "textfield" }}
-                          inputMode="numeric"
-                          min="1"
-                          max="10"
-                        />
-                        <button
-                          onClick={() =>
-                            toggleSetCompletion(
-                              day.dayNumber,
-                              exercise.exerciseId,
-                              setIdx
-                            )
-                          }
-                          className={`rounded-full p-1 transition-colors ${
-                            set.completed
-                              ? "bg-green-600 hover:bg-green-700"
-                              : "bg-[#262A34] hover:bg-[#3a3f4a]"
-                          }`}
-                        >
-                          <div
-                            className={`w-4 h-4 rounded-full flex items-center justify-center ${
-                              set.completed
-                                ? "bg-white text-green-600"
-                                : "bg-[#5E6272]"
-                            }`}
-                          >
-                            {set.completed && <Check size={10} />}
-                          </div>
-                        </button>
-                      </div>
-                    ))}
-
-                    <div className="mt-4 flex justify-center">
-                      <button
-                        onClick={() =>
-                          addSet(day.dayNumber, exercise.exerciseId)
-                        }
-                        className="flex items-center gap-2 text-sm font-medium text-white bg-[#2A2E38] hover:bg-[#3a3f4a] px-4 py-1.5 rounded-full"
-                      >
-                        Add Set{" "}
-                        <span className="text-green-400 text-lg leading-none">
-                          +
+                  {exercise.recommendation && (
+                    <div className="mt-2 p-2 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                      <div className="flex items-center gap-1 mb-1">
+                        <Target size={12} className="text-blue-400" />
+                        <span className="text-xs text-blue-400 font-semibold">
+                          Recommended Target
                         </span>
-                      </button>
+                      </div>
+                      <p className="text-xs text-blue-300">
+                        {exercise.recommendation.recommendedWeight}kg ×{" "}
+                        {exercise.recommendation.recommendedReps} reps
+                      </p>
+                      <p className="text-xs text-blue-200 mt-1">
+                        {exercise.recommendation.reasoning}
+                      </p>
                     </div>
-                  </div>
-                ))}
-
-                {day.exercises.length === 0 && (
-                  <div className="text-center py-8 text-[#5E6272]">
-                    <p>No exercises scheduled for this day</p>
-                  </div>
-                )}
+                  )}
+                </div>
+                <MoreHorizontal className="text-white" />
               </div>
-            )}
-          </div>
-        ))}
 
-        {workoutDays.length === 0 && (
+              {exercise.workoutSets.map((set, setIdx) => (
+                <div key={setIdx} className="flex items-center gap-2 mt-3">
+                  <div className="w-4 text-[#5E6272]">⋮</div>
+                  <input
+                    type="number"
+                    placeholder="Weight (kg)"
+                    value={set.weight}
+                    onChange={(e) =>
+                      updateSetData(
+                        exercise.exerciseId,
+                        setIdx,
+                        "weight",
+                        e.target.value
+                      )
+                    }
+                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/3 placeholder:text-[#5E6272] text-sm"
+                    style={{ MozAppearance: "textfield" }}
+                    inputMode="decimal"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Reps"
+                    value={set.reps}
+                    onChange={(e) =>
+                      updateSetData(
+                        exercise.exerciseId,
+                        setIdx,
+                        "reps",
+                        e.target.value
+                      )
+                    }
+                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/4 placeholder:text-[#5E6272] text-sm"
+                    style={{ MozAppearance: "textfield" }}
+                    inputMode="numeric"
+                  />
+                  <input
+                    type="number"
+                    placeholder="RPE"
+                    value={set.rpe}
+                    onChange={(e) =>
+                      updateSetData(
+                        exercise.exerciseId,
+                        setIdx,
+                        "rpe",
+                        e.target.value
+                      )
+                    }
+                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/4 placeholder:text-[#5E6272] text-sm"
+                    style={{ MozAppearance: "textfield" }}
+                    inputMode="numeric"
+                    min="1"
+                    max="10"
+                  />
+                  <button
+                    onClick={() =>
+                      toggleSetCompletion(exercise.exerciseId, setIdx)
+                    }
+                    className={`rounded-full p-1 transition-colors ${
+                      set.completed
+                        ? "bg-green-600 hover:bg-green-700"
+                        : "bg-[#262A34] hover:bg-[#3a3f4a]"
+                    }`}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                        set.completed
+                          ? "bg-white text-green-600"
+                          : "bg-[#5E6272]"
+                      }`}
+                    >
+                      {set.completed && <Check size={10} />}
+                    </div>
+                  </button>
+                </div>
+              ))}
+
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={() => addSet(exercise.exerciseId)}
+                  className="flex items-center gap-2 text-sm font-medium text-white bg-[#2A2E38] hover:bg-[#3a3f4a] px-4 py-1.5 rounded-full"
+                >
+                  Add Set{" "}
+                  <span className="text-green-400 text-lg leading-none">+</span>
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
           <div className="text-center py-8 text-[#5E6272]">
-            <p>No workout days found</p>
+            <p>No exercises scheduled for today</p>
             <button
-              onClick={() => navigate("/programmes")}
+              onClick={() => (window.location.href = "/programmes")}
               className="mt-4 px-6 py-3 bg-[#00FFAD] hover:bg-[#00E599] text-black rounded-lg font-medium"
             >
               Select a Programme
@@ -894,8 +745,6 @@ export default function Workouts() {
           </div>
         )}
       </div>
-
-      <BottomBar onLogout={handleLogout} />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter&display=swap');
@@ -914,6 +763,7 @@ export default function Workouts() {
           -moz-appearance: textfield;
         }
       `}</style>
+      <BottomBar onLogout={handleLogout} />
     </div>
   );
 }
