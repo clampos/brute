@@ -362,7 +362,7 @@ export default function Dashboard() {
       )}
 
       <BottomBar onLogout={handleLogout} />
-      <InstallPrompt />
+      <InstallPrompt forceShow={true} />
     </div>
   );
 }
