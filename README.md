@@ -47,6 +47,10 @@ brute
 │  │  │  │  └─ migration.sql
 │  │  │  ├─ 20250728131150_add_new_profile_photo
 │  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250804074549_add_active_programme_fields
+│  │  │  │  └─ migration.sql
+│  │  │  ├─ 20250917150156_add_target_reps_to_workout_set
+│  │  │  │  └─ migration.sql
 │  │  │  └─ migration_lock.toml
 │  │  ├─ schema.prisma
 │  │  └─ seed.ts
@@ -56,6 +60,7 @@ brute
 │  ├─ tsconfig.json
 │  ├─ uploads
 │  ├─ utils
+│  │  ├─ progressiveOverloadService.ts
 │  │  └─ referralUtils.ts
 │  └─ webhook.ts
 ├─ src
@@ -71,7 +76,8 @@ brute
 │  │  ├─ OvalProgressIcon.tsx
 │  │  ├─ ProtectedRoute.tsx
 │  │  ├─ ResetPassword.tsx
-│  │  └─ ScreenWrapper.tsx
+│  │  ├─ ScreenWrapper.tsx
+│  │  └─ WorkoutCompletionPopup.tsx
 │  ├─ images.d.ts
 │  ├─ index.css
 │  ├─ main.tsx

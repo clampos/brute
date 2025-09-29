@@ -150,20 +150,21 @@ model WorkoutExercise {
 }
 
 model WorkoutSet {
-  id                String  @id @default(cuid())
-  workoutExerciseId String  @map("workout_exercise_id")
-  setNumber         Int     @map("set_number")
-  weight            Float?  // Weight used (can be null for bodyweight)
-  reps              Int     // Actual reps performed
-  rpe               Int?    // Rate of Perceived Exertion (1-10)
-  restSeconds       Int?    @map("rest_seconds")
+  id                String          @id @default(uuid())
+  workoutExerciseId String
+  workoutExercise   WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+  setNumber         Int
+  weight            Float?
+  reps              Int?
+  targetReps        Int?           // Add this field for tracking target vs actual
+  rpe               Int?
+  restSeconds       Int?
   notes             String?
-  completed         Boolean @default(true)
+  completed         Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
-  // Relationships
-  workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
-
-  @@map("workout_sets")
+  @@index([workoutExerciseId])
 }
 
 enum UserProgramStatus {

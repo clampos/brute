@@ -1,4 +1,4 @@
-// webhook.ts - Improved version with better error handling
+// webhook.ts - Fixed version with retry logic for race conditions
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
@@ -13,7 +13,25 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2025-04-30.basil',
 });
 
-// Improved helper function with better error handling
+// Helper function to wait for user to be created (handles race condition)
+async function waitForUser(email: string, maxRetries = 5, delayMs = 1000): Promise<any> {
+  for (let i = 0; i < maxRetries; i++) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    
+    if (user) {
+      console.log(`✅ User found on attempt ${i + 1}/${maxRetries}`);
+      return user;
+    }
+    
+    if (i < maxRetries - 1) {
+      console.log(`⏳ User not found yet (attempt ${i + 1}/${maxRetries}), waiting ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  return null;
+}
+
 async function awardReferralCredits(referrerId: string, newUserId: string) {
   try {
     console.log(`🎁 Starting referral credit award process: ${referrerId} -> ${newUserId}`);
@@ -72,7 +90,6 @@ async function awardReferralCredits(referrerId: string, newUserId: string) {
       await createStripeBillingCredit(newUser.email, 'Referral bonus - welcome to BRUTE!');
     } catch (error) {
       console.error('❌ Failed to create Stripe billing credits:', error);
-      // Don't throw - this shouldn't prevent subscription from activating
     }
 
     // Send reward email (don't let this block subscription activation)
@@ -85,13 +102,11 @@ async function awardReferralCredits(referrerId: string, newUserId: string) {
       );
     } catch (error) {
       console.error('❌ Failed to send referral reward email:', error);
-      // Don't throw - this shouldn't prevent subscription from activating
     }
 
     console.log(`✅ Referral processing completed successfully`);
   } catch (error) {
     console.error('❌ Error in referral credit process:', error);
-    // Don't throw - this shouldn't prevent subscription from activating
   }
 }
 
@@ -120,11 +135,11 @@ async function createStripeBillingCredit(email: string, description: string) {
     console.log(`✅ Stripe billing credit created for ${email}: $${creditAmount/100}`);
   } catch (error) {
     console.error(`❌ Failed to create Stripe billing credit for ${email}:`, error);
-    throw error; // Let caller handle this
+    throw error;
   }
 }
 
-// Improved webhook handler
+// Main webhook handler
 router.post(
   '/',
   express.raw({ type: 'application/json' }),
@@ -149,6 +164,7 @@ router.post(
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
       console.log(`💳 Processing checkout session: ${session.id}`);
+      console.log(`📊 Session metadata:`, session.metadata);
 
       // Get email with fallback logic
       let email: string | null = session.customer_email ?? null;
@@ -172,15 +188,22 @@ router.post(
       console.log(`✅ Processing subscription for email: ${email}`);
 
       try {
-        // CRITICAL: Mark user as subscribed FIRST, before any other processing
-        const existingUser = await prisma.user.findUnique({ where: { email } });
+        // CRITICAL FIX: Wait for user to exist (handles race condition with signup)
+        const existingUser = await waitForUser(email, 5, 2000);
 
         if (!existingUser) {
-          console.error(`❌ User not found for email: ${email}`);
-          return res.status(400).json({ error: 'User not found' });
+          console.error(`❌ User not found after retries for email: ${email}`);
+          return res.status(400).json({ error: 'User not found after waiting' });
         }
 
-        // Update subscription status immediately
+        console.log(`✅ User found:`, {
+          id: existingUser.id,
+          email: existingUser.email,
+          subscribed: existingUser.subscribed,
+          createdAt: existingUser.createdAt
+        });
+
+        // CRITICAL: Mark user as subscribed IMMEDIATELY
         await prisma.user.update({
           where: { email },
           data: { subscribed: true },
@@ -193,6 +216,14 @@ router.post(
         const referredBy = session.metadata?.referredBy;
         const referralCode = session.metadata?.referralCode;
         const newUserReferralCode = session.metadata?.newUserReferralCode;
+
+        console.log(`📊 Referral metadata:`, {
+          userId,
+          referredBy,
+          referralCode,
+          newUserReferralCode,
+          hasReferrer: !!(referredBy && referredBy !== '')
+        });
 
         // Process referrals asynchronously (don't block response)
         if (referredBy && referredBy !== '' && userId) {
@@ -220,6 +251,7 @@ router.post(
             }
           });
         } else {
+          console.log('📧 Sending regular welcome email (no referrer)');
           // Send regular welcome email asynchronously
           setImmediate(async () => {
             try {
