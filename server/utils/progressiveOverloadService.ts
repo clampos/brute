@@ -4,7 +4,6 @@ import { prisma } from '../prisma';
 export interface WorkoutSetData {
   weight: number;
   reps: number;
-  rpe?: number;
   completed: boolean;
 }
 
@@ -30,7 +29,7 @@ interface PerformanceHistory {
 }
 
 export class ProgressiveOverloadService {
-  // Constants
+  // Constants from your rules
   private static readonly REP_CAP = 15;
   private static readonly REP_FAIL = 5;
   private static readonly WEIGHT_INCREASE_PERCENT = 0.05;
@@ -40,6 +39,11 @@ export class ProgressiveOverloadService {
   
   /**
    * Generate RPE progression table based on program length
+   * Rules:
+   * - Week 1 = RPE 7
+   * - Penultimate week = RPE 10
+   * - Last week = RPE 5 (deload)
+   * - Intermediate weeks spread evenly between 7 and 10, rounded down
    */
   private static generateRPETable(programLength: number): number[] {
     const rpeTable: number[] = [];
@@ -77,7 +81,7 @@ export class ProgressiveOverloadService {
   private static async getPerformanceHistory(
     userId: string,
     exerciseId: string,
-    weeks: number = 2
+    weeks: number = 3
   ): Promise<PerformanceHistory[]> {
     const workouts = await prisma.workout.findMany({
       where: {
@@ -125,7 +129,7 @@ export class ProgressiveOverloadService {
         };
       }
 
-      // Get best set (highest volume)
+      // Get best set (highest reps at given weight, or highest volume)
       const bestSet = exercise.sets.reduce((best, current) => {
         const bestVolume = (best.weight || 0) * (best.reps || 0);
         const currentVolume = (current.weight || 0) * (current.reps || 0);
@@ -143,6 +147,9 @@ export class ProgressiveOverloadService {
 
   /**
    * Calculate volume-preserving reps when weight changes
+   * V_prev = S * R * W
+   * R_next = V_prev / (S * W_next)
+   * Clamp between 8-12
    */
   private static calculateVolumePreservingReps(
     previousWeight: number,
@@ -188,6 +195,7 @@ export class ProgressiveOverloadService {
 
   /**
    * Main method to calculate progression recommendations
+   * Follows the updated progressive overload rules exactly
    */
   static async getProgressionRecommendations(
     userId: string,
@@ -204,10 +212,10 @@ export class ProgressiveOverloadService {
       const currentRPE = rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
       
       for (const exerciseId of exerciseIds) {
-        // Get performance history
+        // Get performance history (last 3 weeks for consistency checks)
         const history = await this.getPerformanceHistory(userId, exerciseId, 3);
         
-        // If no history, provide initial recommendations
+        // If no history, provide initial recommendations (Week 1 Setup)
         if (history.length === 0) {
           recommendations.push({
             exerciseId,
@@ -226,50 +234,57 @@ export class ProgressiveOverloadService {
         const lastReps = lastSession.actualReps;
         const lastTargetReps = lastSession.targetReps || lastReps;
         
-        // Assume 3 sets as default (you can make this configurable)
+        // Assume 3 sets as default
         const sets = 3;
-        
-        // Check for manual weight increase (if we have previous session)
-        let manualIncrease = false;
-        if (history.length >= 2) {
-          const previousWeight = history[history.length - 2].weight;
-          manualIncrease = previousWeight > 0 && (currentWeight / previousWeight) > this.MANUAL_INCREASE_THRESHOLD;
-        }
         
         let recommendedWeight = currentWeight;
         let recommendedReps = lastTargetReps;
         let progressionType: ProgressionRecommendation['progressionType'] = 'NORMAL';
         let reasoning = '';
         
-        // Step 1: Manual Weight Jump
-        if (manualIncrease) {
-          recommendedWeight = currentWeight; // Keep user's manual weight
-          recommendedReps = lastTargetReps; // Maintain target
-          progressionType = 'MANUAL_JUMP';
-          reasoning = `Manual weight increase detected. Focus on RPE ${currentRPE} for this week.`;
+        // STEP 1: Manual Weight Jump Rule
+        // If user manually increases weight >10%, default to RPE schedule
+        let manualIncrease = false;
+        if (history.length >= 2) {
+          const previousWeight = history[history.length - 2].weight;
+          manualIncrease = previousWeight > 0 && (currentWeight / previousWeight) > this.MANUAL_INCREASE_THRESHOLD;
         }
         
-        // Step 2: Check for consistent underperformance (last 2 weeks)
+        if (manualIncrease) {
+          recommendedWeight = currentWeight;
+          recommendedReps = lastReps; // Keep same reps
+          progressionType = 'MANUAL_JUMP';
+          reasoning = `Manual weight increase detected. The app cannot calculate a rep target. Focus on RPE ${currentRPE} for this week.`;
+        }
+        
+        // STEP 2: Consistency-Based Adjustment - Underperformance
+        // If user performs below target reps for 2 consecutive weeks
         else if (history.length >= 2) {
-          const underperformed = history.slice(-2).every(week => 
+          const last2Weeks = history.slice(-2);
+          const underperformed = last2Weeks.every(week => 
             week.targetReps > 0 && week.actualReps < week.targetReps
           );
           
           if (underperformed) {
+            // Reduce weight by 10%
             recommendedWeight = currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT);
+            // Reduce target reps by 10%, rounded down, minimum 1
             recommendedReps = Math.max(1, Math.floor(lastTargetReps * 0.9));
             progressionType = 'UNDERPERFORMANCE';
-            reasoning = `Underperformance detected. Reducing weight by 10% and target reps by 10%.`;
+            reasoning = `Consistent underperformance detected for 2 weeks. Reducing weight by 10% and target reps by 10% for the 3rd week.`;
           }
           
-          // Step 3: Check for consistent overperformance
+          // STEP 3: Consistency-Based Adjustment - Overperformance
+          // If user performs >10% above target reps for 2 consecutive weeks
           else {
-            const overperformed = history.slice(-2).every(week => 
+            const overperformed = last2Weeks.every(week => 
               week.targetReps > 0 && week.actualReps > week.targetReps * this.OVERPERFORMANCE_THRESHOLD
             );
             
             if (overperformed) {
+              // Increase weight by 5%
               recommendedWeight = currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
+              // Recalculate reps using volume-preserving rule
               recommendedReps = this.calculateVolumePreservingReps(
                 currentWeight,
                 lastReps,
@@ -277,20 +292,22 @@ export class ProgressiveOverloadService {
                 sets
               );
               progressionType = 'OVERPERFORMANCE';
-              reasoning = `Consistently exceeding targets! Increasing weight by 5% with volume-preserving reps.`;
+              reasoning = `Consistently exceeding targets by >10% for 2 weeks! Increasing weight by 5% with volume-preserving reps for the 3rd week.`;
             }
           }
         }
         
-        // Step 4: Low rep failure
+        // STEP 4: Low Rep Rule
+        // If reps <5, reduce weight 10% and reset target reps to 5
         if (progressionType === 'NORMAL' && lastReps < this.REP_FAIL) {
           recommendedWeight = currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT);
           recommendedReps = this.REP_FAIL;
           progressionType = 'FAILURE';
-          reasoning = `Rep count too low. Reducing weight by 10% and resetting to ${this.REP_FAIL} reps.`;
+          reasoning = `Rep count too low (<${this.REP_FAIL}). Reducing weight by 10% and resetting to ${this.REP_FAIL} reps.`;
         }
         
-        // Step 5: Rep cap reached
+        // STEP 5: Rep Cap Rule
+        // If reps >=15, increase weight 5% and recalculate reps
         else if (progressionType === 'NORMAL' && lastReps >= this.REP_CAP) {
           recommendedWeight = currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
           recommendedReps = this.calculateVolumePreservingReps(
@@ -300,14 +317,15 @@ export class ProgressiveOverloadService {
             sets
           );
           progressionType = 'REP_CAP';
-          reasoning = `Rep cap reached! Increasing weight by 5% with volume-preserving reps.`;
+          reasoning = `Rep cap reached (≥${this.REP_CAP})! Increasing weight by 5% with volume-preserving reps.`;
         }
         
-        // Step 6: Normal progression
+        // STEP 6: Normal Weekly Progression
+        // Add +1 rep per set until rep cap
         else if (progressionType === 'NORMAL') {
           recommendedWeight = currentWeight;
           recommendedReps = Math.min(lastReps + 1, this.REP_CAP);
-          reasoning = `Standard progression: Add 1 rep per set. Target RPE ${currentRPE}.`;
+          reasoning = `Normal progression: Add +1 rep per set. Target RPE ${currentRPE}.`;
         }
         
         // Round weight to nearest 0.5kg
@@ -332,6 +350,7 @@ export class ProgressiveOverloadService {
 
   /**
    * Save workout and calculate next session progression
+   * NOTE: RPE is NOT recorded by users anymore - it's only provided as a recommendation
    */
   static async saveWorkoutAndCalculateProgression(
     userId: string,
@@ -361,7 +380,8 @@ export class ProgressiveOverloadService {
           }
         });
         
-        // Save sets with target reps for tracking
+        // Save sets - targetReps is stored for next session comparison
+        // RPE is NOT saved as it's not user-recorded
         for (let i = 0; i < exercise.sets.length; i++) {
           const set = exercise.sets[i];
           await prisma.workoutSet.create({
@@ -370,8 +390,8 @@ export class ProgressiveOverloadService {
               setNumber: i + 1,
               weight: set.weight,
               reps: set.reps,
-              targetReps: set.reps, // Store as target for next session comparison
-              rpe: set.rpe,
+              targetReps: set.reps, // Store actual reps as target for next session comparison
+              rpe: null, // RPE is no longer user-recorded
               completed: set.completed
             }
           });

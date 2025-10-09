@@ -1052,16 +1052,47 @@ router.get("/muscle-groups", authenticateToken, async (req: Request, res: Respon
 // POST /auth/user-programs
 router.post("/user-programs", authenticateToken, async (req: Request, res: Response): Promise<any> => {
   const { programmeId, startDate } = req.body;
-  const userId = (req as any).user.userId; // Assuming user ID is available from auth middleware
+  const userId = (req as any).user.userId;
 
   try {
+    // Get programme details
+    const programme = await prisma.programme.findUnique({
+      where: { id: programmeId }
+    });
+
+    if (!programme) {
+      return res.status(404).json({ error: 'Programme not found' });
+    }
+
+    // Calculate current day and week based on start date
+    const start = new Date(startDate);
+    const currentDay = calculateCurrentDay(start, programme.daysPerWeek);
+    const currentWeek = calculateCurrentWeek(start, programme.daysPerWeek);
+
     const userProgram = await prisma.userProgram.create({
       data: {
         userId,
         programmeId,
-        startDate: new Date(startDate),
+        startDate: start,
+        currentDay,
+        currentWeek,
         status: 'ACTIVE',
       },
+      include: {
+        programme: {
+          include: {
+            exercises: {
+              include: {
+                exercise: true
+              },
+              orderBy: [
+                { dayNumber: 'asc' },
+                { orderIndex: 'asc' }
+              ]
+            }
+          }
+        }
+      }
     });
 
     res.status(201).json(userProgram);
@@ -1070,6 +1101,7 @@ router.post("/user-programs", authenticateToken, async (req: Request, res: Respo
     res.status(500).json({ error: 'Failed to create user program' });
   }
 });
+
 
 // Add this endpoint to your auth.ts file
 
@@ -1100,7 +1132,44 @@ router.get("/user-programs", authenticateToken, async (req: Request, res: Respon
       },
     });
 
-    res.json(userPrograms);
+    // Update current day and week for active programs based on today's date
+    const updatedPrograms = await Promise.all(
+      userPrograms.map(async (up) => {
+        if (up.status === 'ACTIVE') {
+          const currentDay = calculateCurrentDay(up.startDate, up.programme.daysPerWeek);
+          const currentWeek = calculateCurrentWeek(up.startDate, up.programme.daysPerWeek);
+
+          // Update if different
+          if (currentDay !== up.currentDay || currentWeek !== up.currentWeek) {
+            return await prisma.userProgram.update({
+              where: { id: up.id },
+              data: {
+                currentDay,
+                currentWeek
+              },
+              include: {
+                programme: {
+                  include: {
+                    exercises: {
+                      include: {
+                        exercise: true
+                      },
+                      orderBy: [
+                        { dayNumber: 'asc' },
+                        { orderIndex: 'asc' }
+                      ]
+                    }
+                  }
+                }
+              }
+            });
+          }
+        }
+        return up;
+      })
+    );
+
+    res.json(updatedPrograms);
   } catch (error) {
     console.error('Error fetching user programs:', error);
     res.status(500).json({ error: 'Failed to fetch user programs' });
@@ -1426,31 +1495,27 @@ router.post('/workouts/complete-day', authenticateToken, async (req: Request, re
       return res.status(404).json({ error: 'No active program found' });
     }
 
-    let newDay = userProgram.currentDay + 1;
-    let newWeek = userProgram.currentWeek;
+    // Recalculate current day and week based on today's date
+    // This ensures the day advances naturally with the calendar
+    const currentDay = calculateCurrentDay(userProgram.startDate, userProgram.programme.daysPerWeek);
+    const currentWeek = calculateCurrentWeek(userProgram.startDate, userProgram.programme.daysPerWeek);
 
-    // If we've completed all days in the week, advance to next week
-    if (newDay > userProgram.programme.daysPerWeek) {
-      newDay = 1;
-      newWeek += 1;
-    }
-
-    // Update user program
+    // Update user program with recalculated values
     await prisma.userProgram.update({
       where: { id: userProgram.id },
       data: {
-        currentDay: newDay,
-        currentWeek: newWeek,
+        currentDay,
+        currentWeek,
         updatedAt: new Date()
       }
     });
 
-    console.log(`✅ User ${userId} advanced to Week ${newWeek}, Day ${newDay}`);
+    console.log(`✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`);
 
     res.json({
-      currentWeek: newWeek,
-      currentDay: newDay,
-      message: `Advanced to Week ${newWeek}, Day ${newDay}`
+      currentWeek,
+      currentDay,
+      message: `Workout completed! Next session: Week ${currentWeek}, Day ${currentDay}`
     });
   } catch (error) {
     console.error('❌ Error completing day:', error);
@@ -1458,6 +1523,310 @@ router.post('/workouts/complete-day', authenticateToken, async (req: Request, re
       error: 'Failed to complete day',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+});
+
+// Add these endpoints to your auth.ts file
+
+// PATCH /auth/user-programs/:id - Update user program status
+router.patch("/user-programs/:id", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const userId = (req as any).user.userId;
+
+  try {
+    // Verify this user program belongs to the user
+    const userProgram = await prisma.userProgram.findFirst({
+      where: {
+        id,
+        userId
+      }
+    });
+
+    if (!userProgram) {
+      return res.status(404).json({ error: 'User program not found' });
+    }
+
+    // Update status
+    const updated = await prisma.userProgram.update({
+      where: { id },
+      data: {
+        status,
+        ...(status === 'COMPLETED' || status === 'CANCELLED' ? { endDate: new Date() } : {})
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating user program:', error);
+    res.status(500).json({ error: 'Failed to update user program' });
+  }
+});
+
+// Helper function to calculate current day based on start date
+function calculateCurrentDay(startDate: Date, daysPerWeek: number): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  
+  const daysSinceStart = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  // Calculate current day (1-indexed, cycles through daysPerWeek)
+  const currentDay = (daysSinceStart % daysPerWeek) + 1;
+  
+  return currentDay;
+}
+
+// Helper function to calculate current week
+function calculateCurrentWeek(startDate: Date, daysPerWeek: number): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  
+  const daysSinceStart = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  // Calculate current week (1-indexed)
+  const currentWeek = Math.floor(daysSinceStart / daysPerWeek) + 1;
+  
+  return currentWeek;
+}
+
+// Updated POST /auth/user-programs - Create with calculated day
+router.post("/user-programs", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { programmeId, startDate } = req.body;
+  const userId = (req as any).user.userId;
+
+  try {
+    // Get programme details
+    const programme = await prisma.programme.findUnique({
+      where: { id: programmeId }
+    });
+
+    if (!programme) {
+      return res.status(404).json({ error: 'Programme not found' });
+    }
+
+    // Calculate current day and week based on start date
+    const start = new Date(startDate);
+    const currentDay = calculateCurrentDay(start, programme.daysPerWeek);
+    const currentWeek = calculateCurrentWeek(start, programme.daysPerWeek);
+
+    const userProgram = await prisma.userProgram.create({
+      data: {
+        userId,
+        programmeId,
+        startDate: start,
+        currentDay,
+        currentWeek,
+        status: 'ACTIVE',
+      },
+      include: {
+        programme: {
+          include: {
+            exercises: {
+              include: {
+                exercise: true
+              },
+              orderBy: [
+                { dayNumber: 'asc' },
+                { orderIndex: 'asc' }
+              ]
+            }
+          }
+        }
+      }
+    });
+
+    res.status(201).json(userProgram);
+  } catch (error) {
+    console.error('Error creating user program:', error);
+    res.status(500).json({ error: 'Failed to create user program' });
+  }
+});
+
+// Updated GET /auth/user-programs - Returns with calculated current day
+router.get("/user-programs", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const userPrograms = await prisma.userProgram.findMany({
+      where: { userId },
+      include: {
+        programme: {
+          include: {
+            exercises: {
+              include: {
+                exercise: true,
+              },
+              orderBy: [
+                { dayNumber: 'asc' },
+                { orderIndex: 'asc' },
+              ],
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    // Update current day and week for active programs based on today's date
+    const updatedPrograms = await Promise.all(
+      userPrograms.map(async (up) => {
+        if (up.status === 'ACTIVE') {
+          const currentDay = calculateCurrentDay(up.startDate, up.programme.daysPerWeek);
+          const currentWeek = calculateCurrentWeek(up.startDate, up.programme.daysPerWeek);
+
+          // Update if different
+          if (currentDay !== up.currentDay || currentWeek !== up.currentWeek) {
+            return await prisma.userProgram.update({
+              where: { id: up.id },
+              data: {
+                currentDay,
+                currentWeek
+              },
+              include: {
+                programme: {
+                  include: {
+                    exercises: {
+                      include: {
+                        exercise: true
+                      },
+                      orderBy: [
+                        { dayNumber: 'asc' },
+                        { orderIndex: 'asc' }
+                      ]
+                    }
+                  }
+                }
+              }
+            });
+          }
+        }
+        return up;
+      })
+    );
+
+    res.json(updatedPrograms);
+  } catch (error) {
+    console.error('Error fetching user programs:', error);
+    res.status(500).json({ error: 'Failed to fetch user programs' });
+  }
+});
+
+// Updated POST /auth/workouts/complete-day - Now advances calendar day, not programme day
+router.post('/workouts/complete-day', authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const userId = (req as any).user.userId;
+
+  try {
+    const userProgram = await prisma.userProgram.findFirst({
+      where: { 
+        userId,
+        status: 'ACTIVE'
+      },
+      include: {
+        programme: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!userProgram) {
+      return res.status(404).json({ error: 'No active program found' });
+    }
+
+    // Recalculate current day and week based on today's date
+    // This ensures the day advances naturally with the calendar
+    const currentDay = calculateCurrentDay(userProgram.startDate, userProgram.programme.daysPerWeek);
+    const currentWeek = calculateCurrentWeek(userProgram.startDate, userProgram.programme.daysPerWeek);
+
+    // Update user program with recalculated values
+    await prisma.userProgram.update({
+      where: { id: userProgram.id },
+      data: {
+        currentDay,
+        currentWeek,
+        updatedAt: new Date()
+      }
+    });
+
+    console.log(`✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`);
+
+    res.json({
+      currentWeek,
+      currentDay,
+      message: `Workout completed! Next session: Week ${currentWeek}, Day ${currentDay}`
+    });
+  } catch (error) {
+    console.error('❌ Error completing day:', error);
+    res.status(500).json({ 
+      error: 'Failed to complete day',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+router.delete("/programmes/:programmeId/exercises/day/:dayNumber", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { programmeId, dayNumber } = req.params;
+
+  try {
+    console.log(`🗑️ Deleting all exercises for programme ${programmeId}, day ${dayNumber}`);
+
+    const deleted = await prisma.programmeExercise.deleteMany({
+      where: {
+        programmeId,
+        dayNumber: parseInt(dayNumber)
+      }
+    });
+
+    console.log(`✅ Deleted ${deleted.count} exercises`);
+    
+    res.json({ 
+      success: true, 
+      deletedCount: deleted.count,
+      message: `Deleted ${deleted.count} exercises from Day ${dayNumber}` 
+    });
+  } catch (error) {
+    console.error('Error deleting day exercises:', error);
+    res.status(500).json({ error: 'Failed to delete exercises' });
+  }
+});
+
+router.patch("/user-programs/:id", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const userId = (req as any).user.userId;
+
+  try {
+    // Verify this user program belongs to the user
+    const userProgram = await prisma.userProgram.findFirst({
+      where: {
+        id,
+        userId
+      }
+    });
+
+    if (!userProgram) {
+      return res.status(404).json({ error: 'User program not found' });
+    }
+
+    // Update status
+    const updated = await prisma.userProgram.update({
+      where: { id },
+      data: {
+        status,
+        ...(status === 'COMPLETED' || status === 'CANCELLED' ? { endDate: new Date() } : {})
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating user program:', error);
+    res.status(500).json({ error: 'Failed to update user program' });
   }
 });
 
