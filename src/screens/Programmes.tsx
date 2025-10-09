@@ -8,6 +8,8 @@ import {
   ChevronDown,
   ChevronRight,
   MoreHorizontal,
+  Edit3,
+  Play,
 } from "lucide-react";
 
 export default function Programmes() {
@@ -19,6 +21,7 @@ export default function Programmes() {
     {}
   );
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -39,6 +42,20 @@ export default function Programmes() {
         const userData = await userRes.json();
         setFirstName(userData.firstName);
         setSurname(userData.surname);
+
+        // Fetch active user program
+        const userProgramRes = await fetch(
+          "http://localhost:4242/auth/user-programs",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        if (userProgramRes.ok) {
+          const userPrograms = await userProgramRes.json();
+          const active = userPrograms.find((up: any) => up.status === "ACTIVE");
+          setActiveUserProgram(active);
+        }
 
         // Fetch programmes
         const progRes = await fetch("http://localhost:4242/auth/programmes", {
@@ -89,6 +106,55 @@ export default function Programmes() {
     }));
   };
 
+  const handleEditProgramme = (programmeId: string) => {
+    navigate(`/editor/${programmeId}`);
+  };
+
+  const handleStartProgramme = async (programmeId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    try {
+      // First, cancel any active programmes
+      if (activeUserProgram) {
+        await fetch(
+          `http://localhost:4242/auth/user-programs/${activeUserProgram.id}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ status: "CANCELLED" }),
+          }
+        );
+      }
+
+      // Create new user program with today as start date
+      const response = await fetch("http://localhost:4242/auth/user-programs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          programmeId: programmeId,
+          startDate: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to start programme");
+      }
+
+      alert("Programme started! Head to Workouts to begin.");
+      navigate("/workouts");
+    } catch (error) {
+      console.error("Error starting programme:", error);
+      alert("Failed to start programme. Please try again.");
+    }
+  };
+
   return (
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
@@ -114,6 +180,34 @@ export default function Programmes() {
         </h2>
         <MoreHorizontal className="text-white w-6 h-6" />
       </div>
+
+      {/* Active Programme Banner */}
+      {activeUserProgram && (
+        <div className="w-full px-2 mb-5 mt-6">
+          <div className="bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] rounded-xl px-4 py-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-black font-semibold text-sm">
+                ACTIVE PROGRAMME
+              </span>
+              <CheckCircle className="text-green-700" size={20} />
+            </div>
+            <h3 className="text-black font-bold text-lg mb-1">
+              {activeUserProgram.programme.name}
+            </h3>
+            <p className="text-black/80 text-sm mb-3">
+              Week {activeUserProgram.currentWeek} • Day{" "}
+              {activeUserProgram.currentDay}
+            </p>
+            <button
+              onClick={() => navigate("/workouts")}
+              className="w-full bg-black text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2"
+            >
+              <Play size={16} />
+              Continue Programme
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Create New Custom Programme */}
       <div className="w-full px-2 mb-5 mt-6">
@@ -156,23 +250,64 @@ export default function Programmes() {
 
                 {isOpen && (
                   <div className="flex flex-col gap-3">
-                    {programmes.map((prog: any) => (
-                      <div
-                        key={prog.id}
-                        className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer"
-                        onClick={() => navigate(`/editor/${prog.id}`)}
-                      >
-                        <CheckCircle className="text-green-500 w-5 h-5" />
-                        <div>
-                          <p className="font-semibold text-white">
-                            {prog.name}
-                          </p>
-                          <p className="text-sm text-[#00FFAD]">
-                            {prog.daysPerWeek} days · {prog.weeks} weeks
-                          </p>
+                    {programmes.map((prog: any) => {
+                      const isActive =
+                        activeUserProgram?.programmeId === prog.id;
+
+                      return (
+                        <div
+                          key={prog.id}
+                          className={`w-full bg-[#1C1F26] rounded-xl px-4 py-3 ${
+                            isActive
+                              ? "border-2 border-green-500"
+                              : "border border-[#2F3544]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className="font-semibold text-white">
+                                  {prog.name}
+                                </p>
+                                {isActive && (
+                                  <CheckCircle
+                                    className="text-green-500"
+                                    size={16}
+                                  />
+                                )}
+                              </div>
+                              <p className="text-sm text-[#00FFAD]">
+                                {prog.daysPerWeek} days · {prog.weeks} weeks
+                              </p>
+                              {prog.description && (
+                                <p className="text-xs text-[#5E6272] mt-1">
+                                  {prog.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              onClick={() => handleEditProgramme(prog.id)}
+                              className="flex-1 bg-[#2A2E38] hover:bg-[#3a3f4a] text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <Edit3 size={14} />
+                              Customize
+                            </button>
+                            {!isActive && (
+                              <button
+                                onClick={() => handleStartProgramme(prog.id)}
+                                className="flex-1 bg-[#246BFD] hover:bg-blue-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                              >
+                                <Play size={14} />
+                                Start
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

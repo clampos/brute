@@ -14,7 +14,6 @@ import {
 type WorkoutSet = {
   weight: string;
   reps: string;
-  rpe?: string;
   completed: boolean;
 };
 
@@ -29,6 +28,7 @@ type WorkoutExercise = {
   recommendation?: {
     recommendedWeight: number;
     recommendedReps: number;
+    recommendedRPE: number;
     progressionType: string;
     reasoning: string;
   };
@@ -42,7 +42,7 @@ type UserProgram = {
     description?: string;
     bodyPartFocus: string;
     daysPerWeek: number;
-    weeks: number; // ✅ ADD THIS LINE
+    weeks: number;
     exercises: ProgrammeExercise[];
   };
   currentWeek: number;
@@ -114,7 +114,7 @@ export default function Workouts() {
   const updateSetData = (
     exerciseId: string,
     setIndex: number,
-    field: "weight" | "reps" | "rpe",
+    field: "weight" | "reps",
     value: string
   ) => {
     setTodayExercises((prev) =>
@@ -157,7 +157,6 @@ export default function Workouts() {
                 {
                   weight: "",
                   reps: "",
-                  rpe: "",
                   completed: false,
                 },
               ],
@@ -194,7 +193,6 @@ export default function Workouts() {
           .map((set) => ({
             weight: parseFloat(set.weight),
             reps: parseInt(set.reps),
-            rpe: set.rpe ? parseInt(set.rpe) : undefined,
             completed: set.completed,
           })),
       }));
@@ -228,7 +226,9 @@ export default function Workouts() {
             (rec: any) =>
               `• ${getExerciseName(rec.exerciseId)}: ${
                 rec.recommendedWeight
-              }kg x ${rec.recommendedReps} reps\n  ${rec.reasoning}`
+              }kg x ${rec.recommendedReps} reps (RPE ${
+                rec.recommendedRPE
+              })\n  ${rec.reasoning}`
           )
           .join("\n\n")}`
       );
@@ -275,7 +275,6 @@ export default function Workouts() {
       setSecondsElapsed(0);
       setWorkoutStartTime(null);
 
-      // Reload the workout for the new day
       window.location.reload();
     } catch (err: any) {
       console.error("Error advancing to next day:", err);
@@ -350,7 +349,6 @@ export default function Workouts() {
         }
 
         const userPrograms = await response.json();
-        console.log("📊 User programs response:", userPrograms);
 
         const activeProgram =
           userPrograms.find((up: any) => up.status === "ACTIVE") ||
@@ -363,8 +361,6 @@ export default function Workouts() {
           setLoading(false);
           return;
         }
-
-        console.log("✅ Active program found:", activeProgram);
 
         const programmeResponse = await fetch(
           `http://localhost:4242/auth/programmes/${activeProgram.programmeId}`,
@@ -380,7 +376,6 @@ export default function Workouts() {
         }
 
         const programmeData = await programmeResponse.json();
-        console.log("📊 Programme data:", programmeData);
 
         const fullUserProgram = {
           ...activeProgram,
@@ -390,7 +385,6 @@ export default function Workouts() {
         setUserProgram(fullUserProgram);
 
         if (!programmeData.exercises || programmeData.exercises.length === 0) {
-          console.error("❌ No exercises found in programme!");
           setError(
             "This programme has no exercises configured. Please add exercises in the Programme Editor."
           );
@@ -398,14 +392,9 @@ export default function Workouts() {
           return;
         }
 
-        // FIXED: Only get exercises for the current day
         const currentDayExercises = programmeData.exercises.filter(
           (exercise: ProgrammeExercise) =>
             exercise.dayNumber === activeProgram.currentDay
-        );
-
-        console.log(
-          `✅ Found ${currentDayExercises.length} exercises for Day ${activeProgram.currentDay}`
         );
 
         if (currentDayExercises.length === 0) {
@@ -416,7 +405,6 @@ export default function Workouts() {
           return;
         }
 
-        // Create workout exercises for today only
         const workoutExercises: WorkoutExercise[] = currentDayExercises.map(
           (exercise: ProgrammeExercise) => {
             const initialSets: WorkoutSet[] = Array.from(
@@ -424,7 +412,6 @@ export default function Workouts() {
               () => ({
                 weight: "",
                 reps: "",
-                rpe: "",
                 completed: false,
               })
             );
@@ -441,7 +428,6 @@ export default function Workouts() {
           }
         );
 
-        console.log("✅ Today's workout exercises:", workoutExercises);
         setTodayExercises(workoutExercises);
       } catch (err: any) {
         console.error("Error fetching user program:", err);
@@ -637,6 +623,11 @@ export default function Workouts() {
                       <p className="text-xs text-blue-300">
                         {exercise.recommendation.recommendedWeight}kg ×{" "}
                         {exercise.recommendation.recommendedReps} reps
+                        {exercise.recommendation.recommendedRPE && (
+                          <span className="ml-2 text-purple-300">
+                            • RPE {exercise.recommendation.recommendedRPE}
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-blue-200 mt-1">
                         {exercise.recommendation.reasoning}
@@ -662,7 +653,7 @@ export default function Workouts() {
                         e.target.value
                       )
                     }
-                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/3 placeholder:text-[#5E6272] text-sm"
+                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#5E6272] text-sm"
                     style={{ MozAppearance: "textfield" }}
                     inputMode="decimal"
                   />
@@ -678,27 +669,9 @@ export default function Workouts() {
                         e.target.value
                       )
                     }
-                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/4 placeholder:text-[#5E6272] text-sm"
+                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#5E6272] text-sm"
                     style={{ MozAppearance: "textfield" }}
                     inputMode="numeric"
-                  />
-                  <input
-                    type="number"
-                    placeholder="RPE"
-                    value={set.rpe}
-                    onChange={(e) =>
-                      updateSetData(
-                        exercise.exerciseId,
-                        setIdx,
-                        "rpe",
-                        e.target.value
-                      )
-                    }
-                    className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-1/4 placeholder:text-[#5E6272] text-sm"
-                    style={{ MozAppearance: "textfield" }}
-                    inputMode="numeric"
-                    min="1"
-                    max="10"
                   />
                   <button
                     onClick={() =>

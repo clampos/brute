@@ -45,7 +45,6 @@ type ProgrammeDay = {
   showMoreOptions: boolean; // Whether to show additional options
 };
 
-// Add proper type for the API response
 type ProgrammeExerciseResponse = {
   id: string;
   dayNumber: number;
@@ -98,7 +97,7 @@ export default function ProgrammeEditor() {
     return shuffled.slice(0, count);
   };
 
-  // Load initial exercise options for a day
+  // Load initial exercise options for a day (only 3)
   const loadInitialExerciseOptions = async (dayNumber: number) => {
     try {
       const muscleGroups = getMuscleGroupsForFocus(bodyFocus);
@@ -114,6 +113,7 @@ export default function ProgrammeEditor() {
           index === self.findIndex((e) => e.id === exercise.id)
       );
 
+      // Get only 3 random exercises for initial display
       const initialOptions = getRandomExercises(uniqueExercises, 3);
 
       setDays((prevDays) =>
@@ -296,26 +296,35 @@ export default function ProgrammeEditor() {
       const day = days.find((d) => d.dayNumber === dayNumber);
       if (!day) return;
 
-      // First, delete all existing exercises for this day
-      const existingExercises = day.exercises.filter(
-        (ex) => !ex.id.startsWith("temp-")
+      console.log(`🔍 Confirming Day ${dayNumber}`);
+      console.log(`📊 Current exercises in state:`, day.exercises);
+      console.log(
+        `📊 Exercises to save:`,
+        day.exercises.filter((ex) => ex.isSelected)
       );
 
-      for (const exercise of existingExercises) {
-        await fetch(
-          `http://localhost:4242/auth/programmes/exercises/${exercise.id}`,
-          {
-            method: "DELETE",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
+      // First, delete ALL existing exercises for this day from the database
+      const deleteRes = await fetch(
+        `http://localhost:4242/auth/programmes/${programmeId}/exercises/day/${dayNumber}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      if (!deleteRes.ok) {
+        console.error("Failed to delete existing exercises");
       }
 
-      // Then add all current exercises (including new ones)
+      // Then add ONLY the exercises currently in the day.exercises array
       const exercisesToAdd = day.exercises.filter((ex) => ex.isSelected);
       const addedExercises: ProgrammeExercise[] = [];
+
+      console.log(
+        `✅ Adding ${exercisesToAdd.length} exercises to Day ${dayNumber}`
+      );
 
       for (const exercise of exercisesToAdd) {
         const postRes = await fetch(
@@ -340,6 +349,8 @@ export default function ProgrammeEditor() {
         }
 
         const newProgrammeExercise = await postRes.json();
+        console.log(`✅ Added exercise:`, newProgrammeExercise);
+
         addedExercises.push({
           id: newProgrammeExercise.id,
           name: exercise.name,
@@ -349,6 +360,11 @@ export default function ProgrammeEditor() {
           isSelected: true,
         });
       }
+
+      console.log(
+        `✅ Final saved exercises for Day ${dayNumber}:`,
+        addedExercises
+      );
 
       // Update the day with real IDs and mark as saved
       setDays((prevDays) =>
@@ -364,10 +380,7 @@ export default function ProgrammeEditor() {
         )
       );
 
-      // Show success message briefly
-      setTimeout(() => {
-        setError("");
-      }, 2000);
+      alert(`Day ${dayNumber} saved with ${addedExercises.length} exercises!`);
     } catch (err) {
       console.error("Error confirming day:", err);
       setError("Failed to save exercises for this day");
@@ -376,49 +389,27 @@ export default function ProgrammeEditor() {
     }
   };
 
-  const handleSubmitProgramme = async () => {
+  const handleSubmitProgramme = () => {
     // Check if there are any unsaved changes
     const hasUnsavedChanges = days.some((day) => day.hasChanges);
     if (hasUnsavedChanges) {
-      setError("Please confirm all days before submitting the programme");
+      setError("Please confirm all days before going back");
       return;
     }
 
-    setSubmittingProgramme(true);
-    try {
-      // Create a UserProgram entry to enable workout generation
-      const response = await fetch(`http://localhost:4242/auth/user-programs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({
-          programmeId: programmeId,
-          startDate: new Date().toISOString(),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to submit programme");
-      }
-
-      const userProgram = await response.json();
-
-      // Navigate to workout or programmes list with success message
-      navigate("/programmes", {
-        state: {
-          message:
-            "Programme successfully submitted! You can now start workouts.",
-        },
-      });
-    } catch (err: any) {
-      console.error("Error submitting programme:", err);
-      setError(err.message || "Failed to submit programme");
-    } finally {
-      setSubmittingProgramme(false);
+    // Check if programme has any exercises
+    const totalExercises = days.reduce(
+      (sum, day) => sum + day.exercises.length,
+      0
+    );
+    if (totalExercises === 0) {
+      setError("Please add at least one exercise to at least one day");
+      return;
     }
+
+    // Simply navigate back to programmes page
+    // The actual "Start" happens in Programmes.tsx
+    navigate("/programmes");
   };
 
   const handleLogout = () => {
@@ -512,7 +503,7 @@ export default function ProgrammeEditor() {
           Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
         );
 
-        // Load initial exercise options for each day
+        // Load initial exercise options for each day (only 3 per day)
         for (const day of loadedDays) {
           await loadInitialExerciseOptions(day.dayNumber);
         }
@@ -572,7 +563,7 @@ export default function ProgrammeEditor() {
         </div>
       )}
 
-      {/* Submit Programme Button */}
+      {/* Done Editing Button */}
       {!loading && (
         <div className="mb-6 flex justify-center">
           <button
@@ -586,9 +577,9 @@ export default function ProgrammeEditor() {
           >
             <Save size={16} />
             {submittingProgramme
-              ? "Submitting..."
+              ? "Saving..."
               : isReadyToSubmit
-              ? "Submit Programme"
+              ? "Done Editing"
               : "Confirm All Days First"}
           </button>
         </div>
@@ -647,7 +638,7 @@ export default function ProgrammeEditor() {
                     {day.exercises.length > 0 && (
                       <div className="space-y-2">
                         <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                          Selected Exercises
+                          Selected Exercises ({day.exercises.length})
                         </h4>
                         {day.exercises.map((ex) => (
                           <div
@@ -692,7 +683,7 @@ export default function ProgrammeEditor() {
                       </div>
                     )}
 
-                    {/* Initial Exercise Options (Always show 3) */}
+                    {/* Initial Exercise Options (Always show ONLY 3) */}
                     <div className="space-y-2">
                       <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
                         Recommended for {bodyFocus}
@@ -700,6 +691,7 @@ export default function ProgrammeEditor() {
                       {day.exerciseOptions.length > 0 ? (
                         day.exerciseOptions
                           .filter((ex) => !ex.isSelected)
+                          .slice(0, 3) // ✅ ALWAYS SHOW ONLY 3
                           .map((ex) => (
                             <div
                               key={ex.id}
