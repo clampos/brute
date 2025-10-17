@@ -32,13 +32,6 @@ export default function BottomBar({ onLogout }: BottomBarProps) {
           {item.icon}
         </button>
       ))}
-
-      <button
-        onClick={onLogout}
-        className="flex flex-col items-center text-[#5E6272] hover:text-red-500 transition-colors"
-      >
-        <LogOut size={22} />
-      </button>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import ResetPassword from "./components/ResetPassword";
 import ProgrammesScreen from "./screens/Programmes";
 import ProgrammeEditor from "./screens/ProgrammeEditor";
 import Workouts from "./screens/Workouts";
+import Metrics from "./screens/Metrics";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/programmes" element={<ProgrammesScreen />} />
         <Route path="/workouts" element={<Workouts />} />
         <Route path="/editor/:programmeId" element={<ProgrammeEditor />} />
+        <Route path="/metrics" element={<Metrics />} />
       </Routes>
     </BrowserRouter>
   );

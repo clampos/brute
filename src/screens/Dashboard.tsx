@@ -22,10 +22,25 @@ interface UserProgram {
   endDate?: string;
 }
 
+interface WeeklyStats {
+  workoutsCompleted: number;
+  workoutsTarget: number;
+  dailyStats: {
+    date: string;
+    dayName: string;
+    sets: number;
+    exercises: number;
+  }[];
+  totalSets: number;
+  totalExercises: number;
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [userProgram, setUserProgram] = useState<UserProgram | null>(null);
   const [todayWorkout, setTodayWorkout] = useState<any>(null);
+  const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   const navItems = ["overview", "performance"];
 
@@ -81,6 +96,22 @@ export default function Dashboard() {
           setProfilePhoto(profileData.profilePhoto);
         }
 
+        // Fetch active user program
+        const userProgramRes = await fetch(
+          "http://localhost:4242/auth/user-programs",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (userProgramRes.ok) {
+          const userPrograms = await userProgramRes.json();
+          const active = userPrograms.find((up: any) => up.status === "ACTIVE");
+          setUserProgram(active);
+        }
+
         setLoading(false);
       } catch (err) {
         console.error("Auth error:", err);
@@ -91,6 +122,38 @@ export default function Dashboard() {
 
     fetchData();
   }, [navigate]);
+
+  useEffect(() => {
+    const fetchWeeklyStats = async () => {
+      const token = localStorage.getItem("token");
+      if (!token || !userProgram) return;
+
+      setLoadingStats(true);
+      try {
+        const response = await fetch(
+          "http://localhost:4242/auth/workouts/weekly-stats",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (response.ok) {
+          const stats = await response.json();
+          setWeeklyStats(stats);
+        }
+      } catch (error) {
+        console.error("Error fetching weekly stats:", error);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+
+    if (activeTab === "performance" && userProgram) {
+      fetchWeeklyStats();
+    }
+  }, [activeTab, userProgram]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -258,7 +321,7 @@ export default function Dashboard() {
 
               <div className="flex gap-2">
                 <button
-                  onClick={() => navigate("/workout")}
+                  onClick={() => navigate("/workouts")}
                   className="bg-[#246BFD] text-white px-4 py-2 rounded-full text-sm font-medium shadow-md flex items-center gap-2"
                 >
                   <Play size={16} />
@@ -290,8 +353,8 @@ export default function Dashboard() {
           {/* Quick Action Boxes */}
           {[
             { title: "Update Bodyweight", path: "/settings" },
-            { title: "New Bench Press PR!", path: "/programmes" },
-            { title: "Plan Your Next Programme", path: "/programmes" },
+            { title: "View Programmes", path: "/programmes" },
+            { title: "Workout History", path: "/workouts" },
           ].map((item, index) => (
             <div
               key={index}
@@ -341,23 +404,170 @@ export default function Dashboard() {
             </div>
           )}
 
-          {["Weekly Goal", "Weight moved in the last 7 days"].map(
-            (heading, idx) => (
-              <div
-                key={idx}
-                className="rounded-xl px-6 py-8"
-                style={{ background: "#262A34" }}
-              >
-                <h3
-                  className="text-[#5E6272] font-semibold text-lg mb-4"
-                  style={{ fontFamily: "'Poppins', sans-serif" }}
-                >
-                  {heading}
-                </h3>
-                <p className="text-white text-sm">Content goes here...</p>
+          {/* Weekly Goal */}
+          <div
+            className="rounded-xl px-6 py-8"
+            style={{ background: "#262A34" }}
+          >
+            <h3
+              className="text-[#5E6272] font-semibold text-lg mb-4"
+              style={{ fontFamily: "'Poppins', sans-serif" }}
+            >
+              Weekly Goal
+            </h3>
+            {loadingStats ? (
+              <p className="text-white text-sm">Loading stats...</p>
+            ) : weeklyStats ? (
+              <div className="flex flex-col items-center">
+                {/* Circular Progress */}
+                <div className="relative w-40 h-40 mb-4">
+                  <svg className="w-full h-full transform -rotate-90">
+                    <circle
+                      cx="80"
+                      cy="80"
+                      r="70"
+                      stroke="#1A1D23"
+                      strokeWidth="12"
+                      fill="none"
+                    />
+                    <circle
+                      cx="80"
+                      cy="80"
+                      r="70"
+                      stroke="url(#gradient)"
+                      strokeWidth="12"
+                      fill="none"
+                      strokeDasharray={`${
+                        2 *
+                        Math.PI *
+                        70 *
+                        (weeklyStats.workoutsCompleted /
+                          weeklyStats.workoutsTarget)
+                      } ${2 * Math.PI * 70}`}
+                      strokeLinecap="round"
+                      className="transition-all duration-500"
+                    />
+                    <defs>
+                      <linearGradient
+                        id="gradient"
+                        x1="0%"
+                        y1="0%"
+                        x2="100%"
+                        y2="100%"
+                      >
+                        <stop offset="0%" stopColor="#00FFAD" />
+                        <stop offset="100%" stopColor="#246BFD" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-4xl font-bold text-white">
+                      {weeklyStats.workoutsCompleted}
+                    </span>
+                    <span className="text-sm text-[#5E6272]">
+                      / {weeklyStats.workoutsTarget}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-white text-center">
+                  {weeklyStats.workoutsCompleted} of{" "}
+                  {weeklyStats.workoutsTarget} workouts completed this week
+                </p>
+                {weeklyStats.workoutsCompleted >=
+                  weeklyStats.workoutsTarget && (
+                  <div className="mt-3 px-4 py-2 bg-green-600/20 border border-green-500/30 rounded-lg">
+                    <p className="text-green-400 text-sm font-medium text-center">
+                      🎉 Weekly goal achieved!
+                    </p>
+                  </div>
+                )}
               </div>
-            )
-          )}
+            ) : (
+              <p className="text-white text-sm">
+                Start a programme to track your weekly goals
+              </p>
+            )}
+          </div>
+
+          {/* Weight moved in the last 7 days */}
+          <div
+            className="rounded-xl px-6 py-8"
+            style={{ background: "#262A34" }}
+          >
+            <h3
+              className="text-[#5E6272] font-semibold text-lg mb-6"
+              style={{ fontFamily: "'Poppins', sans-serif" }}
+            >
+              Activity - Last 7 Days
+            </h3>
+            {loadingStats ? (
+              <p className="text-white text-sm">Loading stats...</p>
+            ) : weeklyStats && weeklyStats.dailyStats.length > 0 ? (
+              <div>
+                {/* Bar Chart */}
+                <div className="flex items-end justify-between h-32 mb-4 gap-2">
+                  {weeklyStats.dailyStats.map((day, index) => {
+                    const maxSets = Math.max(
+                      ...weeklyStats.dailyStats.map((d) => d.sets),
+                      1
+                    );
+                    const heightPercentage = (day.sets / maxSets) * 100;
+
+                    return (
+                      <div
+                        key={index}
+                        className="flex-1 flex flex-col items-center"
+                      >
+                        <div className="w-full flex flex-col items-center justify-end h-full">
+                          {/* Sets bar */}
+                          {day.sets > 0 && (
+                            <div
+                              className="w-full bg-gradient-to-t from-[#246BFD] to-[#00FFAD] rounded-t transition-all duration-300 relative group"
+                              style={{
+                                height: `${heightPercentage}%`,
+                                minHeight: day.sets > 0 ? "8px" : "0",
+                              }}
+                            >
+                              {/* Tooltip */}
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                {day.sets} sets
+                                <br />
+                                {day.exercises} exercises
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {/* Day label */}
+                        <p className="text-[#5E6272] text-xs mt-2 font-medium">
+                          {day.dayName.charAt(0)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Summary */}
+                <div className="flex justify-center gap-6 pt-4 border-t border-[#1A1D23]">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-white">
+                      {weeklyStats.totalSets}
+                    </p>
+                    <p className="text-xs text-[#5E6272]">Sets</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-white">
+                      {weeklyStats.totalExercises}
+                    </p>
+                    <p className="text-xs text-[#5E6272]">Exercises</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-white text-sm">
+                No workout data for the last 7 days
+              </p>
+            )}
+          </div>
         </div>
       )}
 

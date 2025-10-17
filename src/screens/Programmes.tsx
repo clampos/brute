@@ -203,7 +203,7 @@ export default function Programmes() {
               className="w-full bg-black text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2"
             >
               <Play size={16} />
-              Continue Programme
+              Continue Workout
             </button>
           </div>
         </div>

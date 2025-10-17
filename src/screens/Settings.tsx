@@ -10,6 +10,8 @@ import {
   User,
   Edit3,
   Save,
+  TrendingUp,
+  LogOut,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import BottomBar from "../components/BottomBar";
@@ -60,7 +62,6 @@ export default function Settings() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
 
-  // Individual field editing states
   const [editing, setEditing] = useState<EditingState>({
     bodyweight: false,
     height: false,
@@ -74,7 +75,6 @@ export default function Settings() {
     gender: false,
   });
 
-  // Helper function to calculate age from birthday
   const calculateAge = (birthdayString: string): number | null => {
     if (!birthdayString) return null;
     const today = new Date();
@@ -90,15 +90,12 @@ export default function Settings() {
     return age;
   };
 
-  // Fetch user profile info
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       navigate("/login");
       return;
     }
-
-    console.log("Fetching profile with token:", token.substring(0, 20) + "...");
 
     fetch("http://localhost:4242/auth/user/profile", {
       headers: {
@@ -107,7 +104,6 @@ export default function Settings() {
       },
     })
       .then((res) => {
-        console.log("Profile fetch response status:", res.status);
         if (!res.ok) {
           if (res.status === 401) {
             localStorage.removeItem("token");
@@ -119,7 +115,6 @@ export default function Settings() {
         return res.json();
       })
       .then((data) => {
-        console.log("Profile data received:", data);
         setBodyweight(data.bodyweight ?? null);
         setHeight(data.height ?? null);
         setBirthday(
@@ -129,8 +124,6 @@ export default function Settings() {
         );
         setGender(data.gender ?? null);
         setProfilePhoto(data.profilePhoto ?? null);
-        console.log("Received profile photo path:", data.profilePhoto);
-
         setProfileError(null);
       })
       .catch((err) => {
@@ -145,15 +138,11 @@ export default function Settings() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    console.log("Selected file:", file.name, file.type, file.size);
-
-    // Validate file type
     if (!file.type.startsWith("image/")) {
       alert("Please select an image file");
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       alert("File size must be less than 5MB");
       return;
@@ -172,21 +161,16 @@ export default function Settings() {
       const formData = new FormData();
       formData.append("profilePhoto", file);
 
-      console.log("Uploading file to server...");
-
       const response = await fetch(
         "http://localhost:4242/auth/user/profile-photo",
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            // Don't set Content-Type header - let browser set it for FormData
           },
           body: formData,
         }
       );
-
-      console.log("Upload response status:", response.status);
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -194,18 +178,12 @@ export default function Settings() {
           navigate("/login");
           return;
         }
-        const errorData = await response.text();
-        console.error("Upload error response:", errorData);
         throw new Error(`Upload failed: ${response.status}`);
       }
 
       const result = await response.json();
-      console.log("Upload successful:", result);
-
       setProfilePhoto(result.profilePhoto);
       alert("Profile photo updated successfully!");
-
-      // Clear the file input
       event.target.value = "";
     } catch (error) {
       console.error("Error uploading photo:", error);
@@ -257,7 +235,6 @@ export default function Settings() {
     }
   };
 
-  // Individual field save function
   const handleFieldSave = async (field: keyof EditingState) => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -275,8 +252,6 @@ export default function Settings() {
       gender: gender || null,
     };
 
-    console.log(`Saving ${field} field:`, profileData);
-
     try {
       const res = await fetch("http://localhost:4242/auth/user/profile", {
         method: "PUT",
@@ -286,8 +261,6 @@ export default function Settings() {
         },
         body: JSON.stringify(profileData),
       });
-
-      console.log("Profile update response status:", res.status);
 
       if (!res.ok) {
         if (res.status === 401) {
@@ -303,21 +276,12 @@ export default function Settings() {
           errorData = { error: "Unknown error" };
         }
 
-        console.error("Profile update failed:", res.status, errorData);
         throw new Error(errorData.error || `Server error: ${res.status}`);
       }
 
       const result = await res.json();
-      console.log("Profile update result:", result);
-
-      // Exit editing mode for this field
       setEditing({ ...editing, [field]: false });
       setProfileError(null);
-
-      // Show subtle success feedback
-      const successTimeout = setTimeout(() => {
-        // Could add a success state here if needed
-      }, 1000);
     } catch (err: any) {
       console.error("Profile save error:", err);
       setProfileError(err.message || "Failed to update profile");
@@ -414,7 +378,6 @@ export default function Settings() {
     setPasswordError("");
     setPasswordLoading(true);
 
-    // Validation
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       setPasswordError("New passwords don't match");
       setPasswordLoading(false);
@@ -445,13 +408,11 @@ export default function Settings() {
       );
 
       if (!response.ok) {
-        // Safer error message, not exposing backend errors
         throw new Error(
           "Failed to change password. Please check your current password."
         );
       }
 
-      // Success
       resetPasswordModal();
       alert("Password changed successfully!");
     } catch (err: any) {
@@ -461,7 +422,6 @@ export default function Settings() {
     }
   };
 
-  // Function to handle actual account deletion
   const handleDeleteAccount = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -479,7 +439,6 @@ export default function Settings() {
         throw new Error("Failed to delete account.");
       }
 
-      // Clear storage and redirect to login or landing page
       localStorage.clear();
       alert("Account deleted successfully.");
       navigate("/login");
@@ -504,6 +463,12 @@ export default function Settings() {
     {
       label: "Delete Account",
       onClick: () => setShowDeleteAccount(true),
+      danger: true,
+    },
+    {
+      label: "Logout",
+      onClick: handleLogout,
+      danger: true,
     },
   ];
 
@@ -523,7 +488,6 @@ export default function Settings() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
       <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
         <img
           src={logo}
@@ -532,7 +496,6 @@ export default function Settings() {
         />
       </div>
 
-      {/* Top Bar */}
       <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
         <SettingsIcon className="text-white w-6 h-6" />
         <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
@@ -541,7 +504,6 @@ export default function Settings() {
         <MoreHorizontal className="text-white w-6 h-6" />
       </div>
 
-      {/* Referral Code Box */}
       <div className="mt-8 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
         <h3
           className="text-lg font-semibold mb-2"
@@ -565,7 +527,6 @@ export default function Settings() {
         </p>
       </div>
 
-      {/* Referral Stats */}
       {referralStats && (
         <div className="mt-6 space-y-4">
           <div className="bg-[#262A34] rounded-xl p-4">
@@ -594,7 +555,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Recent Referrals */}
           {referralStats.referredUsers?.length > 0 && (
             <div className="bg-[#262A34] rounded-xl p-4">
               <h4 className="text-white font-semibold mb-3">
@@ -624,11 +584,9 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Personal Profile Section */}
           <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">Personal Profile</h4>
 
-            {/* Show profile error if there is one */}
             {profileError && (
               <div className="mb-4 p-3 bg-red-900/20 border border-red-500 rounded-lg">
                 <p className="text-red-400 text-sm">{profileError}</p>
@@ -636,7 +594,6 @@ export default function Settings() {
             )}
 
             <div className="space-y-4 text-white">
-              {/* Profile Photo Section */}
               <div className="flex flex-col items-center space-y-2 mb-6">
                 <div className="w-24 h-24 rounded-full bg-[#1F222B] border-2 border-[#5E6272] overflow-hidden flex items-center justify-center relative">
                   {profilePhoto ? (
@@ -645,10 +602,6 @@ export default function Settings() {
                       alt="Profile"
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        console.error(
-                          "Failed to load profile image:",
-                          profilePhoto
-                        );
                         e.currentTarget.style.display = "none";
                         const fallback =
                           e.currentTarget.parentElement!.querySelector(
@@ -675,7 +628,6 @@ export default function Settings() {
                     className={`cursor-pointer bg-[#86FF99] text-black px-4 py-2 rounded font-semibold hover:bg-[#6bd664] transition flex items-center gap-2 select-none ${
                       photoUploading ? "opacity-50 cursor-not-allowed" : ""
                     }`}
-                    aria-disabled={photoUploading}
                   >
                     <Camera size={16} />
                     {photoUploading ? "Uploading..." : "Upload"}
@@ -693,8 +645,7 @@ export default function Settings() {
                     <button
                       onClick={handleRemoveProfilePhoto}
                       disabled={photoUploading}
-                      className="bg-red-600 hover:bg-red-700 active:bg-red-800 rounded px-4 py-2 font-semibold text-white select-none disabled:opacity-50 disabled:cursor-not-allowed"
-                      aria-label="Remove Profile Photo"
+                      className="bg-red-600 hover:bg-red-700 rounded px-4 py-2 font-semibold text-white disabled:opacity-50"
                     >
                       Remove
                     </button>
@@ -702,57 +653,28 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Bodyweight Field */}
               <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
                 <div className="flex-1">
                   <label className="block text-sm text-[#5E6272] mb-1">
                     Bodyweight
                   </label>
-                  {editing.bodyweight ? (
-                    <input
-                      type="number"
-                      value={bodyweight ?? ""}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setBodyweight(value === "" ? null : parseFloat(value));
-                      }}
-                      step="0.1"
-                      min="0"
-                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
-                      placeholder="Enter weight in kg"
-                      autoFocus
-                    />
-                  ) : (
-                    <p className="text-white">
-                      {formatDisplayValue("bodyweight", bodyweight)}
-                    </p>
-                  )}
+                  <p className="text-white">
+                    {formatDisplayValue("bodyweight", bodyweight)}
+                  </p>
+                  <p className="text-xs text-[#5E6272] mt-1">
+                    Update via Track Metrics →
+                  </p>
                 </div>
                 <div className="ml-3">
-                  {editing.bodyweight ? (
-                    <button
-                      onClick={() => handleFieldSave("bodyweight")}
-                      disabled={fieldLoading.bodyweight}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {fieldLoading.bodyweight ? (
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      ) : (
-                        <Save size={16} />
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => toggleEdit("bodyweight")}
-                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
-                    >
-                      <Edit3 size={16} className="text-[#5E6272]" />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => navigate("/metrics")}
+                    className="p-2 bg-[#246BFD]/20 hover:bg-[#246BFD]/40 rounded-lg transition-colors"
+                  >
+                    <TrendingUp size={16} className="text-[#246BFD]" />
+                  </button>
                 </div>
               </div>
 
-              {/* Height Field */}
               <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
                 <div className="flex-1">
                   <label className="block text-sm text-[#5E6272] mb-1">
@@ -762,13 +684,16 @@ export default function Settings() {
                     <input
                       type="number"
                       value={height ?? ""}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setHeight(value === "" ? null : parseFloat(value));
-                      }}
+                      onChange={(e) =>
+                        setHeight(
+                          e.target.value === ""
+                            ? null
+                            : parseFloat(e.target.value)
+                        )
+                      }
                       step="0.1"
                       min="0"
-                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [appearance:textfield]"
+                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
                       placeholder="Enter height in cm"
                       autoFocus
                     />
@@ -783,7 +708,7 @@ export default function Settings() {
                     <button
                       onClick={() => handleFieldSave("height")}
                       disabled={fieldLoading.height}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
                     >
                       {fieldLoading.height ? (
                         <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -802,7 +727,6 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Birthday Field */}
               <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
                 <div className="flex-1">
                   <label className="block text-sm text-[#5E6272] mb-1">
@@ -827,7 +751,7 @@ export default function Settings() {
                     <button
                       onClick={() => handleFieldSave("birthday")}
                       disabled={fieldLoading.birthday}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
                     >
                       {fieldLoading.birthday ? (
                         <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -846,7 +770,6 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* Gender Field */}
               <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
                 <div className="flex-1">
                   <label className="block text-sm text-[#5E6272] mb-1">
@@ -876,7 +799,7 @@ export default function Settings() {
                     <button
                       onClick={() => handleFieldSave("gender")}
                       disabled={fieldLoading.gender}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
                     >
                       {fieldLoading.gender ? (
                         <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -895,19 +818,37 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-4">
+              <button
+                onClick={() => navigate("/metrics")}
+                className="w-full bg-[#246BFD] hover:bg-blue-700 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+              >
+                <TrendingUp size={18} />
+                Track Metrics
+              </button>
+            </div>
           </div>
 
-          {/* General Settings Section */}
           <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">General Settings</h4>
             <div className="space-y-2">
               {settingsOptions.map((setting, index) => (
                 <div
                   key={index}
-                  className="flex justify-between items-center py-3 px-4 rounded-lg bg-[#1F222B] text-white hover:bg-[#2A2E39] cursor-pointer transition-colors"
+                  className={`flex justify-between items-center py-3 px-4 rounded-lg text-white cursor-pointer transition-colors ${
+                    setting.danger
+                      ? "bg-red-600/20 hover:bg-red-600/30"
+                      : "bg-[#1F222B] hover:bg-[#2A2E39]"
+                  }`}
                   onClick={setting.onClick}
                 >
-                  <span>{setting.label}</span>
+                  <span className={setting.danger ? "text-red-400" : ""}>
+                    {setting.label}
+                  </span>
+                  {setting.label === "Logout" && (
+                    <LogOut size={18} className="text-red-400" />
+                  )}
                 </div>
               ))}
             </div>
@@ -915,7 +856,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Change Password Modal */}
       {showChangePassword && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
@@ -999,7 +939,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Delete Account Modal */}
       {showDeleteAccount && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
@@ -1040,7 +979,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Bottom Bar */}
       <BottomBar onLogout={handleLogout} />
     </div>
   );
