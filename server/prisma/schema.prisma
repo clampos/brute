@@ -41,6 +41,8 @@ model User {
   passwordResetExpires DateTime?
 
   userPrograms UserProgram[]
+  bodyweightEntries BodyweightEntry[]
+  bodyfatEntries    BodyfatEntry[]
 }
 
 model Programme {
@@ -165,6 +167,30 @@ model WorkoutSet {
   updatedAt         DateTime        @updatedAt
 
   @@index([workoutExerciseId])
+}
+
+model BodyweightEntry {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  weight    Float    // in kg
+  date      DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("bodyweight_entries")
+}
+
+model BodyfatEntry {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  bodyfat   Float    // percentage
+  date      DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("bodyfat_entries")
 }
 
 enum UserProgramStatus {

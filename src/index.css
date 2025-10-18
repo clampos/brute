@@ -6,3 +6,13 @@
 body {
   background: radial-gradient(#ef88ed, #7269e3, #8350db);
 }
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}

@@ -234,6 +234,14 @@ export default function Metrics() {
   };
 
   // Render line graph for bodyweight or bodyfat
+  // Replace the renderLineGraph function in Metrics.tsx with this cleaner version:
+
+  // Replace the renderLineGraph function in Metrics.tsx with this cleaner version:
+
+  // Replace the entire renderLineGraph function in Metrics.tsx with this:
+
+  // Replace the entire renderLineGraph function in Metrics.tsx with this:
+
   const renderLineGraph = (
     data: any[],
     valueKey: string,
@@ -245,40 +253,59 @@ export default function Metrics() {
     // Sort by date (oldest first for graph)
     const sortedData = [...data].reverse();
 
-    // Calculate min and max for scaling
+    // Calculate min and max from actual data
     const values = sortedData.map((d) => d[valueKey]);
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
-    const range = maxValue - minValue || 1;
-    const padding = range * 0.2;
+    const dataMin = Math.min(...values);
+    const dataMax = Math.max(...values);
+
+    console.log("Data range:", { dataMin, dataMax, values });
+
+    // Add 10% padding above and below
+    const dataRange = dataMax - dataMin || 1; // Prevent division by zero
+    const padding = dataRange * 0.1;
+
+    const yMin = dataMin - padding;
+    const yMax = dataMax + padding;
+    const yRange = yMax - yMin;
+
+    console.log("Y-axis range:", { yMin, yMax, yRange });
 
     const graphHeight = 200;
     const graphWidth = Math.max(sortedData.length * 80, 300);
-    const leftMargin = 50; // Space for Y-axis labels
-    const bottomMargin = 40; // Space for X-axis labels
-    const topMargin = 30; // Space for top value labels
+    const leftMargin = 60;
+    const rightMargin = 20;
+    const bottomMargin = 60;
+    const topMargin = 50; // Increased for value labels above points
 
-    // Generate SVG points (adjusted for margins)
-    const plotWidth = graphWidth - leftMargin;
-    const plotHeight = graphHeight - bottomMargin - topMargin;
+    const plotWidth = graphWidth - leftMargin - rightMargin;
+    const plotHeight = graphHeight;
 
+    // Calculate points - normalize to 0-1 range based on yMin and yMax
     const points = sortedData.map((entry, index) => {
+      const value = entry[valueKey];
+
+      // Normalize: 0 = yMin (bottom), 1 = yMax (top)
+      const normalized = (value - yMin) / yRange;
+
       const x = leftMargin + (index / (sortedData.length - 1)) * plotWidth;
-      const normalizedValue =
-        (entry[valueKey] - minValue + padding) / (range + 2 * padding);
-      const y = topMargin + plotHeight - normalizedValue * plotHeight;
-      return { x, y, value: entry[valueKey], date: entry.date };
+      // Invert Y because SVG coordinates go from top to bottom
+      const y = topMargin + plotHeight * (1 - normalized);
+
+      return { x, y, value, date: entry.date };
     });
+
+    console.log("Points:", points);
 
     const pathD = points
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
 
-    // Generate Y-axis labels (5 labels from min to max)
+    // Generate Y-axis labels (5 labels evenly spaced)
     const yAxisLabels = [];
     for (let i = 0; i <= 4; i++) {
-      const value = minValue - padding + ((range + 2 * padding) * i) / 4;
-      const y = topMargin + plotHeight - (i / 4) * plotHeight;
+      const value = yMin + (yRange * i) / 4;
+      const normalized = i / 4;
+      const y = topMargin + plotHeight * (1 - normalized);
       yAxisLabels.push({ value: value.toFixed(1), y });
     }
 
@@ -319,7 +346,7 @@ export default function Metrics() {
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           <svg
-            width={graphWidth}
+            width={graphWidth + rightMargin}
             height={graphHeight + bottomMargin + topMargin}
             className="min-w-full"
           >
@@ -328,7 +355,7 @@ export default function Metrics() {
               x1={leftMargin}
               y1={topMargin}
               x2={leftMargin}
-              y2={graphHeight + topMargin}
+              y2={topMargin + plotHeight}
               stroke="#5E6272"
               strokeWidth="2"
             />
@@ -336,35 +363,17 @@ export default function Metrics() {
             {/* X-axis */}
             <line
               x1={leftMargin}
-              y1={graphHeight + topMargin}
+              y1={topMargin + plotHeight}
               x2={graphWidth}
-              y2={graphHeight + topMargin}
+              y2={topMargin + plotHeight}
               stroke="#5E6272"
               strokeWidth="2"
             />
 
-            {/* Y-axis labels */}
+            {/* Y-axis labels and grid lines */}
             {yAxisLabels.map((label, i) => (
               <g key={i}>
-                <line
-                  x1={leftMargin - 5}
-                  y1={label.y}
-                  x2={leftMargin}
-                  y2={label.y}
-                  stroke="#5E6272"
-                  strokeWidth="1"
-                />
-                <text
-                  x={leftMargin - 10}
-                  y={label.y + 4}
-                  fill="#5E6272"
-                  fontSize="11"
-                  textAnchor="end"
-                >
-                  {label.value}
-                  {unit}
-                </text>
-                {/* Grid line */}
+                {/* Horizontal grid line */}
                 <line
                   x1={leftMargin}
                   y1={label.y}
@@ -373,7 +382,30 @@ export default function Metrics() {
                   stroke="#1F222B"
                   strokeWidth="1"
                   strokeDasharray="3,3"
+                  opacity="0.5"
                 />
+
+                {/* Y-axis tick mark */}
+                <line
+                  x1={leftMargin - 5}
+                  y1={label.y}
+                  x2={leftMargin}
+                  y2={label.y}
+                  stroke="#5E6272"
+                  strokeWidth="2"
+                />
+
+                {/* Y-axis label */}
+                <text
+                  x={leftMargin - 10}
+                  y={label.y + 4}
+                  fill="#FFFFFF"
+                  fontSize="11"
+                  textAnchor="end"
+                  fontWeight="500"
+                >
+                  {label.value}
+                </text>
               </g>
             ))}
 
@@ -394,8 +426,8 @@ export default function Metrics() {
             {/* Fill area */}
             <path
               d={`${pathD} L ${points[points.length - 1].x} ${
-                graphHeight + topMargin
-              } L ${leftMargin} ${graphHeight + topMargin} Z`}
+                topMargin + plotHeight
+              } L ${leftMargin} ${topMargin + plotHeight} Z`}
               fill={`url(#gradient-${valueKey})`}
             />
 
@@ -409,76 +441,87 @@ export default function Metrics() {
               strokeLinejoin="round"
             />
 
-            {/* Data points and labels */}
-            {points.map((point, index) => (
-              <g key={index}>
-                {/* Vertical grid line at each point */}
-                <line
-                  x1={point.x}
-                  y1={topMargin}
-                  x2={point.x}
-                  y2={graphHeight + topMargin}
-                  stroke="#1F222B"
-                  strokeWidth="1"
-                  strokeDasharray="3,3"
-                />
+            {/* Data points, dates, and values */}
+            {points.map((point, index) => {
+              // Check if point is near top or bottom to adjust label position
+              const distanceFromTop = point.y - topMargin;
+              const distanceFromBottom = topMargin + plotHeight - point.y;
 
-                {/* Data point circle */}
-                <circle
-                  cx={point.x}
-                  cy={point.y}
-                  r="6"
-                  fill={color}
-                  stroke="#262A34"
-                  strokeWidth="2"
-                />
+              // If too close to top (within 25px), show label below point instead
+              const labelBelow = distanceFromTop < 25;
 
-                {/* Date labels on X-axis */}
-                <text
-                  x={point.x}
-                  y={graphHeight + topMargin + 20}
-                  fill="#FFFFFF"
-                  fontSize="11"
-                  textAnchor="middle"
-                  fontWeight="500"
-                >
-                  {formatShortDate(point.date)}
-                </text>
+              return (
+                <g key={index}>
+                  {/* Vertical grid line at each point (lighter) */}
+                  <line
+                    x1={point.x}
+                    y1={topMargin}
+                    x2={point.x}
+                    y2={topMargin + plotHeight}
+                    stroke="#1F222B"
+                    strokeWidth="1"
+                    strokeDasharray="3,3"
+                    opacity="0.3"
+                  />
 
-                {/* Value labels above points */}
-                <text
-                  x={point.x}
-                  y={point.y - 12}
-                  fill="#FFFFFF"
-                  fontSize="12"
-                  textAnchor="middle"
-                  fontWeight="bold"
-                >
-                  {point.value.toFixed(1)}
-                </text>
-              </g>
-            ))}
+                  {/* Data point circle */}
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r="5"
+                    fill={color}
+                    stroke="#262A34"
+                    strokeWidth="2"
+                  />
 
-            {/* Axis labels */}
+                  {/* Date labels on X-axis */}
+                  <text
+                    x={point.x}
+                    y={topMargin + plotHeight + 20}
+                    fill="#FFFFFF"
+                    fontSize="10"
+                    textAnchor="middle"
+                    fontWeight="500"
+                  >
+                    {formatShortDate(point.date)}
+                  </text>
+
+                  {/* Value labels - position dynamically to avoid overlap */}
+                  <text
+                    x={point.x}
+                    y={labelBelow ? point.y + 20 : point.y - 15}
+                    fill="#FFFFFF"
+                    fontSize="11"
+                    textAnchor="middle"
+                    fontWeight="600"
+                  >
+                    {point.value.toFixed(1)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Y-axis label (rotated) */}
             <text
-              x={leftMargin / 2}
-              y={(graphHeight + topMargin) / 2}
+              x={20}
+              y={topMargin + plotHeight / 2}
               fill="#FFFFFF"
-              fontSize="12"
+              fontSize="11"
               fontWeight="600"
               textAnchor="middle"
-              transform={`rotate(-90 ${leftMargin / 2} ${
-                (graphHeight + topMargin) / 2
-              })`}
+              transform={`rotate(-90 20 ${topMargin + plotHeight / 2})`}
             >
-              {valueKey === "weight" ? "Weight (kg)" : "Body Fat (%)"}
+              {valueKey === "weight"
+                ? `Weight (${unit})`
+                : `Body Fat (${unit})`}
             </text>
 
+            {/* X-axis label */}
             <text
               x={(graphWidth + leftMargin) / 2}
-              y={graphHeight + topMargin + bottomMargin - 5}
+              y={topMargin + plotHeight + bottomMargin - 10}
               fill="#FFFFFF"
-              fontSize="12"
+              fontSize="11"
               fontWeight="600"
               textAnchor="middle"
             >
@@ -488,7 +531,7 @@ export default function Metrics() {
         </div>
 
         <p className="text-[#5E6272] text-xs mt-4 text-center">
-          Scroll left to view past entries • Scroll right to return to present
+          Scroll horizontally to view all data points
         </p>
       </div>
     );
