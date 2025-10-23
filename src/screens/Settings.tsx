@@ -12,9 +12,18 @@ import {
   Save,
   TrendingUp,
   LogOut,
+  Globe,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import BottomBar from "../components/BottomBar";
+import {
+  UnitSystem,
+  getUnitPreference,
+  setUnitPreference,
+  formatHeight,
+  cmToFeetAndInches,
+  feetAndInchesToCm,
+} from "../utils/unitConversions";
 
 interface ReferralStats {
   referralCode: string;
@@ -62,6 +71,15 @@ export default function Settings() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
 
+  // Unit system state
+  const [unitSystem, setUnitSystemState] = useState<UnitSystem>(
+    getUnitPreference()
+  );
+
+  // Imperial height input state
+  const [heightFeet, setHeightFeet] = useState<string>("");
+  const [heightInches, setHeightInches] = useState<string>("");
+
   const [editing, setEditing] = useState<EditingState>({
     bodyweight: false,
     height: false,
@@ -88,6 +106,13 @@ export default function Settings() {
       age--;
     }
     return age;
+  };
+
+  const toggleUnitSystem = () => {
+    const newSystem: UnitSystem =
+      unitSystem === "metric" ? "imperial" : "metric";
+    setUnitSystemState(newSystem);
+    setUnitPreference(newSystem);
   };
 
   useEffect(() => {
@@ -117,6 +142,14 @@ export default function Settings() {
       .then((data) => {
         setBodyweight(data.bodyweight ?? null);
         setHeight(data.height ?? null);
+
+        // Initialize height in imperial if that's the preference
+        if (data.height && unitSystem === "imperial") {
+          const { feet, inches } = cmToFeetAndInches(data.height);
+          setHeightFeet(feet.toString());
+          setHeightInches(inches.toString());
+        }
+
         setBirthday(
           data.birthday
             ? new Date(data.birthday).toISOString().split("T")[0]
@@ -131,6 +164,15 @@ export default function Settings() {
         setProfileError("Failed to load profile data");
       });
   }, [navigate]);
+
+  // Update imperial height when metric height changes
+  useEffect(() => {
+    if (height && unitSystem === "imperial" && !editing.height) {
+      const { feet, inches } = cmToFeetAndInches(height);
+      setHeightFeet(feet.toString());
+      setHeightInches(inches.toString());
+    }
+  }, [height, unitSystem, editing.height]);
 
   const handleProfilePhotoUpload = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -245,9 +287,18 @@ export default function Settings() {
     setFieldLoading({ ...fieldLoading, [field]: true });
     setProfileError(null);
 
+    // Convert imperial height to metric before saving
+    let heightToSave = height;
+    if (field === "height" && unitSystem === "imperial") {
+      const feet = parseInt(heightFeet) || 0;
+      const inches = parseInt(heightInches) || 0;
+      heightToSave = feetAndInchesToCm(feet, inches);
+      setHeight(heightToSave); // Update local state with converted value
+    }
+
     const profileData = {
       bodyweight: bodyweight || null,
-      height: height || null,
+      height: heightToSave || null,
       birthday: birthday || null,
       gender: gender || null,
     };
@@ -292,6 +343,18 @@ export default function Settings() {
 
   const toggleEdit = (field: keyof EditingState) => {
     setEditing({ ...editing, [field]: !editing[field] });
+
+    // When starting to edit height in imperial, set the current values
+    if (
+      field === "height" &&
+      !editing[field] &&
+      height &&
+      unitSystem === "imperial"
+    ) {
+      const { feet, inches } = cmToFeetAndInches(height);
+      setHeightFeet(feet.toString());
+      setHeightInches(inches.toString());
+    }
   };
 
   const formatDisplayValue = (field: keyof EditingState, value: any) => {
@@ -299,7 +362,7 @@ export default function Settings() {
       case "bodyweight":
         return value ? `${value} kg` : "Not set";
       case "height":
-        return value ? `${value} cm` : "Not set";
+        return formatHeight(value, unitSystem);
       case "birthday":
         if (!value) return "Not set";
         const age = calculateAge(value);
@@ -504,6 +567,48 @@ export default function Settings() {
         <MoreHorizontal className="text-white w-6 h-6" />
       </div>
 
+      {/* Unit System Toggle */}
+      <div className="mt-6 rounded-xl p-4 bg-[#262A34]">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Globe size={18} className="text-[#246BFD]" />
+            <span className="text-white font-medium">Unit System</span>
+          </div>
+          <button
+            onClick={toggleUnitSystem}
+            className={`relative w-14 h-7 rounded-full transition-colors ${
+              unitSystem === "imperial" ? "bg-[#246BFD]" : "bg-[#5E6272]"
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                unitSystem === "imperial" ? "translate-x-7" : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+        <div className="flex gap-4 mt-2">
+          <span
+            className={`text-sm ${
+              unitSystem === "metric"
+                ? "text-[#246BFD] font-semibold"
+                : "text-[#5E6272]"
+            }`}
+          >
+            Metric
+          </span>
+          <span
+            className={`text-sm ${
+              unitSystem === "imperial"
+                ? "text-[#246BFD] font-semibold"
+                : "text-[#5E6272]"
+            }`}
+          >
+            Imperial
+          </span>
+        </div>
+      </div>
+
       <div className="mt-8 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
         <h3
           className="text-lg font-semibold mb-2"
@@ -681,22 +786,45 @@ export default function Settings() {
                     Height
                   </label>
                   {editing.height ? (
-                    <input
-                      type="number"
-                      value={height ?? ""}
-                      onChange={(e) =>
-                        setHeight(
-                          e.target.value === ""
-                            ? null
-                            : parseFloat(e.target.value)
-                        )
-                      }
-                      step="0.1"
-                      min="0"
-                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                      placeholder="Enter height in cm"
-                      autoFocus
-                    />
+                    unitSystem === "metric" ? (
+                      <input
+                        type="number"
+                        value={height ?? ""}
+                        onChange={(e) =>
+                          setHeight(
+                            e.target.value === ""
+                              ? null
+                              : parseFloat(e.target.value)
+                          )
+                        }
+                        step="0.1"
+                        min="0"
+                        className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                        placeholder="Enter height in cm"
+                        autoFocus
+                      />
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={heightFeet}
+                          onChange={(e) => setHeightFeet(e.target.value)}
+                          min="0"
+                          className="flex-1 p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                          placeholder="Feet"
+                          autoFocus
+                        />
+                        <input
+                          type="number"
+                          value={heightInches}
+                          onChange={(e) => setHeightInches(e.target.value)}
+                          min="0"
+                          max="11"
+                          className="flex-1 p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                          placeholder="Inches"
+                        />
+                      </div>
+                    )
                   ) : (
                     <p className="text-white">
                       {formatDisplayValue("height", height)}

@@ -11,6 +11,17 @@ import {
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import BottomBar from "../components/BottomBar";
+import {
+  UnitSystem,
+  getUnitPreference,
+  getWeightDisplayPreference,
+  setWeightDisplayPreference,
+  formatWeight,
+  kgToLbs,
+  lbsToKg,
+  kgToStone,
+  stoneAndLbsToKg,
+} from "../utils/unitConversions";
 
 interface BodyweightEntry {
   id: string;
@@ -40,12 +51,22 @@ export default function Metrics() {
     "bodyweight"
   );
 
+  // Unit system state
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(getUnitPreference());
+  const [imperialWeightType, setImperialWeightType] = useState<"lbs" | "stone">(
+    getWeightDisplayPreference()
+  );
+
   // Bodyweight tracking
   const [bodyweightHistory, setBodyweightHistory] = useState<BodyweightEntry[]>(
     []
   );
   const [showAddBodyweight, setShowAddBodyweight] = useState(false);
   const [newBodyweight, setNewBodyweight] = useState("");
+
+  // Imperial weight input state
+  const [newWeightStone, setNewWeightStone] = useState("");
+  const [newWeightLbs, setNewWeightLbs] = useState("");
 
   // Bodyfat tracking
   const [bodyfatHistory, setBodyfatHistory] = useState<BodyfatEntry[]>([]);
@@ -59,6 +80,13 @@ export default function Metrics() {
   const graphRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+
+  useEffect(() => {
+    const savedUnit = getUnitPreference();
+    const savedWeightType = getWeightDisplayPreference();
+    setUnitSystem(savedUnit);
+    setImperialWeightType(savedWeightType);
+  }, []);
 
   useEffect(() => {
     const fetchMetrics = async () => {
@@ -140,10 +168,33 @@ export default function Metrics() {
   };
 
   const handleAddBodyweight = async () => {
-    const weight = parseFloat(newBodyweight);
-    if (!weight || weight <= 0) {
-      alert("Please enter a valid weight");
-      return;
+    let weightInKg: number;
+
+    if (unitSystem === "metric") {
+      const weight = parseFloat(newBodyweight);
+      if (!weight || weight <= 0) {
+        alert("Please enter a valid weight");
+        return;
+      }
+      weightInKg = weight;
+    } else {
+      // Imperial
+      if (imperialWeightType === "stone") {
+        const stone = parseFloat(newWeightStone) || 0;
+        const lbs = parseFloat(newWeightLbs) || 0;
+        if (stone === 0 && lbs === 0) {
+          alert("Please enter a valid weight");
+          return;
+        }
+        weightInKg = stoneAndLbsToKg(stone, lbs);
+      } else {
+        const lbs = parseFloat(newBodyweight);
+        if (!lbs || lbs <= 0) {
+          alert("Please enter a valid weight");
+          return;
+        }
+        weightInKg = lbsToKg(lbs);
+      }
     }
 
     const token = localStorage.getItem("token");
@@ -156,7 +207,7 @@ export default function Metrics() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ weight }),
+          body: JSON.stringify({ weight: weightInKg }),
         }
       );
 
@@ -164,6 +215,8 @@ export default function Metrics() {
         const newEntry = await response.json();
         setBodyweightHistory([newEntry, ...bodyweightHistory]);
         setNewBodyweight("");
+        setNewWeightStone("");
+        setNewWeightLbs("");
         setShowAddBodyweight(false);
       }
     } catch (error) {
@@ -209,6 +262,12 @@ export default function Metrics() {
     navigate("/login");
   };
 
+  const toggleImperialWeightType = () => {
+    const newType = imperialWeightType === "lbs" ? "stone" : "lbs";
+    setImperialWeightType(newType);
+    setWeightDisplayPreference(newType);
+  };
+
   const calculateTrend = (history: any[], key: string) => {
     if (history.length < 2) return null;
     const latest = history[0][key];
@@ -233,15 +292,6 @@ export default function Metrics() {
     });
   };
 
-  // Render line graph for bodyweight or bodyfat
-  // Replace the renderLineGraph function in Metrics.tsx with this cleaner version:
-
-  // Replace the renderLineGraph function in Metrics.tsx with this cleaner version:
-
-  // Replace the entire renderLineGraph function in Metrics.tsx with this:
-
-  // Replace the entire renderLineGraph function in Metrics.tsx with this:
-
   const renderLineGraph = (
     data: any[],
     valueKey: string,
@@ -250,57 +300,41 @@ export default function Metrics() {
   ) => {
     if (data.length === 0) return null;
 
-    // Sort by date (oldest first for graph)
     const sortedData = [...data].reverse();
-
-    // Calculate min and max from actual data
     const values = sortedData.map((d) => d[valueKey]);
     const dataMin = Math.min(...values);
     const dataMax = Math.max(...values);
 
-    console.log("Data range:", { dataMin, dataMax, values });
-
-    // Add 10% padding above and below
-    const dataRange = dataMax - dataMin || 1; // Prevent division by zero
+    const dataRange = dataMax - dataMin || 1;
     const padding = dataRange * 0.1;
 
     const yMin = dataMin - padding;
     const yMax = dataMax + padding;
     const yRange = yMax - yMin;
 
-    console.log("Y-axis range:", { yMin, yMax, yRange });
-
     const graphHeight = 200;
     const graphWidth = Math.max(sortedData.length * 80, 300);
     const leftMargin = 60;
     const rightMargin = 20;
     const bottomMargin = 60;
-    const topMargin = 50; // Increased for value labels above points
+    const topMargin = 50;
 
     const plotWidth = graphWidth - leftMargin - rightMargin;
     const plotHeight = graphHeight;
 
-    // Calculate points - normalize to 0-1 range based on yMin and yMax
     const points = sortedData.map((entry, index) => {
       const value = entry[valueKey];
-
-      // Normalize: 0 = yMin (bottom), 1 = yMax (top)
       const normalized = (value - yMin) / yRange;
-
       const x = leftMargin + (index / (sortedData.length - 1)) * plotWidth;
-      // Invert Y because SVG coordinates go from top to bottom
       const y = topMargin + plotHeight * (1 - normalized);
 
       return { x, y, value, date: entry.date };
     });
 
-    console.log("Points:", points);
-
     const pathD = points
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
 
-    // Generate Y-axis labels (5 labels evenly spaced)
     const yAxisLabels = [];
     for (let i = 0; i <= 4; i++) {
       const value = yMin + (yRange * i) / 4;
@@ -350,7 +384,6 @@ export default function Metrics() {
             height={graphHeight + bottomMargin + topMargin}
             className="min-w-full"
           >
-            {/* Y-axis */}
             <line
               x1={leftMargin}
               y1={topMargin}
@@ -360,7 +393,6 @@ export default function Metrics() {
               strokeWidth="2"
             />
 
-            {/* X-axis */}
             <line
               x1={leftMargin}
               y1={topMargin + plotHeight}
@@ -370,10 +402,8 @@ export default function Metrics() {
               strokeWidth="2"
             />
 
-            {/* Y-axis labels and grid lines */}
             {yAxisLabels.map((label, i) => (
               <g key={i}>
-                {/* Horizontal grid line */}
                 <line
                   x1={leftMargin}
                   y1={label.y}
@@ -385,7 +415,6 @@ export default function Metrics() {
                   opacity="0.5"
                 />
 
-                {/* Y-axis tick mark */}
                 <line
                   x1={leftMargin - 5}
                   y1={label.y}
@@ -395,7 +424,6 @@ export default function Metrics() {
                   strokeWidth="2"
                 />
 
-                {/* Y-axis label */}
                 <text
                   x={leftMargin - 10}
                   y={label.y + 4}
@@ -409,7 +437,6 @@ export default function Metrics() {
               </g>
             ))}
 
-            {/* Gradient fill under line */}
             <defs>
               <linearGradient
                 id={`gradient-${valueKey}`}
@@ -423,7 +450,6 @@ export default function Metrics() {
               </linearGradient>
             </defs>
 
-            {/* Fill area */}
             <path
               d={`${pathD} L ${points[points.length - 1].x} ${
                 topMargin + plotHeight
@@ -431,7 +457,6 @@ export default function Metrics() {
               fill={`url(#gradient-${valueKey})`}
             />
 
-            {/* Line */}
             <path
               d={pathD}
               stroke={color}
@@ -441,18 +466,12 @@ export default function Metrics() {
               strokeLinejoin="round"
             />
 
-            {/* Data points, dates, and values */}
             {points.map((point, index) => {
-              // Check if point is near top or bottom to adjust label position
               const distanceFromTop = point.y - topMargin;
-              const distanceFromBottom = topMargin + plotHeight - point.y;
-
-              // If too close to top (within 25px), show label below point instead
               const labelBelow = distanceFromTop < 25;
 
               return (
                 <g key={index}>
-                  {/* Vertical grid line at each point (lighter) */}
                   <line
                     x1={point.x}
                     y1={topMargin}
@@ -464,7 +483,6 @@ export default function Metrics() {
                     opacity="0.3"
                   />
 
-                  {/* Data point circle */}
                   <circle
                     cx={point.x}
                     cy={point.y}
@@ -474,7 +492,6 @@ export default function Metrics() {
                     strokeWidth="2"
                   />
 
-                  {/* Date labels on X-axis */}
                   <text
                     x={point.x}
                     y={topMargin + plotHeight + 20}
@@ -486,7 +503,6 @@ export default function Metrics() {
                     {formatShortDate(point.date)}
                   </text>
 
-                  {/* Value labels - position dynamically to avoid overlap */}
                   <text
                     x={point.x}
                     y={labelBelow ? point.y + 20 : point.y - 15}
@@ -501,7 +517,6 @@ export default function Metrics() {
               );
             })}
 
-            {/* Y-axis label (rotated) */}
             <text
               x={20}
               y={topMargin + plotHeight / 2}
@@ -516,7 +531,6 @@ export default function Metrics() {
                 : `Body Fat (${unit})`}
             </text>
 
-            {/* X-axis label */}
             <text
               x={(graphWidth + leftMargin) / 2}
               y={topMargin + plotHeight + bottomMargin - 10}
@@ -550,6 +564,11 @@ export default function Metrics() {
       </div>
     );
   }
+
+  const getWeightUnit = () => {
+    if (unitSystem === "metric") return "kg";
+    return imperialWeightType === "stone" ? "st/lbs" : "lbs";
+  };
 
   return (
     <div
@@ -617,6 +636,25 @@ export default function Metrics() {
       {/* Bodyweight Tab */}
       {activeTab === "bodyweight" && (
         <div className="space-y-4">
+          {/* Imperial Weight Type Toggle */}
+          {unitSystem === "imperial" && (
+            <div className="bg-[#262A34] rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-white font-medium">
+                  Imperial Weight Format
+                </span>
+                <button
+                  onClick={toggleImperialWeightType}
+                  className="px-4 py-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg text-white text-sm font-medium transition-colors"
+                >
+                  {imperialWeightType === "lbs"
+                    ? "Switch to Stone"
+                    : "Switch to Pounds"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Current Stats Card */}
           {bodyweightHistory.length > 0 && (
             <div className="bg-[#262A34] rounded-xl p-6">
@@ -625,9 +663,20 @@ export default function Metrics() {
               </h3>
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-4xl font-bold text-white">
-                  {bodyweightHistory[0].weight}
+                  {unitSystem === "metric"
+                    ? bodyweightHistory[0].weight
+                    : imperialWeightType === "stone"
+                    ? (() => {
+                        const { stone, lbs } = kgToStone(
+                          bodyweightHistory[0].weight
+                        );
+                        return `${stone} st ${lbs}`;
+                      })()
+                    : kgToLbs(bodyweightHistory[0].weight)}
                 </span>
-                <span className="text-xl text-[#5E6272]">kg</span>
+                <span className="text-xl text-[#5E6272]">
+                  {getWeightUnit()}
+                </span>
               </div>
               {calculateTrend(bodyweightHistory, "weight") && (
                 <div className="flex items-center gap-2 text-sm">
@@ -658,7 +707,12 @@ export default function Metrics() {
 
           {/* Line Graph */}
           {bodyweightHistory.length > 1 &&
-            renderLineGraph(bodyweightHistory, "weight", "#00FFAD", "kg")}
+            renderLineGraph(
+              bodyweightHistory,
+              "weight",
+              "#00FFAD",
+              getWeightUnit()
+            )}
 
           {/* Add New Entry Button */}
           {!showAddBodyweight && (
@@ -680,22 +734,71 @@ export default function Metrics() {
                   <X size={20} className="text-[#5E6272]" />
                 </button>
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  value={newBodyweight}
-                  onChange={(e) => setNewBodyweight(e.target.value)}
-                  placeholder="Weight (kg)"
-                  step="0.1"
-                  className="flex-1 p-3 rounded bg-[#1F222B] text-white border border-[#5E6272] focus:border-[#246BFD] focus:outline-none"
-                />
-                <button
-                  onClick={handleAddBodyweight}
-                  className="px-6 bg-[#00FFAD] hover:bg-[#00E599] text-black rounded-lg font-medium"
-                >
-                  Save
-                </button>
-              </div>
+              {unitSystem === "metric" ? (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={newBodyweight}
+                    onChange={(e) => setNewBodyweight(e.target.value)}
+                    placeholder="Weight (kg)"
+                    step="0.1"
+                    className="flex-1 p-3 rounded bg-[#1F222B] text-white border border-[#5E6272] focus:border-[#246BFD] focus:outline-none"
+                  />
+                  <button
+                    onClick={handleAddBodyweight}
+                    className="px-6 bg-[#00FFAD] hover:bg-[#00E599] text-black rounded-lg font-medium"
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : imperialWeightType === "stone" ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      value={newWeightStone}
+                      onChange={(e) => setNewWeightStone(e.target.value)}
+                      placeholder="Stone"
+                      step="1"
+                      min="0"
+                      className="flex-1 p-3 rounded bg-[#1F222B] text-white border border-[#5E6272] focus:border-[#246BFD] focus:outline-none"
+                    />
+                    <input
+                      type="number"
+                      value={newWeightLbs}
+                      onChange={(e) => setNewWeightLbs(e.target.value)}
+                      placeholder="Pounds"
+                      step="0.1"
+                      min="0"
+                      max="13.9"
+                      className="flex-1 p-3 rounded bg-[#1F222B] text-white border border-[#5E6272] focus:border-[#246BFD] focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddBodyweight}
+                    className="w-full px-6 py-3 bg-[#00FFAD] hover:bg-[#00E599] text-black rounded-lg font-medium"
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={newBodyweight}
+                    onChange={(e) => setNewBodyweight(e.target.value)}
+                    placeholder="Weight (lbs)"
+                    step="0.1"
+                    className="flex-1 p-3 rounded bg-[#1F222B] text-white border border-[#5E6272] focus:border-[#246BFD] focus:outline-none"
+                  />
+                  <button
+                    onClick={handleAddBodyweight}
+                    className="px-6 bg-[#00FFAD] hover:bg-[#00E599] text-black rounded-lg font-medium"
+                  >
+                    Save
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -710,7 +813,11 @@ export default function Metrics() {
                     className="flex justify-between items-center py-3 px-4 bg-[#1F222B] rounded-lg"
                   >
                     <span className="text-white font-medium">
-                      {entry.weight} kg
+                      {formatWeight(
+                        entry.weight,
+                        unitSystem,
+                        imperialWeightType === "stone"
+                      )}
                     </span>
                     <span className="text-[#5E6272] text-sm">
                       {formatDate(entry.date)}
