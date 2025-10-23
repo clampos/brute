@@ -20,7 +20,10 @@ import {
   UnitSystem,
   getUnitPreference,
   setUnitPreference,
+  getWeightDisplayPreference,
+  setWeightDisplayPreference,
   formatHeight,
+  formatWeight,
   cmToFeetAndInches,
   feetAndInchesToCm,
 } from "../utils/unitConversions";
@@ -75,6 +78,9 @@ export default function Settings() {
   const [unitSystem, setUnitSystemState] = useState<UnitSystem>(
     getUnitPreference()
   );
+  const [imperialWeightType, setImperialWeightType] = useState<"lbs" | "stone">(
+    getWeightDisplayPreference()
+  );
 
   // Imperial height input state
   const [heightFeet, setHeightFeet] = useState<string>("");
@@ -113,6 +119,12 @@ export default function Settings() {
       unitSystem === "metric" ? "imperial" : "metric";
     setUnitSystemState(newSystem);
     setUnitPreference(newSystem);
+  };
+
+  const toggleImperialWeightType = () => {
+    const newType = imperialWeightType === "lbs" ? "stone" : "lbs";
+    setImperialWeightType(newType);
+    setWeightDisplayPreference(newType);
   };
 
   useEffect(() => {
@@ -360,7 +372,7 @@ export default function Settings() {
   const formatDisplayValue = (field: keyof EditingState, value: any) => {
     switch (field) {
       case "bodyweight":
-        return value ? `${value} kg` : "Not set";
+        return formatWeight(value, unitSystem, imperialWeightType === "stone");
       case "height":
         return formatHeight(value, unitSystem);
       case "birthday":
@@ -567,48 +579,6 @@ export default function Settings() {
         <MoreHorizontal className="text-white w-6 h-6" />
       </div>
 
-      {/* Unit System Toggle */}
-      <div className="mt-6 rounded-xl p-4 bg-[#262A34]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Globe size={18} className="text-[#246BFD]" />
-            <span className="text-white font-medium">Unit System</span>
-          </div>
-          <button
-            onClick={toggleUnitSystem}
-            className={`relative w-14 h-7 rounded-full transition-colors ${
-              unitSystem === "imperial" ? "bg-[#246BFD]" : "bg-[#5E6272]"
-            }`}
-          >
-            <div
-              className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
-                unitSystem === "imperial" ? "translate-x-7" : "translate-x-0"
-              }`}
-            />
-          </button>
-        </div>
-        <div className="flex gap-4 mt-2">
-          <span
-            className={`text-sm ${
-              unitSystem === "metric"
-                ? "text-[#246BFD] font-semibold"
-                : "text-[#5E6272]"
-            }`}
-          >
-            Metric
-          </span>
-          <span
-            className={`text-sm ${
-              unitSystem === "imperial"
-                ? "text-[#246BFD] font-semibold"
-                : "text-[#5E6272]"
-            }`}
-          >
-            Imperial
-          </span>
-        </div>
-      </div>
-
       <div className="mt-8 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
         <h3
           className="text-lg font-semibold mb-2"
@@ -756,6 +726,69 @@ export default function Settings() {
                     </button>
                   )}
                 </div>
+              </div>
+
+              {/* Unit System Toggle - Now inside Personal Profile */}
+              <div className="mb-4 p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe size={18} className="text-[#246BFD]" />
+                    <span className="text-white font-medium">Unit System</span>
+                  </div>
+                  <button
+                    onClick={toggleUnitSystem}
+                    className={`relative w-14 h-7 rounded-full transition-colors ${
+                      unitSystem === "imperial"
+                        ? "bg-[#246BFD]"
+                        : "bg-[#5E6272]"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
+                        unitSystem === "imperial"
+                          ? "translate-x-7"
+                          : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div className="flex gap-4 mt-2">
+                  <span
+                    className={`text-sm ${
+                      unitSystem === "metric"
+                        ? "text-[#246BFD] font-semibold"
+                        : "text-[#5E6272]"
+                    }`}
+                  >
+                    Metric (kg, cm)
+                  </span>
+                  <span
+                    className={`text-sm ${
+                      unitSystem === "imperial"
+                        ? "text-[#246BFD] font-semibold"
+                        : "text-[#5E6272]"
+                    }`}
+                  >
+                    Imperial (lbs/st, ft)
+                  </span>
+                </div>
+
+                {/* Imperial Weight Type Toggle - Only show when imperial is selected */}
+                {unitSystem === "imperial" && (
+                  <div className="mt-3 pt-3 border-t border-[#5E6272]/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-white text-sm">Weight Display</span>
+                      <button
+                        onClick={toggleImperialWeightType}
+                        className="px-3 py-1 bg-[#246BFD] hover:bg-blue-700 rounded-lg text-white text-xs font-medium transition-colors"
+                      >
+                        {imperialWeightType === "lbs"
+                          ? "Switch to Stone"
+                          : "Switch to Pounds"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
