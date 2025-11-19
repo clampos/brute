@@ -43,6 +43,7 @@ type ProgrammeDay = {
   hasChanges: boolean;
   exerciseOptions: Exercise[]; // Initial 3 exercise options
   showMoreOptions: boolean; // Whether to show additional options
+  loadingAvailable?: boolean; // whether the full available list is loading
 };
 
 type ProgrammeExerciseResponse = {
@@ -147,29 +148,50 @@ export default function ProgrammeEditor() {
 
   const toggleAvailableExercises = async (dayNumber: number) => {
     const currentDay = days.find((d) => d.dayNumber === dayNumber);
-    const isCurrentlyShowing = currentDay?.showMoreOptions || false;
+    if (!currentDay) return;
 
-    setDays((prevDays) =>
-      prevDays.map((day) =>
-        day.dayNumber === dayNumber
-          ? { ...day, showMoreOptions: !day.showMoreOptions }
-          : day
-      )
-    );
+    const isCurrentlyShowing = currentDay.showMoreOptions || false;
 
-    // If toggling ON and we don't have fresh exercises, fetch them
     if (!isCurrentlyShowing) {
+      // show the panel immediately so users see a loading state
+      setDays((prevDays) =>
+        prevDays.map((day) =>
+          day.dayNumber === dayNumber
+            ? { ...day, showMoreOptions: true, loadingAvailable: true }
+            : day
+        )
+      );
+
+      // fetch full list and update the day when ready
       await fetchAndUpdateAvailableExercises(dayNumber);
+    } else {
+      // hide
+      setDays((prevDays) =>
+        prevDays.map((day) =>
+          day.dayNumber === dayNumber ? { ...day, showMoreOptions: false } : day
+        )
+      );
     }
   };
 
   const fetchAndUpdateAvailableExercises = async (dayNumber: number) => {
     try {
       const muscleGroups = getMuscleGroupsForFocus(bodyFocus);
+      console.debug(
+        `[ProgrammeEditor] fetchAndUpdateAvailableExercises called for day=${dayNumber}, bodyFocus='${bodyFocus}', groups=${JSON.stringify(
+          muscleGroups
+        )}`
+      );
+
       const exercisePromises = muscleGroups.map((group) =>
         fetchAvailableExercises(group)
       );
       const exerciseArrays = await Promise.all(exercisePromises);
+      console.debug(
+        `[ProgrammeEditor] fetch arrays lengths: ${exerciseArrays
+          .map((a) => (Array.isArray(a) ? a.length : 0))
+          .join(",")}`
+      );
       const fetchedExercises = exerciseArrays.flat();
 
       // Remove duplicates based on exercise ID
@@ -191,6 +213,7 @@ export default function ProgrammeEditor() {
                     (existing) => existing.exerciseId === ex.id
                   ),
                 })),
+                loadingAvailable: false,
               }
             : day
         )
@@ -206,23 +229,40 @@ export default function ProgrammeEditor() {
     focus: string
   ): Promise<Exercise[]> => {
     try {
-      const res = await fetch(
-        `http://localhost:4242/auth/exercises?muscleGroup=${encodeURIComponent(
-          focus
-        )}`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
+      const url = `http://localhost:4242/auth/exercises?muscleGroup=${encodeURIComponent(
+        focus
+      )}`;
+
+      console.debug(`[ProgrammeEditor] fetching exercises -> ${url}`);
+
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      });
+
+      console.debug(
+        `[ProgrammeEditor] fetch status: ${res.status} ${res.statusText}`
       );
 
       if (!res.ok) {
-        console.error("Failed to fetch exercises:", res.status);
+        // try to read body for debug (may be small)
+        let bodyText = "";
+        try {
+          bodyText = await res.text();
+        } catch (e) {
+          /* ignore */
+        }
+        console.error("Failed to fetch exercises:", res.status, bodyText);
         return [];
       }
 
       const exercises = await res.json();
+      console.debug(
+        `[ProgrammeEditor] fetched ${
+          Array.isArray(exercises) ? exercises.length : 0
+        } exercises for focus='${focus}'`
+      );
       return exercises || [];
     } catch (err) {
       console.error("Error fetching exercises:", err);
@@ -420,19 +460,53 @@ export default function ProgrammeEditor() {
 
   // Get muscle groups to focus on based on body part focus
   const getMuscleGroupsForFocus = (focus: string): string[] => {
+    // Map high-level focuses to the actual muscleGroup values present in the DB seed
     switch (focus.toLowerCase()) {
       case "full body":
-        return ["Chest", "Back", "Shoulders", "Legs", "Arms", "Core"];
+        return [
+          "Chest",
+          "Lats",
+          "Middle Back",
+          "Lower Back",
+          "Shoulders",
+          "Quadriceps",
+          "Hamstrings",
+          "Glutes",
+          "Biceps",
+          "Triceps",
+          "Forearms",
+          "Calves",
+          "Abdominals",
+          "Adductors",
+          "Abductors",
+        ];
       case "upper body":
-        return ["Chest", "Back", "Shoulders", "Arms"];
+        return [
+          "Chest",
+          "Lats",
+          "Middle Back",
+          "Shoulders",
+          "Biceps",
+          "Triceps",
+          "Forearms",
+          "Traps",
+        ];
       case "lower body":
-        return ["Legs", "Glutes", "Core"];
+        return [
+          "Quadriceps",
+          "Hamstrings",
+          "Glutes",
+          "Calves",
+          "Adductors",
+          "Abductors",
+          "Lower Back",
+        ];
       case "push":
         return ["Chest", "Shoulders", "Triceps"];
       case "pull":
-        return ["Back", "Biceps"];
+        return ["Lats", "Middle Back", "Lower Back", "Biceps"];
       case "legs":
-        return ["Legs", "Glutes"];
+        return ["Quadriceps", "Hamstrings", "Glutes", "Calves"];
       default:
         return [focus];
     }
@@ -494,6 +568,7 @@ export default function ProgrammeEditor() {
             exerciseOptions: [],
             showAvailable: false,
             showMoreOptions: false,
+            loadingAvailable: false,
             hasChanges: false,
           });
         }
@@ -503,9 +578,93 @@ export default function ProgrammeEditor() {
           Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
         );
 
-        // Load initial exercise options for each day (only 3 per day)
-        for (const day of loadedDays) {
-          await loadInitialExerciseOptions(day.dayNumber);
+        // Fetch a single pool of available exercises for the programme focus
+        try {
+          const focus = data.bodyPartFocus || "Full Body";
+
+          // Fetch across likely muscle groups for this focus (more robust than a single-focus fetch)
+          const groups = getMuscleGroupsForFocus(focus);
+          const arrays = await Promise.all(
+            groups.map((g) => fetchAvailableExercises(g))
+          );
+          let pool = arrays.flat();
+
+          // Fallback: if nothing found, try the raw focus string (legacy behaviour)
+          if (pool.length === 0) {
+            console.debug(
+              `[ProgrammeEditor] initial pool empty for focus='${focus}', groups=${JSON.stringify(
+                groups
+              )}; trying raw focus fallback`
+            );
+            pool = await fetchAvailableExercises(focus);
+          }
+
+          // Remove duplicates
+          const uniquePool = pool.filter(
+            (exercise, index, self) =>
+              index === self.findIndex((e) => e.id === exercise.id)
+          );
+
+          console.debug(
+            `[ProgrammeEditor] initial uniquePool size=${uniquePool.length} for focus='${focus}'`
+          );
+
+          setAllExercises(uniquePool);
+
+          // For each day with no existing exercises, pick 3 random selected exercises
+          const withInitialSelections = loadedDays.map((day) => {
+            if (!day.exercises || day.exercises.length === 0) {
+              const selected = getRandomExercises(uniquePool, 3).map((ex) => ({
+                id: `temp-${Date.now()}-${ex.id}-${Math.floor(
+                  Math.random() * 1000
+                )}`,
+                name: ex.name,
+                sets: 3,
+                reps: "8-12",
+                exerciseId: ex.id,
+                isSelected: true,
+              }));
+
+              const selectedIds = new Set(selected.map((s) => s.exerciseId));
+
+              return {
+                ...day,
+                exercises: selected,
+                availableExercises: uniquePool.map((ex) => ({
+                  ...ex,
+                  isSelected: selectedIds.has(ex.id),
+                })),
+                exerciseOptions: [], // do not show recommended list beneath
+                showMoreOptions: false,
+              };
+            }
+
+            // If the day already has exercises, still provide the available pool
+            return {
+              ...day,
+              availableExercises: uniquePool.map((ex) => ({
+                ...ex,
+                isSelected: day.exercises.some(
+                  (existing) => existing.exerciseId === ex.id
+                ),
+              })),
+              exerciseOptions: [],
+            };
+          });
+
+          setDays(withInitialSelections);
+          setOpenDays(
+            Object.fromEntries(
+              withInitialSelections.map((d) => [d.dayNumber, true])
+            )
+          );
+        } catch (err) {
+          console.error("Error loading initial exercise pool:", err);
+          // fallback: keep loadedDays as-is
+          setDays(loadedDays);
+          setOpenDays(
+            Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
+          );
         }
       } catch (err: any) {
         console.error("Error loading programme:", err);
@@ -683,52 +842,39 @@ export default function ProgrammeEditor() {
                       </div>
                     )}
 
-                    {/* Initial Exercise Options (Always show ONLY 3) */}
+                    {/* Controls: show only selected exercises initially and an Add More button */}
                     <div className="space-y-2">
-                      <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                        Recommended for {bodyFocus}
-                      </h4>
-                      {day.exerciseOptions.length > 0 ? (
-                        day.exerciseOptions
-                          .filter((ex) => !ex.isSelected)
-                          .slice(0, 3) // ✅ ALWAYS SHOW ONLY 3
-                          .map((ex) => (
-                            <div
-                              key={ex.id}
-                              className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors"
-                              onClick={() =>
-                                handleAddExercise(ex.id, day.dayNumber)
-                              }
-                            >
-                              <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
-                              <div className="flex-1 text-center">
-                                <p className="font-semibold text-[#9CA3AF]">
-                                  {ex.name}
-                                </p>
-                                <div className="flex justify-center gap-3 text-sm mt-1">
-                                  <span className="text-[#6B7280]">
-                                    {ex.muscleGroup}
-                                  </span>
-                                  <span className="text-[#6B7280]">
-                                    {ex.category}
-                                  </span>
-                                  {ex.equipment && (
-                                    <span className="text-[#6B7280]">
-                                      {ex.equipment}
-                                    </span>
-                                  )}
+                      {/* If a small recommended list exists (rare), show it; otherwise keep UI minimal */}
+                      {day.exerciseOptions &&
+                        day.exerciseOptions.length > 0 && (
+                          <>
+                            <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                              Recommended for {bodyFocus}
+                            </h4>
+                            {day.exerciseOptions
+                              .filter((ex) => !ex.isSelected)
+                              .slice(0, 3)
+                              .map((ex) => (
+                                <div
+                                  key={ex.id}
+                                  className="bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors"
+                                  onClick={() =>
+                                    handleAddExercise(ex.id, day.dayNumber)
+                                  }
+                                >
+                                  <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
+                                  <div className="flex-1 text-center">
+                                    <p className="font-semibold text-[#9CA3AF]">
+                                      {ex.name}
+                                    </p>
+                                  </div>
+                                  <Plus className="text-blue-400 w-5 h-5 ml-3" />
                                 </div>
-                              </div>
-                              <Plus className="text-blue-400 w-5 h-5 ml-3" />
-                            </div>
-                          ))
-                      ) : (
-                        <p className="text-[#5E6272] text-sm text-center py-4">
-                          Loading exercise options...
-                        </p>
-                      )}
+                              ))}
+                          </>
+                        )}
 
-                      {/* Add More Exercise Button */}
+                      {/* Add More Exercise Button (always visible) */}
                       <button
                         onClick={() => toggleAvailableExercises(day.dayNumber)}
                         className="w-full text-sm text-blue-400 flex items-center justify-center gap-2 py-2 hover:text-blue-300 transition-colors"
@@ -739,21 +885,19 @@ export default function ProgrammeEditor() {
                           : "Add More Exercises"}
                       </button>
 
-                      {/* Additional Available Exercises */}
+                      {/* Additional Available Exercises (shown when the user expands) */}
                       {day.showMoreOptions && (
                         <div className="mt-3 space-y-2 border-t border-[#2F3544] pt-3">
                           <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
                             All Available Exercises ({bodyFocus})
                           </h4>
-                          {day.availableExercises.length > 0 ? (
+                          {day.loadingAvailable ? (
+                            <p className="text-[#5E6272] text-sm text-center py-4">
+                              Loading exercises...
+                            </p>
+                          ) : day.availableExercises.length > 0 ? (
                             day.availableExercises
                               .filter((ex) => !ex.isSelected)
-                              .filter(
-                                (ex) =>
-                                  !day.exerciseOptions.some(
-                                    (opt) => opt.id === ex.id
-                                  )
-                              ) // Don't show exercises already in initial options
                               .map((ex) => (
                                 <div
                                   key={ex.id}
@@ -784,10 +928,6 @@ export default function ProgrammeEditor() {
                                   <Plus className="text-blue-400 w-5 h-5 ml-3" />
                                 </div>
                               ))
-                          ) : day.availableExercises.length === 0 ? (
-                            <p className="text-[#5E6272] text-sm text-center py-4">
-                              Loading exercises...
-                            </p>
                           ) : (
                             <p className="text-[#5E6272] text-sm text-center py-4">
                               All available exercises have been added.

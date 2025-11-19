@@ -950,26 +950,28 @@ router.get("/exercises", authenticateToken, async (req: Request, res: Response):
   try {
     const whereClause: any = {};
 
+    // Note: Prisma client in this environment doesn't support the `mode` option
+    // on string filters (case-insensitive). Use exact equals matching because
+    // the frontend maps to the seeded `muscleGroup` values (e.g. 'Lats', 'Chest').
     if (muscleGroup) {
       whereClause.muscleGroup = {
         equals: muscleGroup as string,
-        mode: 'insensitive',
       };
     }
 
     if (category) {
       whereClause.category = {
         equals: category as string,
-        mode: 'insensitive',
       };
     }
 
     if (equipment) {
       whereClause.equipment = {
         equals: equipment as string,
-        mode: 'insensitive',
       };
     }
+
+    console.debug('GET /auth/exercises whereClause:', JSON.stringify(whereClause));
 
     const exercises = await prisma.exercise.findMany({
       where: whereClause,
@@ -980,7 +982,8 @@ router.get("/exercises", authenticateToken, async (req: Request, res: Response):
 
     res.json(exercises);
   } catch (error) {
-    console.error('Error fetching exercises:', error);
+    // error may be unknown; prefer Error stack when available
+    console.error('Error fetching exercises:', error instanceof Error ? error.stack : (error as any));
     res.status(500).json({ error: 'Internal server error' });
   }
 });
