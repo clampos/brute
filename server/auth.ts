@@ -2861,50 +2861,66 @@ router.get(
         },
       });
 
-      // Group by exercise and find the best set for each
-      const exerciseRecords = new Map<string, any>();
+      // For each exercise, compute best recorded weight for reps 1,2,3,5,10
+      const targets = [1, 2, 3, 5, 10];
+      const exerciseMap = new Map<
+        string,
+        {
+          exerciseId: string;
+          exerciseName: string;
+          muscleGroup: string;
+          prs: Record<
+            number,
+            { weight: number; date: Date } | null
+          >;
+        }
+      >();
 
       workoutSets.forEach((set) => {
         const exerciseId = set.workoutExercise.exerciseId;
         const exerciseName = set.workoutExercise.exercise.name;
         const muscleGroup = set.workoutExercise.exercise.muscleGroup;
-
-        // Calculate one-rep max equivalent (Epley formula)
         const weight = set.weight || 0;
         const reps = set.reps || 0;
-        const oneRepMax = weight * (1 + reps / 30);
+        const date = set.workoutExercise.workout.completedAt;
 
-        const existing = exerciseRecords.get(exerciseId);
-
-        if (!existing || oneRepMax > existing.oneRepMax) {
-          exerciseRecords.set(exerciseId, {
+        if (!exerciseMap.has(exerciseId)) {
+          const prs: Record<number, { weight: number; date: Date } | null> = {
+            1: null,
+            2: null,
+            3: null,
+            5: null,
+            10: null,
+          };
+          exerciseMap.set(exerciseId, {
             exerciseId,
             exerciseName,
             muscleGroup,
-            weight: set.weight,
-            reps: set.reps,
-            oneRepMax,
-            date: set.workoutExercise.workout.completedAt,
+            prs,
           });
+        }
+
+        const record = exerciseMap.get(exerciseId)!;
+
+        if (targets.includes(reps)) {
+          const existing = record.prs[reps as 1 | 2 | 3 | 5 | 10];
+          if (!existing || weight > existing.weight) {
+            record.prs[reps as 1 | 2 | 3 | 5 | 10] = { weight, date };
+          }
         }
       });
 
-      // Convert to array and sort by one-rep max descending
-      const personalRecords = Array.from(exerciseRecords.values())
-        .map((record) => ({
-          exerciseId: record.exerciseId,
-          exerciseName: record.exerciseName,
-          muscleGroup: record.muscleGroup,
-          weight: record.weight,
-          reps: record.reps,
-          date: record.date,
+      // Convert to array and sort by muscle group then exercise name
+      const personalRecords = Array.from(exerciseMap.values())
+        .map((r) => ({
+          exerciseId: r.exerciseId,
+          exerciseName: r.exerciseName,
+          muscleGroup: r.muscleGroup,
+          prs: r.prs,
         }))
         .sort((a, b) => {
-          // Sort by muscle group, then by weight
-          if (a.muscleGroup !== b.muscleGroup) {
-            return a.muscleGroup.localeCompare(b.muscleGroup);
-          }
-          return b.weight - a.weight;
+          if (a.muscleGroup !== b.muscleGroup) return a.muscleGroup.localeCompare(b.muscleGroup);
+          return a.exerciseName.localeCompare(b.exerciseName);
         });
 
       res.json(personalRecords);
