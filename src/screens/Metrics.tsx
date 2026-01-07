@@ -308,9 +308,8 @@ export default function Metrics() {
     const dataRange = dataMax - dataMin || 1;
     const padding = dataRange * 0.1;
 
-    const yMin = dataMin - padding;
-    const yMax = dataMax + padding;
-    const yRange = yMax - yMin;
+    let yMin = dataMin - padding;
+    let yMax = dataMax + padding;
 
     const graphHeight = 200;
     const graphWidth = Math.max(sortedData.length * 80, 300);
@@ -335,12 +334,48 @@ export default function Metrics() {
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
 
+    // Compute 'nice' tick step so labels are evenly spaced and make sense
+    const rawMin = dataMin - padding;
+    const rawMax = dataMax + padding;
+    const targetTicks = 5; // 5 tick positions (4 segments)
+    const rawStep = (rawMax - rawMin) / (targetTicks - 1) || 1;
+
+    // Nice numbers sequence
+    const niceSteps = [1, 2, 2.5, 5, 10];
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    let step = magnitude;
+    for (let n of niceSteps) {
+      if (n * magnitude >= rawStep) {
+        step = n * magnitude;
+        break;
+      }
+    }
+
+    // Compute rounded bounds using the chosen step
+    yMin = Math.floor(rawMin / step) * step;
+    yMax = Math.ceil(rawMax / step) * step;
+
+    // Ensure non-zero range
+    if (yMax === yMin) {
+      yMax = yMin + step;
+    }
+
+    const yRange = yMax - yMin;
+
+    // Decide decimals: if step < 1 we need decimals, else integers. For weight axis, show one decimal.
+    let decimals = 0;
+    if (step < 1) {
+      decimals = Math.max(1, -Math.floor(Math.log10(step)));
+    }
+    // Force one decimal for weight axis as requested
+    if (valueKey === "weight") decimals = Math.max(decimals, 1);
+
     const yAxisLabels = [];
-    for (let i = 0; i <= 4; i++) {
-      const value = yMin + (yRange * i) / 4;
-      const normalized = i / 4;
+    for (let i = 0; i < targetTicks; i++) {
+      const value = yMin + step * i;
+      const normalized = i / (targetTicks - 1);
       const y = topMargin + plotHeight * (1 - normalized);
-      yAxisLabels.push({ value: value.toFixed(1), y });
+      yAxisLabels.push({ value: value.toFixed(decimals), y });
     }
 
     return (

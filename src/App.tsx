@@ -10,6 +10,7 @@ import ProgrammesScreen from "./screens/Programmes";
 import ProgrammeEditor from "./screens/ProgrammeEditor";
 import Workouts from "./screens/Workouts";
 import Metrics from "./screens/Metrics";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export default function App() {
   return (
@@ -18,14 +19,63 @@ export default function App() {
         <Route path="/" element={<Onboarding />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/subscription-success" element={<SubscriptionSuccess />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/subscription-success"
+          element={
+            <ProtectedRoute>
+              <SubscriptionSuccess />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/programmes" element={<ProgrammesScreen />} />
-        <Route path="/workouts" element={<Workouts />} />
-        <Route path="/editor/:programmeId" element={<ProgrammeEditor />} />
-        <Route path="/metrics" element={<Metrics />} />
+        <Route
+          path="/programmes"
+          element={
+            <ProtectedRoute>
+              <ProgrammesScreen />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/workouts"
+          element={
+            <ProtectedRoute>
+              <Workouts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/editor/:programmeId"
+          element={
+            <ProtectedRoute>
+              <ProgrammeEditor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/metrics"
+          element={
+            <ProtectedRoute>
+              <Metrics />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   );
