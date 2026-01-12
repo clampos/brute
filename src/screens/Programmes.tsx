@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import BottomBar from "../components/BottomBar";
+import TopBar from "../components/TopBar";
 import {
   Dumbbell,
   CheckCircle,
@@ -163,23 +164,7 @@ export default function Programmes() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
-      </div>
-
-      {/* Top Bar */}
-      <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
-        <Dumbbell className="text-white w-6 h-6" />
-        <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
-          Programmes
-        </h2>
-        <MoreHorizontal className="text-white w-6 h-6" />
-      </div>
+      <TopBar title="Programmes" pageIcon={<Dumbbell size={18} />} />
 
       {/* Active Programme Banner */}
       {activeUserProgram && (
@@ -213,7 +198,7 @@ export default function Programmes() {
       <div className="w-full px-2 mb-5 mt-6">
         <div
           className="bg-[#1C1F26] border border-[#5E6272] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer"
-          onClick={() => navigate("/editor/new")}
+          onClick={() => navigate("/programmes/create")}
         >
           <span className="font-semibold text-base text-white">
             Create New Custom Programme

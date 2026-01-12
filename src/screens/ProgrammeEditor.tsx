@@ -12,8 +12,10 @@ import {
   X,
   Save,
 } from "lucide-react";
+import MuscleIcon from "../components/MuscleIcon";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
+import TopBar from "../components/TopBar";
 import BottomBar from "../components/BottomBar";
 
 type Exercise = {
@@ -689,24 +691,7 @@ export default function ProgrammeEditor() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
-      </div>
-
-      {/* Top Bar */}
-      <div className="flex justify-between items-center mt-4 px-2">
-        <h2 className="text-white text-xl font-semibold">Programmes</h2>
-        <img
-          src={icon}
-          alt="User Avatar"
-          className="w-10 h-10 rounded-full object-cover"
-        />
-      </div>
+      <TopBar title="Programmes" pageIcon={null} />
 
       {/* Programme Name */}
       <div className="mt-6 mb-4 text-center">
@@ -808,23 +793,32 @@ export default function ProgrammeEditor() {
                                 : "bg-[#1C1F26] border-[#2F3544]"
                             }`}
                           >
-                            <CheckCircle className="text-green-500 w-5 h-5 mr-3" />
-                            <div className="flex-1 text-center">
-                              <p className="font-semibold text-white flex items-center justify-center gap-2">
-                                {ex.name}
-                                {ex.id.startsWith("temp-") && (
-                                  <span className="text-xs text-orange-400">
-                                    (unsaved)
+                            <div className="flex items-center gap-3">
+                              <MuscleIcon
+                                muscleGroup={
+                                  allExercises.find(
+                                    (a) => a.id === ex.exerciseId
+                                  )?.muscleGroup || ""
+                                }
+                                size={28}
+                              />
+                              <div className="flex-1 text-center">
+                                <p className="font-semibold text-white flex items-center justify-center gap-2">
+                                  {ex.name}
+                                  {ex.id.startsWith("temp-") && (
+                                    <span className="text-xs text-orange-400">
+                                      (unsaved)
+                                    </span>
+                                  )}
+                                </p>
+                                <div className="flex justify-center gap-3 text-sm mt-1">
+                                  <span className="text-[#00FFAD]">
+                                    {ex.sets} sets
                                   </span>
-                                )}
-                              </p>
-                              <div className="flex justify-center gap-3 text-sm mt-1">
-                                <span className="text-[#00FFAD]">
-                                  {ex.sets} sets
-                                </span>
-                                <span className="text-[#5E6272]">
-                                  {ex.reps} reps
-                                </span>
+                                  <span className="text-[#5E6272]">
+                                    {ex.reps} reps
+                                  </span>
+                                </div>
                               </div>
                             </div>
                             <XCircle
@@ -862,7 +856,10 @@ export default function ProgrammeEditor() {
                                     handleAddExercise(ex.id, day.dayNumber)
                                   }
                                 >
-                                  <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
+                                  <MuscleIcon
+                                    muscleGroup={ex.muscleGroup}
+                                    size={20}
+                                  />
                                   <div className="flex-1 text-center">
                                     <p className="font-semibold text-[#9CA3AF]">
                                       {ex.name}
@@ -906,7 +903,10 @@ export default function ProgrammeEditor() {
                                     handleAddExercise(ex.id, day.dayNumber)
                                   }
                                 >
-                                  <Circle className="text-[#5E6272] w-5 h-5 mr-3" />
+                                  <MuscleIcon
+                                    muscleGroup={ex.muscleGroup}
+                                    size={20}
+                                  />
                                   <div className="flex-1 text-center">
                                     <p className="font-semibold text-[#9CA3AF]">
                                       {ex.name}

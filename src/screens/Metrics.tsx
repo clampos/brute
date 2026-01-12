@@ -9,7 +9,9 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import logo from "../assets/logo.png";
+import MuscleIcon from "../components/MuscleIcon";
+import TopBar from "../components/TopBar";
+import { Link } from "react-router-dom";
 import BottomBar from "../components/BottomBar";
 import {
   UnitSystem,
@@ -36,12 +38,10 @@ interface BodyfatEntry {
 }
 
 interface PersonalRecord {
-  exerciseName: string;
   exerciseId: string;
-  weight: number;
-  reps: number;
-  date: string;
+  exerciseName: string;
   muscleGroup: string;
+  prs: Record<number, { weight: number; date: string } | null>;
 }
 
 export default function Metrics() {
@@ -130,7 +130,11 @@ export default function Metrics() {
         );
         if (prsRes.ok) {
           const data = await prsRes.json();
-          setPersonalRecords(data);
+          // Only keep exercises that have at least one PR entry (1,2,3,5,10)
+          const filtered = data.filter((d) =>
+            Object.values(d.prs || {}).some((v) => v != null)
+          );
+          setPersonalRecords(filtered);
         }
 
         setLoading(false);
@@ -308,9 +312,7 @@ export default function Metrics() {
     const dataRange = dataMax - dataMin || 1;
     const padding = dataRange * 0.1;
 
-    let yMin = dataMin - padding;
-    let yMax = dataMax + padding;
-
+    // Initial graph layout
     const graphHeight = 200;
     const graphWidth = Math.max(sortedData.length * 80, 300);
     const leftMargin = 60;
@@ -320,19 +322,6 @@ export default function Metrics() {
 
     const plotWidth = graphWidth - leftMargin - rightMargin;
     const plotHeight = graphHeight;
-
-    const points = sortedData.map((entry, index) => {
-      const value = entry[valueKey];
-      const normalized = (value - yMin) / yRange;
-      const x = leftMargin + (index / (sortedData.length - 1)) * plotWidth;
-      const y = topMargin + plotHeight * (1 - normalized);
-
-      return { x, y, value, date: entry.date };
-    });
-
-    const pathD = points
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-      .join(" ");
 
     // Compute 'nice' tick step so labels are evenly spaced and make sense
     const rawMin = dataMin - padding;
@@ -352,8 +341,8 @@ export default function Metrics() {
     }
 
     // Compute rounded bounds using the chosen step
-    yMin = Math.floor(rawMin / step) * step;
-    yMax = Math.ceil(rawMax / step) * step;
+    let yMin = Math.floor(rawMin / step) * step;
+    let yMax = Math.ceil(rawMax / step) * step;
 
     // Ensure non-zero range
     if (yMax === yMin) {
@@ -377,6 +366,20 @@ export default function Metrics() {
       const y = topMargin + plotHeight * (1 - normalized);
       yAxisLabels.push({ value: value.toFixed(decimals), y });
     }
+
+    // Now compute points using settled yMin/yRange
+    const points = sortedData.map((entry, index) => {
+      const value = entry[valueKey];
+      const normalized = (value - yMin) / yRange;
+      const x = leftMargin + (index / (sortedData.length - 1)) * plotWidth;
+      const y = topMargin + plotHeight * (1 - normalized);
+
+      return { x, y, value, date: entry.date };
+    });
+
+    const pathD = points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+      .join(" ");
 
     return (
       <div className="relative bg-[#262A34] rounded-xl p-4 mb-4">
@@ -613,26 +616,7 @@ export default function Metrics() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
-      </div>
-
-      {/* Top Bar */}
-      <div className="flex justify-between items-center mt-4 px-2">
-        <button
-          onClick={() => navigate("/settings")}
-          className="text-white text-sm"
-        >
-          ← Back
-        </button>
-        <h2 className="text-white text-xl font-semibold">Track Metrics</h2>
-        <div className="w-12"></div>
-      </div>
+      <TopBar title="Track Metrics" pageIcon={<Award size={18} />} />
 
       {/* Tab Navigation */}
       <div className="flex justify-around mt-6 mb-4">
@@ -987,32 +971,32 @@ export default function Metrics() {
       {activeTab === "prs" && (
         <div className="space-y-4">
           {personalRecords.length > 0 ? (
-            personalRecords.map((pr, index) => (
-              <div
-                key={index}
-                className="bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD]"
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Award size={20} className="text-[#00FFAD]" />
-                    <h4 className="text-white font-semibold">
-                      {pr.exerciseName}
-                    </h4>
+            personalRecords.map((pr) => {
+              const top = Object.values(pr.prs || {})
+                .filter(Boolean)
+                .map((p: any) => p.weight)
+                .sort((a: number, b: number) => b - a)[0];
+
+              return (
+                <Link key={pr.exerciseId} to={`/metrics/pr/${pr.exerciseId}`}>
+                  <div className="bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD] hover:opacity-90">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <MuscleIcon muscleGroup={pr.muscleGroup} size={28} />
+                        <h4 className="text-white font-semibold">
+                          {pr.exerciseName}
+                        </h4>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[#5E6272] text-xs">
+                          {pr.muscleGroup}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-[#5E6272] text-xs">
-                    {pr.muscleGroup}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-2xl font-bold text-white">
-                    {pr.weight} kg
-                  </span>
-                  <span className="text-[#5E6272]">×</span>
-                  <span className="text-xl text-white">{pr.reps} reps</span>
-                </div>
-                <p className="text-[#5E6272] text-sm">{formatDate(pr.date)}</p>
-              </div>
-            ))
+                </Link>
+              );
+            })
           ) : (
             <div className="bg-[#262A34] rounded-xl p-8 text-center">
               <Award size={48} className="text-[#5E6272] mx-auto mb-4" />

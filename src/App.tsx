@@ -10,6 +10,9 @@ import ProgrammesScreen from "./screens/Programmes";
 import ProgrammeEditor from "./screens/ProgrammeEditor";
 import Workouts from "./screens/Workouts";
 import Metrics from "./screens/Metrics";
+import MuscleIcons from "./screens/MuscleIcons";
+import ExercisePRs from "./screens/ExercisePRs";
+import CreateProgramme from "./screens/CreateProgramme";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export default function App() {
@@ -53,6 +56,14 @@ export default function App() {
           }
         />
         <Route
+          path="/programmes/create"
+          element={
+            <ProtectedRoute>
+              <CreateProgramme />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/workouts"
           element={
             <ProtectedRoute>
@@ -73,6 +84,22 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Metrics />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/debug/muscle-icons"
+          element={
+            <ProtectedRoute>
+              <MuscleIcons />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/metrics/pr/:exerciseId"
+          element={
+            <ProtectedRoute>
+              <ExercisePRs />
             </ProtectedRoute>
           }
         />

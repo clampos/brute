@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomBar from "../components/BottomBar";
+import TopBar from "../components/TopBar";
 import InstallPrompt from "../components/InstallPrompt";
 import {
   MoreHorizontal,
@@ -10,6 +11,7 @@ import {
   Check,
   Target,
 } from "lucide-react";
+import MuscleIcon from "../components/MuscleIcon";
 
 type WorkoutSet = {
   weight: string;
@@ -81,6 +83,149 @@ export default function Workouts() {
     localStorage.removeItem("token");
     localStorage.removeItem("installPromptDismissed");
     navigate("/login");
+  };
+
+  // Exercise menu state
+  const [openExerciseMenu, setOpenExerciseMenu] = useState<string | null>(null);
+  // Set menu state (keyed by `${exerciseId}:${setIdx}`)
+  const [openSetMenu, setOpenSetMenu] = useState<string | null>(null);
+
+  const moveExercise = (exerciseId: string, direction: "up" | "down") => {
+    setTodayExercises((prev) => {
+      const idx = prev.findIndex((e) => e.exerciseId === exerciseId);
+      if (idx === -1) return prev;
+      const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= prev.length) return prev;
+      const next = [...prev];
+      const tmp = next[swapIdx];
+      next[swapIdx] = next[idx];
+      next[idx] = tmp;
+      return next;
+    });
+    setOpenExerciseMenu(null);
+  };
+
+  const replaceExercise = async (exerciseId: string) => {
+    const exercise = todayExercises.find((e) => e.exerciseId === exerciseId);
+    if (!exercise) return;
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(
+        `http://localhost:4242/auth/exercises/random?focus=${encodeURIComponent(
+          exercise.muscleGroup
+        )}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error("Failed to fetch replacement exercise");
+      const newEx = await res.json();
+      setTodayExercises((prev) =>
+        prev.map((ex) =>
+          ex.exerciseId === exerciseId
+            ? {
+                ...ex,
+                name: newEx.name,
+                exerciseId: newEx.id,
+                muscleGroup: newEx.muscleGroup || ex.muscleGroup,
+              }
+            : ex
+        )
+      );
+    } catch (err) {
+      console.error("Replace exercise error:", err);
+      alert("Failed to replace exercise");
+    } finally {
+      setOpenExerciseMenu(null);
+    }
+  };
+
+  const addSetToExercise = (exerciseId: string) => {
+    setTodayExercises((prev) =>
+      prev.map((ex) =>
+        ex.exerciseId === exerciseId
+          ? {
+              ...ex,
+              workoutSets: [
+                ...ex.workoutSets,
+                { weight: "", reps: "", completed: false },
+              ],
+            }
+          : ex
+      )
+    );
+    setOpenExerciseMenu(null);
+  };
+
+  const skipNextSet = (exerciseId: string) => {
+    setTodayExercises((prev) =>
+      prev.map((ex) => {
+        if (ex.exerciseId !== exerciseId) return ex;
+        const idx = ex.workoutSets.findIndex((s) => !s.completed);
+        if (idx === -1) return ex;
+        const nextSets = ex.workoutSets.map((s, i) =>
+          i === idx ? { ...s, completed: true } : s
+        );
+        return { ...ex, workoutSets: nextSets };
+      })
+    );
+    setOpenExerciseMenu(null);
+  };
+
+  const deleteExerciseById = (exerciseId: string) => {
+    if (!confirm("Delete this exercise from the workout?")) return;
+    setTodayExercises((prev) =>
+      prev.filter((ex) => ex.exerciseId !== exerciseId)
+    );
+    setOpenExerciseMenu(null);
+  };
+
+  // Set-level actions
+  const addSetBelow = (exerciseId: string, setIdx: number) => {
+    setTodayExercises((prev) =>
+      prev.map((ex) =>
+        ex.exerciseId === exerciseId
+          ? {
+              ...ex,
+              workoutSets: [
+                ...ex.workoutSets.slice(0, setIdx + 1),
+                { weight: "", reps: "", completed: false },
+                ...ex.workoutSets.slice(setIdx + 1),
+              ],
+            }
+          : ex
+      )
+    );
+    setOpenSetMenu(null);
+  };
+
+  const skipSet = (exerciseId: string, setIdx: number) => {
+    setTodayExercises((prev) =>
+      prev.map((ex) =>
+        ex.exerciseId === exerciseId
+          ? {
+              ...ex,
+              workoutSets: ex.workoutSets.map((s, i) =>
+                i === setIdx ? { ...s, completed: true } : s
+              ),
+            }
+          : ex
+      )
+    );
+    setOpenSetMenu(null);
+  };
+
+  const deleteSet = (exerciseId: string, setIdx: number) => {
+    if (!confirm("Delete this set?")) return;
+    setTodayExercises((prev) =>
+      prev.map((ex) =>
+        ex.exerciseId === exerciseId
+          ? {
+              ...ex,
+              workoutSets: ex.workoutSets.filter((_, i) => i !== setIdx),
+            }
+          : ex
+      )
+    );
+    setOpenSetMenu(null);
   };
 
   const calculateProgress = (userProgram: UserProgram) => {
@@ -508,6 +653,9 @@ export default function Workouts() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
+      {/* Top Bar */}
+      <TopBar title="Workouts" pageIcon={<Calendar size={18} />} />
+
       <div className="text-center mt-2">
         <h3 className="text-lg font-semibold text-white">
           {userProgram?.programme.name || "Loading..."}
@@ -599,17 +747,22 @@ export default function Workouts() {
             >
               <div className="flex justify-between items-start mb-3">
                 <div>
-                  <h4 className="text-white font-semibold text-base">
-                    {exercise.name}
-                  </h4>
-                  <div className="flex text-sm gap-2 mt-1">
-                    <span className="text-green-400">
-                      {exercise.sets} Working Set
-                      {exercise.sets !== 1 ? "s" : ""}
-                    </span>
-                    <span className="text-pink-400">
-                      {exercise.muscleGroup}
-                    </span>
+                  <div className="flex items-center gap-3">
+                    <MuscleIcon muscleGroup={exercise.muscleGroup} size={28} />
+                    <div>
+                      <h4 className="text-white font-semibold text-base">
+                        {exercise.name}
+                      </h4>
+                      <div className="flex text-sm gap-2 mt-1">
+                        <span className="text-green-400">
+                          {exercise.sets} Working Set
+                          {exercise.sets !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-pink-400">
+                          {exercise.muscleGroup}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   {exercise.recommendation && (
@@ -635,12 +788,131 @@ export default function Workouts() {
                     </div>
                   )}
                 </div>
-                <MoreHorizontal className="text-white" />
+                <div className="relative">
+                  <button
+                    onClick={() =>
+                      setOpenExerciseMenu((s) =>
+                        s === exercise.exerciseId ? null : exercise.exerciseId
+                      )
+                    }
+                    className="text-white p-1"
+                    aria-haspopup
+                    aria-expanded={openExerciseMenu === exercise.exerciseId}
+                  >
+                    <MoreHorizontal />
+                  </button>
+
+                  {openExerciseMenu === exercise.exerciseId && (
+                    <div className="absolute right-0 mt-2 w-56 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
+                      <div className="px-3 py-2 text-xs text-[#9CA3AF] font-semibold">
+                        EXERCISE
+                      </div>
+                      <button
+                        disabled={index === 0}
+                        className={`w-full text-left px-3 py-2 text-sm ${
+                          index === 0
+                            ? "text-[#4B5563] cursor-not-allowed"
+                            : "hover:bg-[#2A2E38] text-white"
+                        }`}
+                        onClick={() => moveExercise(exercise.exerciseId, "up")}
+                      >
+                        Move Exercise Up
+                      </button>
+                      <button
+                        disabled={index === todayExercises.length - 1}
+                        className={`w-full text-left px-3 py-2 text-sm ${
+                          index === todayExercises.length - 1
+                            ? "text-[#4B5563] cursor-not-allowed"
+                            : "hover:bg-[#2A2E38] text-white"
+                        }`}
+                        onClick={() =>
+                          moveExercise(exercise.exerciseId, "down")
+                        }
+                      >
+                        Move Exercise Down
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-white text-sm"
+                        onClick={() => replaceExercise(exercise.exerciseId)}
+                      >
+                        Replace Exercise
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-white text-sm"
+                        onClick={() => addSetToExercise(exercise.exerciseId)}
+                      >
+                        Add Set
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-white text-sm"
+                        onClick={() => skipNextSet(exercise.exerciseId)}
+                      >
+                        Skip Set
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-red-500 text-sm"
+                        onClick={() => deleteExerciseById(exercise.exerciseId)}
+                      >
+                        Delete Exercise
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {exercise.workoutSets.map((set, setIdx) => (
                 <div key={setIdx} className="flex items-center gap-2 mt-3">
-                  <div className="w-4 text-[#5E6272]">⋮</div>
+                  <div className="relative">
+                    {(() => {
+                      const key = `${exercise.exerciseId}:${setIdx}`;
+                      return (
+                        <>
+                          <button
+                            onClick={() =>
+                              setOpenSetMenu((s) => (s === key ? null : key))
+                            }
+                            className="w-4 text-[#9CA3AF] p-0"
+                            aria-haspopup
+                            aria-expanded={openSetMenu === key}
+                          >
+                            ⋮
+                          </button>
+
+                          {openSetMenu === key && (
+                            <div className="absolute left-8 w-44 mt-2 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
+                              <div className="px-3 py-2 text-xs text-[#9CA3AF] font-semibold">
+                                SET
+                              </div>
+                              <button
+                                className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-white text-sm"
+                                onClick={() =>
+                                  addSetBelow(exercise.exerciseId, setIdx)
+                                }
+                              >
+                                Add Set Below
+                              </button>
+                              <button
+                                className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-white text-sm"
+                                onClick={() =>
+                                  skipSet(exercise.exerciseId, setIdx)
+                                }
+                              >
+                                Skip Set
+                              </button>
+                              <button
+                                className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-red-500 text-sm"
+                                onClick={() =>
+                                  deleteSet(exercise.exerciseId, setIdx)
+                                }
+                              >
+                                Delete Set
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
                   <input
                     type="number"
                     placeholder="Weight (kg)"

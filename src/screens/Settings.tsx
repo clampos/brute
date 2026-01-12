@@ -56,11 +56,17 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
+  });
+  const [emailForm, setEmailForm] = useState({
+    currentPassword: "",
+    newEmail: "",
+    confirmEmail: "",
   });
   const [passwordError, setPasswordError] = useState("");
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -448,6 +454,15 @@ export default function Settings() {
     setShowDeleteAccount(false);
   };
 
+  const resetEmailModal = () => {
+    setShowChangeEmail(false);
+    setEmailForm({ currentPassword: "", newEmail: "", confirmEmail: "" });
+    setEmailError("");
+  };
+
+  const [emailError, setEmailError] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError("");
@@ -525,15 +540,11 @@ export default function Settings() {
   const settingsOptions = [
     {
       label: "Change Email",
-      onClick: () => alert("Change Email clicked"),
+      onClick: () => setShowChangeEmail(true),
     },
     {
       label: "Change Password",
       onClick: () => setShowChangePassword(true),
-    },
-    {
-      label: "Manage Notifications",
-      onClick: () => alert("Manage Notifications clicked"),
     },
     {
       label: "Delete Account",
@@ -1093,6 +1104,137 @@ export default function Settings() {
                   className="flex-1 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50"
                 >
                   {passwordLoading ? "Changing..." : "Change Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showChangeEmail && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-white text-lg font-semibold">Change Email</h3>
+              <button
+                onClick={resetEmailModal}
+                className="text-gray-400 hover:text-white"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setEmailError("");
+                setEmailLoading(true);
+
+                if (emailForm.newEmail !== emailForm.confirmEmail) {
+                  setEmailError("Emails don't match");
+                  setEmailLoading(false);
+                  return;
+                }
+
+                // simple email format check
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(emailForm.newEmail)) {
+                  setEmailError("Please enter a valid email address");
+                  setEmailLoading(false);
+                  return;
+                }
+
+                try {
+                  const token = localStorage.getItem("token");
+                  const res = await fetch(
+                    "http://localhost:4242/auth/change-email",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({
+                        currentPassword: emailForm.currentPassword,
+                        newEmail: emailForm.newEmail,
+                      }),
+                    }
+                  );
+
+                  if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.error || "Failed to change email");
+                  }
+
+                  resetEmailModal();
+                  alert(
+                    "Email changed successfully. Please use your new email to login next time."
+                  );
+                  // Optionally, log out the user to force re-login
+                  localStorage.removeItem("token");
+                  navigate("/login");
+                } catch (err: any) {
+                  setEmailError(err.message || "Failed to change email");
+                } finally {
+                  setEmailLoading(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <input
+                type="password"
+                placeholder="Current Password"
+                value={emailForm.currentPassword}
+                onChange={(e) =>
+                  setEmailForm({
+                    ...emailForm,
+                    currentPassword: e.target.value,
+                  })
+                }
+                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                required
+              />
+
+              <input
+                type="email"
+                placeholder="New Email"
+                value={emailForm.newEmail}
+                onChange={(e) =>
+                  setEmailForm({ ...emailForm, newEmail: e.target.value })
+                }
+                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                required
+              />
+
+              <input
+                type="email"
+                placeholder="Confirm New Email"
+                value={emailForm.confirmEmail}
+                onChange={(e) =>
+                  setEmailForm({ ...emailForm, confirmEmail: e.target.value })
+                }
+                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
+                required
+              />
+
+              {emailError && (
+                <p className="text-red-400 text-sm">{emailError}</p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={resetEmailModal}
+                  className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={emailLoading}
+                  className="flex-1 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50"
+                >
+                  {emailLoading ? "Changing..." : "Change Email"}
                 </button>
               </div>
             </form>

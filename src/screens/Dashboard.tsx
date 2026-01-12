@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { ArrowRight, Play, Calendar, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
+import TopBar from "../components/TopBar";
 import icon from "../assets/icon_placeholder.png";
 import InstallPrompt from "../components/InstallPrompt";
 import BottomBar from "../components/BottomBar";
@@ -201,27 +202,10 @@ export default function Dashboard() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      {/* Logo */}
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
-      </div>
+      <TopBar title="Dashboard" pageIcon={null} />
 
-      {/* Top Bar */}
-      <div className="flex justify-between items-center mt-4 px-2">
-        <h2
-          className="text-white"
-          style={{
-            fontFamily: "'Poppins', sans-serif",
-            fontWeight: 600,
-            fontSize: "20px",
-          }}
-        >
-          Dashboard
-        </h2>
+      {/* Profile avatar row beneath TopBar */}
+      <div className="w-full px-4 flex justify-end mt-2">
         <div
           className="w-10 h-10 rounded-full overflow-hidden cursor-pointer border-2 border-[#246BFD] hover:border-[#1a52cc] transition-colors relative"
           onClick={() => navigate("/settings")}
@@ -234,18 +218,11 @@ export default function Dashboard() {
               onError={(e) => {
                 console.error("Failed to load profile image:", profilePhoto);
                 e.currentTarget.style.display = "none";
-                const fallback =
-                  e.currentTarget.parentElement!.querySelector(
-                    ".fallback-icon"
-                  );
-                if (fallback) {
-                  (fallback as HTMLElement).style.display = "flex";
-                }
               }}
             />
           ) : null}
           <div
-            className={`absolute inset-0 w-full h-full bg-[#262A34] flex items-center justify-center fallback-icon ${
+            className={`absolute inset-0 w-full h-full bg-[#262A34] flex items-center justify-center ${
               profilePhoto ? "hidden" : "flex"
             }`}
           >

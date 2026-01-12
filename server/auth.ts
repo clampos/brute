@@ -406,6 +406,60 @@ router.post(
   }
 );
 
+// Change Email endpoint
+router.post(
+  "/change-email",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const { currentPassword, newEmail } = req.body;
+    const userId = (req as any).user.userId;
+
+    if (!currentPassword || !newEmail) {
+      return res
+        .status(400)
+        .json({ error: "Current password and new email are required" });
+    }
+
+    // Basic email format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+
+    try {
+      // Ensure new email is not already taken
+      const existing = await prisma.user.findUnique({
+        where: { email: newEmail },
+      });
+      if (existing) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { password: true },
+      });
+      if (!user || !user.password)
+        return res.status(404).json({ error: "User not found" });
+
+      const match = await bcrypt.compare(currentPassword, user.password);
+      if (!match)
+        return res.status(400).json({ error: "Current password is incorrect" });
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { email: newEmail },
+      });
+
+      console.log(`✅ Email changed for user ${userId} -> ${newEmail}`);
+      res.json({ message: "Email changed successfully" });
+    } catch (err) {
+      console.error("Error changing email:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
 // Forgot Password endpoint
 router.post(
   "/forgot-password",
@@ -2869,10 +2923,7 @@ router.get(
           exerciseId: string;
           exerciseName: string;
           muscleGroup: string;
-          prs: Record<
-            number,
-            { weight: number; date: Date } | null
-          >;
+          prs: Record<number, { weight: number; date: Date } | null>;
         }
       >();
 
@@ -2919,7 +2970,8 @@ router.get(
           prs: r.prs,
         }))
         .sort((a, b) => {
-          if (a.muscleGroup !== b.muscleGroup) return a.muscleGroup.localeCompare(b.muscleGroup);
+          if (a.muscleGroup !== b.muscleGroup)
+            return a.muscleGroup.localeCompare(b.muscleGroup);
           return a.exerciseName.localeCompare(b.exerciseName);
         });
 
