@@ -79,7 +79,9 @@ export default function Workouts() {
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
   const [weeklySummary, setWeeklySummary] = useState<any>(null);
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
+    null
+  );
   const [workoutCompleted, setWorkoutCompleted] = useState(false);
 
   const navigate = useNavigate();
@@ -628,8 +630,7 @@ export default function Workouts() {
       <div
         className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16 justify-center items-center"
         style={{
-          background:
-            "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+          backgroundColor: "#0A0E1A",
         }}
       >
         <p className="text-white text-center">
@@ -644,8 +645,7 @@ export default function Workouts() {
       <div
         className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
         style={{
-          background:
-            "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+          backgroundColor: "#0A0E1A",
         }}
       >
         <div className="flex-1 flex flex-col justify-center items-center">
@@ -1055,7 +1055,9 @@ export default function Workouts() {
 
               {weeklySummary.strengthGainVsProgramStart !== null && (
                 <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
-                  <p className="text-[#5E6272] text-sm mb-1">Since programme start</p>
+                  <p className="text-[#5E6272] text-sm mb-1">
+                    Since programme start
+                  </p>
                   <p className="text-white font-semibold">
                     You are{" "}
                     <span className="text-[#246BFD]">
@@ -1066,35 +1068,47 @@ export default function Workouts() {
                 </div>
               )}
 
-              {weeklySummary.newRepMaxes && weeklySummary.newRepMaxes.length > 0 && (
-                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#FBA3FF]/30">
-                  <p className="text-[#FBA3FF] font-semibold mb-2">
-                    🎉 New Rep Maxes!
-                  </p>
-                  {weeklySummary.newRepMaxes.map((pr: any, idx: number) => (
-                    <p key={idx} className="text-white text-sm">
-                      • {pr.exerciseName}: {pr.reps} reps
+              {weeklySummary.newRepMaxes &&
+                weeklySummary.newRepMaxes.length > 0 && (
+                  <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#FBA3FF]/30">
+                    <p className="text-[#FBA3FF] font-semibold mb-2">
+                      🎉 New Rep Maxes!
                     </p>
-                  ))}
-                </div>
-              )}
-
-              {weeklySummary.recommendations && weeklySummary.recommendations.length > 0 && (
-                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
-                  <p className="text-[#246BFD] font-semibold mb-2">
-                    Next Session Recommendations
-                  </p>
-                  {weeklySummary.recommendations.map((rec: any, idx: number) => (
-                    <div key={idx} className="text-white text-sm mb-2 last:mb-0">
-                      <p className="font-medium">{getExerciseName(rec.exerciseId)}</p>
-                      <p className="text-[#5E6272] text-xs">
-                        {rec.recommendedWeight}kg × {rec.recommendedReps} reps (RPE {rec.recommendedRPE})
+                    {weeklySummary.newRepMaxes.map((pr: any, idx: number) => (
+                      <p key={idx} className="text-white text-sm">
+                        • {pr.exerciseName}: {pr.reps} reps
                       </p>
-                      <p className="text-[#5E6272] text-xs">{rec.reasoning}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+
+              {weeklySummary.recommendations &&
+                weeklySummary.recommendations.length > 0 && (
+                  <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
+                    <p className="text-[#246BFD] font-semibold mb-2">
+                      Next Session Recommendations
+                    </p>
+                    {weeklySummary.recommendations.map(
+                      (rec: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="text-white text-sm mb-2 last:mb-0"
+                        >
+                          <p className="font-medium">
+                            {getExerciseName(rec.exerciseId)}
+                          </p>
+                          <p className="text-[#5E6272] text-xs">
+                            {rec.recommendedWeight}kg × {rec.recommendedReps}{" "}
+                            reps (RPE {rec.recommendedRPE})
+                          </p>
+                          <p className="text-[#5E6272] text-xs">
+                            {rec.reasoning}
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
             </div>
 
             <button

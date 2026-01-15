@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { ArrowRight, Play, Calendar, User, Scale, Trophy, ListTodo } from "lucide-react";
+import {
+  ArrowRight,
+  Play,
+  Calendar,
+  User,
+  Scale,
+  Trophy,
+  ListTodo,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import TopBar from "../components/TopBar";
@@ -280,7 +288,8 @@ export default function Dashboard() {
               <div className="relative z-10">
                 <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
                 <p className="text-sm opacity-90 font-medium mb-6">
-                  {userProgram.programme.name} Week {userProgram.currentWeek}, Day {userProgram.currentDay}
+                  {userProgram.programme.name} Week {userProgram.currentWeek},
+                  Day {userProgram.currentDay}
                 </p>
 
                 <button
@@ -330,7 +339,9 @@ export default function Dashboard() {
               <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#66BB6A] to-[#43A047] flex items-center justify-center">
                 <Trophy size={24} className="text-white" />
               </div>
-              <span className="font-medium text-white">New Bench Press PR!</span>
+              <span className="font-medium text-white">
+                New Bench Press PR!
+              </span>
             </div>
             <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
           </div>
@@ -343,7 +354,9 @@ export default function Dashboard() {
               <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#DA70D6] to-[#C2185B] flex items-center justify-center">
                 <ListTodo size={24} className="text-white" />
               </div>
-              <span className="font-medium text-white">Plan your next programme</span>
+              <span className="font-medium text-white">
+                Plan your next programme
+              </span>
             </div>
             <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
           </div>
@@ -452,8 +465,9 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <p className="text-[#5E6272] text-center text-sm mt-4">
-                  You've completed {weeklyStats.workoutsCompleted}/{weeklyStats.workoutsTarget} workouts
-                  for this week's plan. Well done!
+                  You've completed {weeklyStats.workoutsCompleted}/
+                  {weeklyStats.workoutsTarget} workouts for this week's plan.
+                  Well done!
                 </p>
                 <button
                   onClick={() => navigate("/programmes")}

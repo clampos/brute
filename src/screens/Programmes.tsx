@@ -24,6 +24,7 @@ export default function Programmes() {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
   const [filterTab, setFilterTab] = useState<"all" | "previous">("all");
+  const [previousPrograms, setPreviousPrograms] = useState<any[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -45,7 +46,7 @@ export default function Programmes() {
         setFirstName(userData.firstName);
         setSurname(userData.surname);
 
-        // Fetch active user program
+        // Fetch active user program and previous programmes
         const userProgramRes = await fetch(
           "http://localhost:4242/auth/user-programs",
           {
@@ -57,6 +58,12 @@ export default function Programmes() {
           const userPrograms = await userProgramRes.json();
           const active = userPrograms.find((up: any) => up.status === "ACTIVE");
           setActiveUserProgram(active);
+
+          // Get completed programs
+          const completed = userPrograms.filter(
+            (up: any) => up.status === "COMPLETED"
+          );
+          setPreviousPrograms(completed);
         }
 
         // Fetch programmes
@@ -106,6 +113,25 @@ export default function Programmes() {
       ...prev,
       [section]: !prev[section],
     }));
+  };
+
+  const formatProgrammeDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const monthDiff =
+      (today.getFullYear() - date.getFullYear()) * 12 +
+      (today.getMonth() - date.getMonth());
+
+    if (monthDiff === 0) {
+      return "This month";
+    } else if (monthDiff === 1) {
+      return "Last month";
+    } else {
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        year: "2-digit",
+      });
+    }
   };
 
   const handleEditProgramme = (programmeId: string) => {
@@ -246,7 +272,49 @@ export default function Programmes() {
       <div className="flex flex-col gap-6 px-2">
         {loading ? (
           <div className="text-white">Loading...</div>
-        ) : Object.keys(programmesData).length > 0 ? (
+        ) : filterTab === "previous" ? (
+          // Previous Programmes View
+          previousPrograms && previousPrograms.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <h3 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase mb-2">
+                Completed Programmes
+              </h3>
+              {previousPrograms.map((userProgram: any) => {
+                const colours = [
+                  { bg: "from-[#FFB8E0]", accent: "border-[#FF6BB8]" },
+                  { bg: "from-[#88C0FC]", accent: "border-[#246BFD]" },
+                  { bg: "from-[#86FF99]", accent: "border-[#00FFAD]" },
+                  { bg: "from-[#FFD700]", accent: "border-[#FFA500]" },
+                  { bg: "from-[#BE9EFF]", accent: "border-[#9C6BFF]" },
+                ];
+                const colourIdx =
+                  previousPrograms.indexOf(userProgram) % colours.length;
+                const colour = colours[colourIdx];
+
+                return (
+                  <div
+                    key={userProgram.id}
+                    className={`w-full bg-[#1C1F26] rounded-xl px-4 py-4 border-l-4 ${colour.accent}`}
+                  >
+                    <p className="font-semibold text-white mb-1">
+                      {userProgram.programme.name}
+                    </p>
+                    <p className="text-sm text-[#5E6272]">
+                      Completed {formatProgrammeDate(userProgram.endDate)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
+              <p className="text-[#5E6272] font-semibold text-lg">
+                No completed programmes yet
+              </p>
+            </div>
+          )
+        ) : // All Programmes View
+        Object.keys(programmesData).length > 0 ? (
           Object.entries(programmesData).map(([section, programmes], idx) => {
             const isOpen = openSections[section];
 

@@ -611,7 +611,9 @@ export class ProgressiveOverloadService {
 
           // Current week max
           currentWorkouts.forEach((workout) => {
-            const ex = workout.exercises.find((e: any) => e.exerciseId === exId);
+            const ex = workout.exercises.find(
+              (e: any) => e.exerciseId === exId
+            );
             if (ex && ex.sets.length > 0) {
               const maxSet = ex.sets.reduce((best: any, current: any) =>
                 (current.reps || 0) > (best.reps || 0) ? current : best
@@ -622,7 +624,9 @@ export class ProgressiveOverloadService {
 
           // Previous week max
           previousWorkouts.forEach((workout) => {
-            const ex = workout.exercises.find((e: any) => e.exerciseId === exId);
+            const ex = workout.exercises.find(
+              (e: any) => e.exerciseId === exId
+            );
             if (ex && ex.sets.length > 0) {
               const maxSet = ex.sets.reduce((best: any, current: any) =>
                 (current.reps || 0) > (best.reps || 0) ? current : best
@@ -657,4 +661,3 @@ export class ProgressiveOverloadService {
     }
   }
 }
-

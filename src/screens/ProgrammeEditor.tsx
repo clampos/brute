@@ -687,8 +687,7 @@ export default function ProgrammeEditor() {
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
       style={{
-        background:
-          "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+        backgroundColor: "#0A0E1A",
       }}
     >
       <TopBar

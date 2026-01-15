@@ -66,7 +66,9 @@ export default function Metrics() {
   );
   const [showAddBodyweight, setShowAddBodyweight] = useState(false);
   const [newBodyweight, setNewBodyweight] = useState("");
-  const [editingBodyweightId, setEditingBodyweightId] = useState<string | null>(null);
+  const [editingBodyweightId, setEditingBodyweightId] = useState<string | null>(
+    null
+  );
 
   // Imperial weight input state
   const [newWeightStone, setNewWeightStone] = useState("");
@@ -273,7 +275,7 @@ export default function Metrics() {
 
   const deleteBodyweightEntry = async (id: string) => {
     if (!confirm("Delete this bodyweight entry?")) return;
-    
+
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
@@ -296,7 +298,7 @@ export default function Metrics() {
 
   const deleteBodyfatEntry = async (id: string) => {
     if (!confirm("Delete this body fat entry?")) return;
-    
+
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
@@ -329,11 +331,11 @@ export default function Metrics() {
 
   const saveEditedBodyweight = async () => {
     if (!editingBodyweightId) return;
-    
+
     try {
       const token = localStorage.getItem("token");
       const weight = parseFloat(newBodyweight);
-      
+
       const response = await fetch(
         `http://localhost:4242/auth/metrics/bodyweight/${editingBodyweightId}`,
         {
@@ -349,7 +351,9 @@ export default function Metrics() {
       if (response.ok) {
         const updated = await response.json();
         setBodyweightHistory(
-          bodyweightHistory.map((e) => (e.id === editingBodyweightId ? updated : e))
+          bodyweightHistory.map((e) =>
+            e.id === editingBodyweightId ? updated : e
+          )
         );
         setEditingBodyweightId(null);
         setNewBodyweight("");
@@ -361,11 +365,11 @@ export default function Metrics() {
 
   const saveEditedBodyfat = async () => {
     if (!editingBodyfatId) return;
-    
+
     try {
       const token = localStorage.getItem("token");
       const bodyfat = parseFloat(newBodyfat);
-      
+
       const response = await fetch(
         `http://localhost:4242/auth/metrics/bodyfat/${editingBodyfatId}`,
         {
@@ -390,7 +394,6 @@ export default function Metrics() {
       console.error("Error updating bodyfat entry:", error);
     }
   };
-
 
   const toggleImperialWeightType = () => {
     const newType = imperialWeightType === "lbs" ? "stone" : "lbs";
@@ -507,7 +510,6 @@ export default function Metrics() {
     const pathD = points
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
-
 
     return (
       <div className="relative bg-[#262A34] rounded-xl p-4 mb-4">
@@ -722,8 +724,7 @@ export default function Metrics() {
       <div
         className="min-h-screen flex items-center justify-center text-white"
         style={{
-          background:
-            "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+          backgroundColor: "#0A0E1A",
         }}
       >
         <p>Loading metrics...</p>
