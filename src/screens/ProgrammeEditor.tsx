@@ -691,7 +691,17 @@ export default function ProgrammeEditor() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      <TopBar title="Programmes" pageIcon={null} />
+      <TopBar
+        title="Programmes"
+        pageIcon={null}
+        menuItems={[
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
 
       {/* Programme Name */}
       <div className="mt-6 mb-4 text-center">

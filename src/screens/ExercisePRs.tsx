@@ -74,7 +74,17 @@ export default function ExercisePRs() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      <TopBar title="Track Metrics" pageIcon={<Award size={18} />} />
+      <TopBar
+        title="Track Metrics"
+        pageIcon={<Award size={18} />}
+        menuItems={[
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
 
       <div className="mt-6 px-2">
         <div className="bg-[#262A34] rounded-xl p-4 mb-4 border-l-4 border-[#00FFAD]">

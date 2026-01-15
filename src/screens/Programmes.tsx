@@ -23,6 +23,7 @@ export default function Programmes() {
   );
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
+  const [filterTab, setFilterTab] = useState<"all" | "previous">("all");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -160,15 +161,47 @@ export default function Programmes() {
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
       style={{
-        background:
-          "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+        backgroundColor: "#0A0E1A",
       }}
     >
-      <TopBar title="Programmes" pageIcon={<Dumbbell size={18} />} />
+      <TopBar
+        title="Programmes"
+        pageIcon={<Dumbbell size={18} />}
+        menuItems={[
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
+
+      {/* Filter Tabs */}
+      <div className="flex gap-2 mt-4 mb-6">
+        <button
+          onClick={() => setFilterTab("all")}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+            filterTab === "all"
+              ? "bg-[#246BFD] text-white"
+              : "text-[#5E6272] bg-transparent"
+          }`}
+        >
+          All
+        </button>
+        <button
+          onClick={() => setFilterTab("previous")}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+            filterTab === "previous"
+              ? "bg-[#246BFD] text-white"
+              : "text-[#5E6272] bg-transparent"
+          }`}
+        >
+          Previous
+        </button>
+      </div>
 
       {/* Active Programme Banner */}
       {activeUserProgram && (
-        <div className="w-full px-2 mb-5 mt-6">
+        <div className="w-full px-2 mb-5">
           <div className="bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] rounded-xl px-4 py-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-black font-semibold text-sm">
@@ -195,9 +228,9 @@ export default function Programmes() {
       )}
 
       {/* Create New Custom Programme */}
-      <div className="w-full px-2 mb-5 mt-6">
+      <div className="w-full px-2 mb-6 mt-6">
         <div
-          className="bg-[#1C1F26] border border-[#5E6272] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer"
+          className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
           onClick={() => navigate("/programmes/create")}
         >
           <span className="font-semibold text-base text-white">

@@ -68,6 +68,7 @@ export default function Workouts() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Programme state
   const [userProgram, setUserProgram] = useState<UserProgram | null>(null);
@@ -77,6 +78,9 @@ export default function Workouts() {
   const [savingWorkout, setSavingWorkout] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
+  const [weeklySummary, setWeeklySummary] = useState<any>(null);
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
+  const [workoutCompleted, setWorkoutCompleted] = useState(false);
 
   const navigate = useNavigate();
   const handleLogout = () => {
@@ -89,6 +93,23 @@ export default function Workouts() {
   const [openExerciseMenu, setOpenExerciseMenu] = useState<string | null>(null);
   // Set menu state (keyed by `${exerciseId}:${setIdx}`)
   const [openSetMenu, setOpenSetMenu] = useState<string | null>(null);
+
+  // Click outside handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenExerciseMenu(null);
+        setOpenSetMenu(null);
+      }
+    };
+
+    if (openExerciseMenu || openSetMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
+    }
+  }, [openExerciseMenu, openSetMenu]);
 
   const moveExercise = (exerciseId: string, direction: "up" | "down") => {
     setTodayExercises((prev) => {
@@ -365,20 +386,17 @@ export default function Workouts() {
 
       const result = await response.json();
 
-      alert(
-        `Workout saved successfully!\n\nRecommendations for next session:\n${result.recommendations
-          .map(
-            (rec: any) =>
-              `• ${getExerciseName(rec.exerciseId)}: ${
-                rec.recommendedWeight
-              }kg x ${rec.recommendedReps} reps (RPE ${
-                rec.recommendedRPE
-              })\n  ${rec.reasoning}`
-          )
-          .join("\n\n")}`
-      );
-
-      await advanceToNextDay();
+      // Show weekly summary if available, or mark as completed
+      if (result.weeklySummary) {
+        setWeeklySummary(result.weeklySummary);
+        setWorkoutCompleted(true);
+      } else {
+        // Show completion screen with recommendations
+        setWeeklySummary({
+          recommendations: result.recommendations,
+        });
+        setWorkoutCompleted(true);
+      }
     } catch (err: any) {
       console.error("Error saving workout:", err);
       setError(err.message || "Failed to save workout");
@@ -649,12 +667,20 @@ export default function Workouts() {
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
       style={{
-        background:
-          "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+        backgroundColor: "#0A0E1A",
       }}
     >
       {/* Top Bar */}
-      <TopBar title="Workouts" pageIcon={<Calendar size={18} />} />
+      <TopBar
+        title="Workouts"
+        pageIcon={<Calendar size={18} />}
+        menuItems={[
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
 
       <div className="text-center mt-2">
         <h3 className="text-lg font-semibold text-white">
@@ -730,7 +756,7 @@ export default function Workouts() {
         </div>
       )}
 
-      <div className="px-4 mt-6 space-y-4">
+      <div className="px-4 mt-6 space-y-4" ref={menuRef}>
         <h3 className="text-sm text-white font-semibold tracking-widest uppercase text-center">
           Today's Workout - Day {userProgram?.currentDay}
         </h3>
@@ -740,7 +766,7 @@ export default function Workouts() {
             <div
               key={exercise.id}
               className={`rounded-xl p-4 ${
-                index === 0
+                selectedExerciseId === exercise.exerciseId
                   ? "border-2 border-blue-500"
                   : "border border-[#2F3544]"
               } bg-[#1C1F26]`}
@@ -917,14 +943,16 @@ export default function Workouts() {
                     type="number"
                     placeholder="Weight (kg)"
                     value={set.weight}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setSelectedExerciseId(exercise.exerciseId);
                       updateSetData(
                         exercise.exerciseId,
                         setIdx,
                         "weight",
                         e.target.value
-                      )
-                    }
+                      );
+                    }}
+                    onFocus={() => setSelectedExerciseId(exercise.exerciseId)}
                     className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#5E6272] text-sm"
                     style={{ MozAppearance: "textfield" }}
                     inputMode="decimal"
@@ -933,14 +961,16 @@ export default function Workouts() {
                     type="number"
                     placeholder="Reps"
                     value={set.reps}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setSelectedExerciseId(exercise.exerciseId);
                       updateSetData(
                         exercise.exerciseId,
                         setIdx,
                         "reps",
                         e.target.value
-                      )
-                    }
+                      );
+                    }}
+                    onFocus={() => setSelectedExerciseId(exercise.exerciseId)}
                     className="bg-[#2A2E38] text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#5E6272] text-sm"
                     style={{ MozAppearance: "textfield" }}
                     inputMode="numeric"
@@ -991,6 +1021,95 @@ export default function Workouts() {
           </div>
         )}
       </div>
+
+      {/* Post-Workout Summary Modal */}
+      {workoutCompleted && weeklySummary && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] max-h-[90vh] overflow-y-auto">
+            <h2 className="text-white text-2xl font-bold text-center mb-6">
+              Congratulations on completing this workout!
+            </h2>
+
+            <div className="space-y-4 mb-6">
+              {weeklySummary.strengthGainVsLastWeek !== null && (
+                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#00FFAD]/30">
+                  <p className="text-[#5E6272] text-sm mb-1">Week-over-week</p>
+                  <p className="text-white font-semibold">
+                    You are{" "}
+                    <span
+                      className={
+                        weeklySummary.strengthGainVsLastWeek > 0
+                          ? "text-[#86FF99]"
+                          : "text-red-400"
+                      }
+                    >
+                      {Math.abs(weeklySummary.strengthGainVsLastWeek)}%{" "}
+                      {weeklySummary.strengthGainVsLastWeek > 0
+                        ? "stronger"
+                        : "weaker"}
+                    </span>{" "}
+                    this week compared to last week
+                  </p>
+                </div>
+              )}
+
+              {weeklySummary.strengthGainVsProgramStart !== null && (
+                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
+                  <p className="text-[#5E6272] text-sm mb-1">Since programme start</p>
+                  <p className="text-white font-semibold">
+                    You are{" "}
+                    <span className="text-[#246BFD]">
+                      {weeklySummary.strengthGainVsProgramStart}%
+                    </span>{" "}
+                    stronger than when you started this programme
+                  </p>
+                </div>
+              )}
+
+              {weeklySummary.newRepMaxes && weeklySummary.newRepMaxes.length > 0 && (
+                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#FBA3FF]/30">
+                  <p className="text-[#FBA3FF] font-semibold mb-2">
+                    🎉 New Rep Maxes!
+                  </p>
+                  {weeklySummary.newRepMaxes.map((pr: any, idx: number) => (
+                    <p key={idx} className="text-white text-sm">
+                      • {pr.exerciseName}: {pr.reps} reps
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {weeklySummary.recommendations && weeklySummary.recommendations.length > 0 && (
+                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
+                  <p className="text-[#246BFD] font-semibold mb-2">
+                    Next Session Recommendations
+                  </p>
+                  {weeklySummary.recommendations.map((rec: any, idx: number) => (
+                    <div key={idx} className="text-white text-sm mb-2 last:mb-0">
+                      <p className="font-medium">{getExerciseName(rec.exerciseId)}</p>
+                      <p className="text-[#5E6272] text-xs">
+                        {rec.recommendedWeight}kg × {rec.recommendedReps} reps (RPE {rec.recommendedRPE})
+                      </p>
+                      <p className="text-[#5E6272] text-xs">{rec.reasoning}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => {
+                setWeeklySummary(null);
+                setWorkoutCompleted(false);
+                advanceToNextDay();
+              }}
+              className="w-full bg-[#86FF99] hover:bg-[#6bd664] text-black font-semibold py-3 rounded-lg transition-colors"
+            >
+              Continue to Next Workout
+            </button>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter&display=swap');

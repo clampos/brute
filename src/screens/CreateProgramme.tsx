@@ -118,7 +118,17 @@ export default function CreateProgramme() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      <TopBar title="Programmes" pageIcon={<Dumbbell size={18} />} />
+      <TopBar
+        title="Programmes"
+        pageIcon={<Dumbbell size={18} />}
+        menuItems={[
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
 
       <div className="w-full px-2 mt-6 max-w-2xl mx-auto">
         <h3 className="text-white font-medium mb-3 text-center">

@@ -35,6 +35,17 @@ interface PerformanceHistory {
   weight: number;
 }
 
+export interface WeeklySummary {
+  strengthGainVsLastWeek: number | null; // percentage
+  strengthGainVsProgramStart: number | null; // percentage
+  newRepMaxes: Array<{
+    exerciseName: string;
+    reps: number;
+    weight: number;
+  }>;
+  isEndOfWeek: boolean;
+}
+
 export class ProgressiveOverloadService {
   // Constants from your rules
   private static readonly REP_CAP = 15;
@@ -395,6 +406,7 @@ export class ProgressiveOverloadService {
   ): Promise<{
     workoutId: string;
     recommendations: ProgressionRecommendation[];
+    weeklySummary?: WeeklySummary;
   }> {
     try {
       // Get user program and compute week/day based on startDate
@@ -469,13 +481,180 @@ export class ProgressiveOverloadService {
         recommendations = [];
       }
 
+      // Get weekly summary if at end of week
+      let weeklySummary: WeeklySummary | undefined;
+      if (isEndOfWeek) {
+        const exerciseIds = workoutData.map((ex) => ex.exerciseId);
+        weeklySummary = await this.getWeeklySummary(
+          userId,
+          weekNumber,
+          exerciseIds
+        );
+      }
+
       return {
         workoutId: workout.id,
         recommendations,
+        weeklySummary,
       };
     } catch (error) {
       console.error("Error saving workout:", error);
       throw error;
     }
   }
+
+  /**
+   * Calculate weekly summary stats (strength gain %, new PRs, etc.)
+   * Called at end of week to show post-workout completion message
+   */
+  static async getWeeklySummary(
+    userId: string,
+    currentWeek: number,
+    exerciseIds: string[]
+  ): Promise<WeeklySummary> {
+    try {
+      const summary: WeeklySummary = {
+        strengthGainVsLastWeek: null,
+        strengthGainVsProgramStart: null,
+        newRepMaxes: [],
+        isEndOfWeek: true,
+      };
+
+      // Get workout history: current week and previous week
+      const workoutsPastThreeWeeks = await prisma.workout.findMany({
+        where: {
+          userProgram: {
+            userId,
+            status: "ACTIVE",
+          },
+        },
+        include: {
+          exercises: {
+            include: {
+              sets: {
+                where: { completed: true },
+                orderBy: { setNumber: "asc" },
+              },
+            },
+          },
+        },
+        orderBy: { weekNumber: "desc" },
+        take: 3,
+      });
+
+      // Organize by week
+      const weeklyData: Record<number, any[]> = {};
+      workoutsPastThreeWeeks.forEach((workout) => {
+        const week = workout.weekNumber || 0;
+        if (!weeklyData[week]) weeklyData[week] = [];
+        weeklyData[week].push(workout);
+      });
+
+      // Calculate volume for each exercise per week
+      const getWeekVolume = (week: number, exId: string): number => {
+        const workouts = weeklyData[week] || [];
+        let totalVolume = 0;
+        workouts.forEach((workout) => {
+          const ex = workout.exercises.find((e: any) => e.exerciseId === exId);
+          if (ex && ex.sets.length > 0) {
+            const bestSet = ex.sets.reduce((best: any, current: any) => {
+              const bestVol = (best.weight || 0) * (best.reps || 0);
+              const currVol = (current.weight || 0) * (current.reps || 0);
+              return currVol > bestVol ? current : best;
+            });
+            totalVolume += (bestSet.weight || 0) * (bestSet.reps || 0);
+          }
+        });
+        return totalVolume;
+      };
+
+      // Strength gain vs last week
+      if (weeklyData[currentWeek] && weeklyData[currentWeek - 1]) {
+        let totalCurrentVolume = 0;
+        let totalLastVolume = 0;
+        exerciseIds.forEach((exId) => {
+          totalCurrentVolume += getWeekVolume(currentWeek, exId);
+          totalLastVolume += getWeekVolume(currentWeek - 1, exId);
+        });
+
+        if (totalLastVolume > 0) {
+          summary.strengthGainVsLastWeek = Math.round(
+            ((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100
+          );
+        }
+      }
+
+      // Strength gain vs programme start (week 1)
+      if (weeklyData[currentWeek] && weeklyData[1]) {
+        let totalCurrentVolume = 0;
+        let totalWeek1Volume = 0;
+        exerciseIds.forEach((exId) => {
+          totalCurrentVolume += getWeekVolume(currentWeek, exId);
+          totalWeek1Volume += getWeekVolume(1, exId);
+        });
+
+        if (totalWeek1Volume > 0) {
+          summary.strengthGainVsProgramStart = Math.round(
+            ((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100
+          );
+        }
+      }
+
+      // Detect new rep maxes
+      if (weeklyData[currentWeek]) {
+        for (const exId of exerciseIds) {
+          const currentWorkouts = weeklyData[currentWeek] || [];
+          const previousWorkouts = weeklyData[currentWeek - 1] || [];
+
+          let currentMaxReps = 0;
+          let previousMaxReps = 0;
+
+          // Current week max
+          currentWorkouts.forEach((workout) => {
+            const ex = workout.exercises.find((e: any) => e.exerciseId === exId);
+            if (ex && ex.sets.length > 0) {
+              const maxSet = ex.sets.reduce((best: any, current: any) =>
+                (current.reps || 0) > (best.reps || 0) ? current : best
+              );
+              currentMaxReps = Math.max(currentMaxReps, maxSet.reps || 0);
+            }
+          });
+
+          // Previous week max
+          previousWorkouts.forEach((workout) => {
+            const ex = workout.exercises.find((e: any) => e.exerciseId === exId);
+            if (ex && ex.sets.length > 0) {
+              const maxSet = ex.sets.reduce((best: any, current: any) =>
+                (current.reps || 0) > (best.reps || 0) ? current : best
+              );
+              previousMaxReps = Math.max(previousMaxReps, maxSet.reps || 0);
+            }
+          });
+
+          // New rep max detected
+          if (currentMaxReps > previousMaxReps) {
+            const exercise = await prisma.exercise.findUnique({
+              where: { id: exId },
+            });
+            summary.newRepMaxes.push({
+              exerciseName: exercise?.name || "Unknown",
+              reps: currentMaxReps,
+              weight: 0, // We could calculate this but keeping it simple
+            });
+          }
+        }
+      }
+
+      return summary;
+    } catch (error) {
+      console.error("Error calculating weekly summary:", error);
+      return {
+        strengthGainVsLastWeek: null,
+        strengthGainVsProgramStart: null,
+        newRepMaxes: [],
+        isEndOfWeek: true,
+      };
+    }
+  }
 }
+

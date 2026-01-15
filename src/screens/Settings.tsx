@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import {
   Camera,
   SettingsIcon,
-  MoreHorizontal,
   Copy,
   Check,
   X,
@@ -15,6 +14,7 @@ import {
   Globe,
 } from "lucide-react";
 import logo from "../assets/logo.png";
+import TopBar from "../components/TopBar";
 import BottomBar from "../components/BottomBar";
 import {
   UnitSystem,
@@ -574,21 +574,17 @@ export default function Settings() {
           "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
       }}
     >
-      <div className="w-full max-w-[375px] h-[44px] px-4 flex justify-center items-center mx-auto">
-        <img
-          src={logo}
-          alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain md:w-[100px] md:h-[18px]"
-        />
-      </div>
-
-      <div className="flex justify-between items-center mt-4 px-2 h-10 relative">
-        <SettingsIcon className="text-white w-6 h-6" />
-        <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
-          Settings
-        </h2>
-        <MoreHorizontal className="text-white w-6 h-6" />
-      </div>
+      {/* Top Bar */}
+      <TopBar
+        title="Settings"
+        pageIcon={<SettingsIcon size={18} />}
+        menuItems={[
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+        ]}
+      />
 
       <div className="mt-8 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
         <h3

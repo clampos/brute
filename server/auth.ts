@@ -2882,6 +2882,144 @@ router.post(
   }
 );
 
+// PUT /auth/metrics/bodyweight/:id - Update bodyweight entry
+router.put(
+  "/metrics/bodyweight/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+    const { weight } = req.body;
+
+    if (!weight || weight <= 0) {
+      return res.status(400).json({ error: "Valid weight is required" });
+    }
+
+    try {
+      // Verify ownership
+      const entry = await prisma.bodyweightEntry.findUnique({
+        where: { id },
+      });
+
+      if (!entry || entry.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const updatedEntry = await prisma.bodyweightEntry.update({
+        where: { id },
+        data: {
+          weight: parseFloat(weight),
+        },
+      });
+
+      res.json(updatedEntry);
+    } catch (error) {
+      console.error("Error updating bodyweight entry:", error);
+      res.status(500).json({ error: "Failed to update bodyweight entry" });
+    }
+  }
+);
+
+// DELETE /auth/metrics/bodyweight/:id - Delete bodyweight entry
+router.delete(
+  "/metrics/bodyweight/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+
+    try {
+      // Verify ownership
+      const entry = await prisma.bodyweightEntry.findUnique({
+        where: { id },
+      });
+
+      if (!entry || entry.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      await prisma.bodyweightEntry.delete({
+        where: { id },
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting bodyweight entry:", error);
+      res.status(500).json({ error: "Failed to delete bodyweight entry" });
+    }
+  }
+);
+
+// PUT /auth/metrics/bodyfat/:id - Update bodyfat entry
+router.put(
+  "/metrics/bodyfat/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+    const { bodyfat } = req.body;
+
+    if (!bodyfat || bodyfat <= 0 || bodyfat > 100) {
+      return res
+        .status(400)
+        .json({ error: "Valid body fat percentage (0-100) is required" });
+    }
+
+    try {
+      // Verify ownership
+      const entry = await prisma.bodyfatEntry.findUnique({
+        where: { id },
+      });
+
+      if (!entry || entry.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const updatedEntry = await prisma.bodyfatEntry.update({
+        where: { id },
+        data: {
+          bodyfat: parseFloat(bodyfat),
+        },
+      });
+
+      res.json(updatedEntry);
+    } catch (error) {
+      console.error("Error updating bodyfat entry:", error);
+      res.status(500).json({ error: "Failed to update bodyfat entry" });
+    }
+  }
+);
+
+// DELETE /auth/metrics/bodyfat/:id - Delete bodyfat entry
+router.delete(
+  "/metrics/bodyfat/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+
+    try {
+      // Verify ownership
+      const entry = await prisma.bodyfatEntry.findUnique({
+        where: { id },
+      });
+
+      if (!entry || entry.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      await prisma.bodyfatEntry.delete({
+        where: { id },
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting bodyfat entry:", error);
+      res.status(500).json({ error: "Failed to delete bodyfat entry" });
+    }
+  }
+);
+
 // GET /auth/metrics/personal-records - Get personal records across all exercises
 router.get(
   "/metrics/personal-records",

@@ -5,280 +5,120 @@ type Props = {
   size?: number;
 };
 
-// Regions we can highlight on a simple silhouette
-type Region =
-  | "chest"
-  | "upper_back"
-  | "lower_back"
-  | "left_arm"
-  | "right_arm"
-  | "abs"
-  | "glutes"
-  | "left_leg"
-  | "right_leg"
-  | "calves"
-  | "neck"
-  | "shoulders";
-
-const regionMap: Record<string, Region[]> = {
-  chest: ["chest"],
-  lats: ["upper_back"],
-  "middle back": ["upper_back"],
-  "lower back": ["lower_back"],
-  back: ["upper_back", "lower_back"],
-  biceps: ["left_arm", "right_arm"],
-  triceps: ["left_arm", "right_arm"],
-  forearms: ["left_arm", "right_arm"],
-  traps: ["upper_back"],
-  shoulders: ["shoulders"],
-  quadriceps: ["left_leg", "right_leg"],
-  hamstrings: ["left_leg", "right_leg"],
-  glutes: ["glutes"],
-  adductors: ["left_leg", "right_leg"],
-  abductors: ["left_leg", "right_leg"],
-  calves: ["calves"],
-  legs: ["left_leg", "right_leg"],
-  abdominals: ["abs"],
-  abs: ["abs"],
-  core: ["abs"],
-  neck: ["neck"],
-};
-
-function lookupRegions(group: string): Region[] {
+function getIconSVG(group: string): JSX.Element {
   const g = (group || "").toLowerCase().trim();
-  if (regionMap[g]) return regionMap[g];
 
-  // partial matches
-  if (g.includes("chest")) return ["chest"];
-  if (g.includes("back") || g.includes("lat")) return ["upper_back"];
+  // Chest
+  if (g.includes("chest")) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 6V18" />
+        <ellipse cx="8" cy="12" rx="3" ry="5" />
+        <ellipse cx="16" cy="12" rx="3" ry="5" />
+      </svg>
+    );
+  }
+
+  // Back
+  if (g.includes("back") || g.includes("lat")) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 6V18" />
+        <path d="M6 10L12 8L18 10" />
+        <path d="M6 14L12 16L18 14" />
+      </svg>
+    );
+  }
+
+  // Shoulders/Traps
+  if (g.includes("shoulder") || g.includes("trap")) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="5" cy="10" r="2" />
+        <circle cx="19" cy="10" r="2" />
+        <line x1="7" y1="11" x2="17" y2="11" />
+        <path d="M7 11V16" />
+        <path d="M17 11V16" />
+      </svg>
+    );
+  }
+
+  // Arms
   if (
-    g.includes("bi") ||
-    g.includes("tri") ||
-    g.includes("arm") ||
+    g.includes("bicep") ||
+    g.includes("tricep") ||
     g.includes("forearm") ||
-    g.includes("trap")
-  )
-    return ["left_arm", "right_arm"];
+    (g.includes("arm") && !g.includes("back"))
+  ) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M7 7L6 15" />
+        <path d="M17 7L18 15" />
+        <circle cx="6" cy="6" r="1.5" />
+        <circle cx="18" cy="6" r="1.5" />
+      </svg>
+    );
+  }
+
+  // Legs
   if (
     g.includes("quad") ||
     g.includes("hamstring") ||
     g.includes("glute") ||
     g.includes("calf") ||
+    g.includes("adductor") ||
+    g.includes("abductor") ||
     g.includes("leg")
-  )
-    return ["left_leg", "right_leg"];
-  if (g.includes("abdom") || g.includes("core")) return ["abs"];
+  ) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="8" y1="5" x2="8" y2="18" />
+        <line x1="16" y1="5" x2="16" y2="18" />
+        <circle cx="8" cy="4" r="1" />
+        <circle cx="16" cy="4" r="1" />
+      </svg>
+    );
+  }
 
-  return [];
+  // Abs
+  if (g.includes("abdom") || g.includes("core") || g.includes("abs")) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="6" width="6" height="12" rx="1" />
+        <line x1="9" y1="9" x2="15" y2="9" />
+        <line x1="9" y1="12" x2="15" y2="12" />
+        <line x1="9" y1="15" x2="15" y2="15" />
+      </svg>
+    );
+  }
+
+  // Default
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="#86FF99" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="5" r="2" />
+      <path d="M12 7V12" />
+      <line x1="7" y1="9" x2="17" y2="9" />
+      <line x1="8" y1="12L8 18" />
+      <line x1="16" y1="12L16 18" />
+    </svg>
+  );
 }
 
 export default function MuscleIcon({ muscleGroup, size = 40 }: Props) {
-  const regions = lookupRegions(muscleGroup || "");
-  const w = size;
-  const h = size;
-
-  const highlight = (r: Region) => {
-    const common = { fill: "#16A34A", opacity: 0.95 } as any;
-    switch (r) {
-      case "neck":
-        return <circle cx={w * 0.5} cy={h * 0.13} r={w * 0.07} {...common} />;
-      case "chest":
-        return (
-          <rect
-            x={w * 0.28}
-            y={h * 0.22}
-            width={w * 0.44}
-            height={h * 0.18}
-            rx={w * 0.05}
-            {...common}
-          />
-        );
-      case "upper_back":
-        return (
-          <rect
-            x={w * 0.28}
-            y={h * 0.15}
-            width={w * 0.44}
-            height={h * 0.18}
-            rx={w * 0.04}
-            {...common}
-          />
-        );
-      case "lower_back":
-        return (
-          <rect
-            x={w * 0.26}
-            y={h * 0.36}
-            width={w * 0.48}
-            height={h * 0.16}
-            rx={w * 0.04}
-            {...common}
-          />
-        );
-      case "shoulders":
-        return (
-          <>
-            <ellipse
-              cx={w * 0.2}
-              cy={h * 0.25}
-              rx={w * 0.12}
-              ry={h * 0.06}
-              {...common}
-            />
-            <ellipse
-              cx={w * 0.8}
-              cy={h * 0.25}
-              rx={w * 0.12}
-              ry={h * 0.06}
-              {...common}
-            />
-          </>
-        );
-      case "left_arm":
-        return (
-          <rect
-            x={w * 0.06}
-            y={h * 0.22}
-            width={w * 0.12}
-            height={h * 0.44}
-            rx={w * 0.06}
-            {...common}
-          />
-        );
-      case "right_arm":
-        return (
-          <rect
-            x={w * 0.82}
-            y={h * 0.22}
-            width={w * 0.12}
-            height={h * 0.44}
-            rx={w * 0.06}
-            {...common}
-          />
-        );
-      case "abs":
-        return (
-          <rect
-            x={w * 0.34}
-            y={h * 0.34}
-            width={w * 0.32}
-            height={h * 0.22}
-            rx={w * 0.04}
-            {...common}
-          />
-        );
-      case "glutes":
-        return (
-          <rect
-            x={w * 0.34}
-            y={h * 0.56}
-            width={w * 0.32}
-            height={h * 0.14}
-            rx={w * 0.04}
-            {...common}
-          />
-        );
-      case "left_leg":
-        return (
-          <rect
-            x={w * 0.34}
-            y={h * 0.7}
-            width={w * 0.12}
-            height={h * 0.26}
-            rx={w * 0.05}
-            {...common}
-          />
-        );
-      case "right_leg":
-        return (
-          <rect
-            x={w * 0.54}
-            y={h * 0.7}
-            width={w * 0.12}
-            height={h * 0.26}
-            rx={w * 0.05}
-            {...common}
-          />
-        );
-      case "calves":
-        return (
-          <>
-            <rect
-              x={w * 0.34}
-              y={h * 0.84}
-              width={w * 0.12}
-              height={h * 0.12}
-              rx={w * 0.04}
-              {...common}
-            />
-            <rect
-              x={w * 0.54}
-              y={h * 0.84}
-              width={w * 0.12}
-              height={h * 0.12}
-              rx={w * 0.04}
-              {...common}
-            />
-          </>
-        );
-      default:
-        return null;
-    }
-  };
-
   return (
-    <svg
-      width={w}
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
+    <div
+      style={{
+        width: size,
+        height: size,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      title={muscleGroup}
       role="img"
       aria-label={muscleGroup}
-      title={muscleGroup}
     >
-      {/* Base silhouette */}
-      <g fill="#0B1020">
-        <circle
-          cx={w * 0.5}
-          cy={h * 0.12}
-          r={w * 0.09}
-          fill="#FFFFFF"
-          opacity={0.06}
-        />
-        <rect
-          x={w * 0.3}
-          y={h * 0.2}
-          width={w * 0.4}
-          height={h * 0.6}
-          rx={w * 0.06}
-          fill="#FFFFFF"
-          opacity={0.04}
-        />
-        <rect
-          x={w * 0.18}
-          y={h * 0.24}
-          width={w * 0.12}
-          height={h * 0.48}
-          rx={w * 0.06}
-          fill="#FFFFFF"
-          opacity={0.04}
-        />
-        <rect
-          x={w * 0.7}
-          y={h * 0.24}
-          width={w * 0.12}
-          height={h * 0.48}
-          rx={w * 0.06}
-          fill="#FFFFFF"
-          opacity={0.04}
-        />
-      </g>
-
-      {/* Highlights */}
-      <g>
-        {regions.map((r) => (
-          <React.Fragment key={r}>{highlight(r)}</React.Fragment>
-        ))}
-      </g>
-    </svg>
+      {getIconSVG(muscleGroup || "")}
+    </div>
   );
 }

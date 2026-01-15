@@ -6,8 +6,11 @@ import {
   Award,
   Plus,
   X,
+  Check,
   ChevronLeft,
   ChevronRight,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import MuscleIcon from "../components/MuscleIcon";
 import TopBar from "../components/TopBar";
@@ -63,6 +66,7 @@ export default function Metrics() {
   );
   const [showAddBodyweight, setShowAddBodyweight] = useState(false);
   const [newBodyweight, setNewBodyweight] = useState("");
+  const [editingBodyweightId, setEditingBodyweightId] = useState<string | null>(null);
 
   // Imperial weight input state
   const [newWeightStone, setNewWeightStone] = useState("");
@@ -72,6 +76,7 @@ export default function Metrics() {
   const [bodyfatHistory, setBodyfatHistory] = useState<BodyfatEntry[]>([]);
   const [showAddBodyfat, setShowAddBodyfat] = useState(false);
   const [newBodyfat, setNewBodyfat] = useState("");
+  const [editingBodyfatId, setEditingBodyfatId] = useState<string | null>(null);
 
   // Personal Records
   const [personalRecords, setPersonalRecords] = useState<PersonalRecord[]>([]);
@@ -266,6 +271,127 @@ export default function Metrics() {
     navigate("/login");
   };
 
+  const deleteBodyweightEntry = async (id: string) => {
+    if (!confirm("Delete this bodyweight entry?")) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:4242/auth/metrics/bodyweight/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        setBodyweightHistory(bodyweightHistory.filter((e) => e.id !== id));
+      }
+    } catch (error) {
+      console.error("Error deleting bodyweight entry:", error);
+    }
+  };
+
+  const deleteBodyfatEntry = async (id: string) => {
+    if (!confirm("Delete this body fat entry?")) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:4242/auth/metrics/bodyfat/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        setBodyfatHistory(bodyfatHistory.filter((e) => e.id !== id));
+      }
+    } catch (error) {
+      console.error("Error deleting bodyfat entry:", error);
+    }
+  };
+
+  const editBodyweightEntry = (entry: BodyweightEntry) => {
+    setEditingBodyweightId(entry.id);
+    setNewBodyweight(entry.weight.toString());
+  };
+
+  const editBodyfatEntry = (entry: BodyfatEntry) => {
+    setEditingBodyfatId(entry.id);
+    setNewBodyfat(entry.bodyfat.toString());
+  };
+
+  const saveEditedBodyweight = async () => {
+    if (!editingBodyweightId) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const weight = parseFloat(newBodyweight);
+      
+      const response = await fetch(
+        `http://localhost:4242/auth/metrics/bodyweight/${editingBodyweightId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ weight }),
+        }
+      );
+
+      if (response.ok) {
+        const updated = await response.json();
+        setBodyweightHistory(
+          bodyweightHistory.map((e) => (e.id === editingBodyweightId ? updated : e))
+        );
+        setEditingBodyweightId(null);
+        setNewBodyweight("");
+      }
+    } catch (error) {
+      console.error("Error updating bodyweight entry:", error);
+    }
+  };
+
+  const saveEditedBodyfat = async () => {
+    if (!editingBodyfatId) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      const bodyfat = parseFloat(newBodyfat);
+      
+      const response = await fetch(
+        `http://localhost:4242/auth/metrics/bodyfat/${editingBodyfatId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ bodyfat }),
+        }
+      );
+
+      if (response.ok) {
+        const updated = await response.json();
+        setBodyfatHistory(
+          bodyfatHistory.map((e) => (e.id === editingBodyfatId ? updated : e))
+        );
+        setEditingBodyfatId(null);
+        setNewBodyfat("");
+      }
+    } catch (error) {
+      console.error("Error updating bodyfat entry:", error);
+    }
+  };
+
+
   const toggleImperialWeightType = () => {
     const newType = imperialWeightType === "lbs" ? "stone" : "lbs";
     setImperialWeightType(newType);
@@ -374,12 +500,14 @@ export default function Metrics() {
       const x = leftMargin + (index / (sortedData.length - 1)) * plotWidth;
       const y = topMargin + plotHeight * (1 - normalized);
 
-      return { x, y, value, date: entry.date };
+      return { x, y, value, date: entry.date, index };
     });
 
+    // Generate simple path (no gap detection)
     const pathD = points
       .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
       .join(" ");
+
 
     return (
       <div className="relative bg-[#262A34] rounded-xl p-4 mb-4">
@@ -612,11 +740,19 @@ export default function Metrics() {
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
       style={{
-        background:
-          "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+        backgroundColor: "#0A0E1A",
       }}
     >
-      <TopBar title="Track Metrics" pageIcon={<Award size={18} />} />
+      <TopBar
+        title="Track Metrics"
+        pageIcon={<Award size={18} />}
+        menuItems={[
+          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
 
       {/* Tab Navigation */}
       <div className="flex justify-around mt-6 mb-4">
@@ -831,16 +967,66 @@ export default function Metrics() {
                     key={entry.id}
                     className="flex justify-between items-center py-3 px-4 bg-[#1F222B] rounded-lg"
                   >
-                    <span className="text-white font-medium">
-                      {formatWeight(
-                        entry.weight,
-                        unitSystem,
-                        imperialWeightType === "stone"
-                      )}
-                    </span>
-                    <span className="text-[#5E6272] text-sm">
-                      {formatDate(entry.date)}
-                    </span>
+                    {editingBodyweightId === entry.id ? (
+                      <>
+                        <input
+                          type="number"
+                          value={newBodyweight}
+                          onChange={(e) => setNewBodyweight(e.target.value)}
+                          placeholder="Weight"
+                          className="bg-[#2A2E38] text-white rounded-md px-2 py-1 flex-1 placeholder:text-[#5E6272] text-sm"
+                          step="0.1"
+                          inputMode="decimal"
+                        />
+                        <div className="flex gap-2 ml-3">
+                          <button
+                            onClick={saveEditedBodyweight}
+                            className="p-2 text-green-500 hover:bg-green-500/20 rounded transition"
+                            title="Save"
+                          >
+                            <Check size={16} />
+                          </button>
+                          <button
+                            onClick={() => setEditingBodyweightId(null)}
+                            className="p-2 text-[#5E6272] hover:bg-[#5E6272]/20 rounded transition"
+                            title="Cancel"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1">
+                          <span className="text-white font-medium">
+                            {formatWeight(
+                              entry.weight,
+                              unitSystem,
+                              imperialWeightType === "stone"
+                            )}
+                          </span>
+                        </div>
+                        <span className="text-[#5E6272] text-sm">
+                          {formatDate(entry.date)}
+                        </span>
+                        <div className="flex gap-2 ml-3">
+                          <button
+                            onClick={() => editBodyweightEntry(entry)}
+                            className="p-2 text-[#246BFD] hover:bg-[#246BFD]/20 rounded transition"
+                            title="Edit"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteBodyweightEntry(entry.id)}
+                            className="p-2 text-red-500 hover:bg-red-500/20 rounded transition"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -949,12 +1135,63 @@ export default function Metrics() {
                     key={entry.id}
                     className="flex justify-between items-center py-3 px-4 bg-[#1F222B] rounded-lg"
                   >
-                    <span className="text-white font-medium">
-                      {entry.bodyfat}%
-                    </span>
-                    <span className="text-[#5E6272] text-sm">
-                      {formatDate(entry.date)}
-                    </span>
+                    {editingBodyfatId === entry.id ? (
+                      <>
+                        <input
+                          type="number"
+                          value={newBodyfat}
+                          onChange={(e) => setNewBodyfat(e.target.value)}
+                          placeholder="Body Fat %"
+                          min="0"
+                          max="100"
+                          className="bg-[#2A2E38] text-white rounded-md px-2 py-1 flex-1 placeholder:text-[#5E6272] text-sm"
+                          inputMode="decimal"
+                        />
+                        <div className="flex gap-2 ml-3">
+                          <button
+                            onClick={saveEditedBodyfat}
+                            className="p-2 text-green-500 hover:bg-green-500/20 rounded transition"
+                            title="Save"
+                          >
+                            <Check size={16} />
+                          </button>
+                          <button
+                            onClick={() => setEditingBodyfatId(null)}
+                            className="p-2 text-[#5E6272] hover:bg-[#5E6272]/20 rounded transition"
+                            title="Cancel"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex-1">
+                          <span className="text-white font-medium">
+                            {entry.bodyfat}%
+                          </span>
+                        </div>
+                        <span className="text-[#5E6272] text-sm">
+                          {formatDate(entry.date)}
+                        </span>
+                        <div className="flex gap-2 ml-3">
+                          <button
+                            onClick={() => editBodyfatEntry(entry)}
+                            className="p-2 text-[#246BFD] hover:bg-[#246BFD]/20 rounded transition"
+                            title="Edit"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteBodyfatEntry(entry.id)}
+                            className="p-2 text-red-500 hover:bg-red-500/20 rounded transition"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

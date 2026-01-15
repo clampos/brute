@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ArrowRight, Play, Calendar, User } from "lucide-react";
+import { ArrowRight, Play, Calendar, User, Scale, Trophy, ListTodo } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
 import TopBar from "../components/TopBar";
@@ -198,11 +198,19 @@ export default function Dashboard() {
     <div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
       style={{
-        background:
-          "radial-gradient(circle at center, #001F3F 0%, #000B1A 80%)",
+        backgroundColor: "#0A0E1A",
       }}
     >
-      <TopBar title="Dashboard" pageIcon={null} />
+      <TopBar
+        title="Dashboard"
+        pageIcon={null}
+        menuItems={[
+          { label: "Programmes", onClick: () => navigate("/programmes") },
+          { label: "Workouts", onClick: () => navigate("/workouts") },
+          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Settings", onClick: () => navigate("/settings") },
+        ]}
+      />
 
       {/* Profile avatar row beneath TopBar */}
       <div className="w-full px-4 flex justify-end mt-2">
@@ -268,80 +276,77 @@ export default function Dashboard() {
         <div className="flex flex-col gap-4">
           {/* Today's Workout Box */}
           {userProgram && todayWorkout ? (
-            <div className="rounded-2xl p-4 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black relative">
-              <div className="mb-2">
-                <h2 className="text-lg font-semibold">Today's Workout</h2>
-                <p className="text-sm opacity-80">
-                  {userProgram.programme.name} - Week {userProgram.currentWeek},
-                  Day {userProgram.currentDay}
+            <div className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden">
+              <div className="relative z-10">
+                <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
+                <p className="text-sm opacity-90 font-medium mb-6">
+                  {userProgram.programme.name} Week {userProgram.currentWeek}, Day {userProgram.currentDay}
                 </p>
-              </div>
 
-              <div className="mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Calendar size={16} />
-                  <span className="text-sm font-medium">
-                    {todayWorkout.exercises.length} exercise
-                    {todayWorkout.exercises.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="w-full bg-black/20 rounded-full h-2">
-                  <div
-                    className="bg-[#246BFD] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${calculateProgress(userProgram)}%` }}
-                  ></div>
-                </div>
-                <p className="text-xs opacity-70 mt-1">
-                  {calculateProgress(userProgram)}% programme complete
-                </p>
-              </div>
-
-              <div className="flex gap-2">
                 <button
                   onClick={() => navigate("/workouts")}
-                  className="bg-[#246BFD] text-white px-4 py-2 rounded-full text-sm font-medium shadow-md flex items-center gap-2"
+                  className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transition-all"
                 >
-                  <Play size={16} />
-                  Start Workout
-                </button>
-                <button
-                  onClick={() => navigate("/workouts")}
-                  className="bg-white/20 text-black px-4 py-2 rounded-full text-sm font-medium"
-                >
-                  View Programme
+                  Start Now
                 </button>
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl p-4 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black relative">
-              <h2 className="text-lg font-semibold mb-2">Today's Workout</h2>
-              <p className="text-sm opacity-80 mb-4">
+            <div className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden">
+              <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
+              <p className="text-sm opacity-90 mb-6">
                 Choose a programme to begin your fitness journey
               </p>
               <button
                 onClick={() => navigate("/programmes")}
-                className="bg-[#246BFD] text-white px-4 py-2 rounded-full text-sm font-medium shadow-md"
+                className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transition-all"
               >
                 Start Now
               </button>
             </div>
           )}
 
+          {/* Old code removed - was showing progress bar and view programme button */}
+
           {/* Quick Action Boxes */}
-          {[
-            { title: "Update Bodyweight", path: "/settings" },
-            { title: "View Programmes", path: "/programmes" },
-            { title: "Workout History", path: "/workouts" },
-          ].map((item, index) => (
-            <div
-              key={index}
-              onClick={() => navigate(item.path)}
-              className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex justify-between items-center cursor-pointer text-white hover:bg-[#2A2E38] transition-colors"
-            >
-              <span className="font-medium">{item.title}</span>
-              <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
+          <div
+            onClick={() => navigate("/settings")}
+            className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#FF9966] to-[#FF6B6B] flex items-center justify-center">
+                <Scale size={24} className="text-white" />
+              </div>
+              <span className="font-medium text-white">Update Bodyweight</span>
             </div>
-          ))}
+            <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
+          </div>
+
+          <div
+            onClick={() => navigate("/metrics")}
+            className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#66BB6A] to-[#43A047] flex items-center justify-center">
+                <Trophy size={24} className="text-white" />
+              </div>
+              <span className="font-medium text-white">New Bench Press PR!</span>
+            </div>
+            <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
+          </div>
+
+          <div
+            onClick={() => navigate("/programmes")}
+            className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#DA70D6] to-[#C2185B] flex items-center justify-center">
+                <ListTodo size={24} className="text-white" />
+              </div>
+              <span className="font-medium text-white">Plan your next programme</span>
+            </div>
+            <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
+          </div>
         </div>
       )}
 
@@ -387,7 +392,7 @@ export default function Dashboard() {
             style={{ background: "#262A34" }}
           >
             <h3
-              className="text-[#5E6272] font-semibold text-lg mb-4"
+              className="text-[#5E6272] font-semibold text-sm mb-6"
               style={{ fontFamily: "'Poppins', sans-serif" }}
             >
               Weekly Goal
@@ -446,18 +451,16 @@ export default function Dashboard() {
                     </span>
                   </div>
                 </div>
-                <p className="text-white text-center">
-                  {weeklyStats.workoutsCompleted} of{" "}
-                  {weeklyStats.workoutsTarget} workouts completed this week
+                <p className="text-[#5E6272] text-center text-sm mt-4">
+                  You've completed {weeklyStats.workoutsCompleted}/{weeklyStats.workoutsTarget} workouts
+                  for this week's plan. Well done!
                 </p>
-                {weeklyStats.workoutsCompleted >=
-                  weeklyStats.workoutsTarget && (
-                  <div className="mt-3 px-4 py-2 bg-green-600/20 border border-green-500/30 rounded-lg">
-                    <p className="text-green-400 text-sm font-medium text-center">
-                      🎉 Weekly goal achieved!
-                    </p>
-                  </div>
-                )}
+                <button
+                  onClick={() => navigate("/programmes")}
+                  className="mt-6 w-full bg-gradient-to-r from-[#DA70D6] to-[#C2185B] hover:from-[#C55CC4] hover:to-[#A8155C] text-white px-4 py-3 rounded-full text-sm font-medium transition-all"
+                >
+                  See Full Programme
+                </button>
               </div>
             ) : (
               <p className="text-white text-sm">
@@ -472,10 +475,10 @@ export default function Dashboard() {
             style={{ background: "#262A34" }}
           >
             <h3
-              className="text-[#5E6272] font-semibold text-lg mb-6"
+              className="text-[#5E6272] font-semibold text-sm mb-6"
               style={{ fontFamily: "'Poppins', sans-serif" }}
             >
-              Activity - Last 7 Days
+              Weight moved in the last 7 days
             </h3>
             {loadingStats ? (
               <p className="text-white text-sm">Loading stats...</p>
@@ -499,7 +502,7 @@ export default function Dashboard() {
                           {/* Sets bar */}
                           {day.sets > 0 && (
                             <div
-                              className="w-full bg-gradient-to-t from-[#246BFD] to-[#00FFAD] rounded-t transition-all duration-300 relative group"
+                              className="w-full bg-gradient-to-t from-[#9C6BFF] to-[#6A45FF] rounded-t transition-all duration-300 relative group"
                               style={{
                                 height: `${heightPercentage}%`,
                                 minHeight: day.sets > 0 ? "8px" : "0",
