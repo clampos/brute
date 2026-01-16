@@ -51,7 +51,15 @@ const upload = multer({
 });
 
 // Stripe setup
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error(
+    "STRIPE_SECRET_KEY environment variable is required. " +
+    "Please add it to server/.env file. " +
+    "See server/.env.example for setup instructions."
+  );
+}
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-04-30.basil",
 });
 
