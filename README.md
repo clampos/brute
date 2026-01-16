@@ -1,103 +1,167 @@
+# BRUTE - Workout Tracking Application
+
+A full-stack TypeScript application for workout tracking and progressive overload management with Stripe subscription integration.
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js (v16 or higher)
+- npm or yarn
+- Stripe account (for payments)
+
+### Installation
+
+1. **Clone the repository**
+```bash
+git clone <repository-url>
+cd brute
+```
+
+2. **Install frontend dependencies**
+```bash
+npm install
+```
+
+3. **Install backend dependencies**
+```bash
+cd server
+npm install
+```
+
+4. **Set up environment variables**
+```bash
+cd server
+cp .env.example .env
+# Edit .env and add your configuration (see below)
+```
+
+5. **Set up the database**
+```bash
+cd server
+npx prisma migrate dev
+npx prisma db seed
+```
+
+6. **Start the application**
+
+Open two terminal windows:
+
+```bash
+# Terminal 1: Start backend (from server directory)
+cd server
+npm run dev
+
+# Terminal 2: Start frontend (from root directory)
+npm run dev
+```
+
+The frontend will be available at `http://localhost:5173`  
+The backend API will be available at `http://localhost:4242`
+
+## 🔧 Environment Configuration
+
+### Required Environment Variables
+
+Create a `server/.env` file with the following variables:
+
+```env
+# JWT Authentication
+JWT_SECRET=your-super-secret-jwt-key-here
+
+# Stripe Configuration (Get from https://dashboard.stripe.com/test/apikeys)
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
+STRIPE_PRICE_ID=price_your_stripe_price_id_here
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+
+# Application URLs
+CLIENT_URL=http://localhost:5173
+
+# Database (defaults to SQLite)
+DATABASE_URL=file:./prisma/dev.db
+
+# Email Service (Optional)
+RESEND_API_KEY=your_resend_api_key_here
+EMAIL_FROM=noreply@yourdomain.com
+```
+
+### Stripe Setup
+
+⚠️ **Important**: Stripe test keys can expire. If you see an "api_key_expired" error:
+
+1. Go to [Stripe Dashboard > API Keys](https://dashboard.stripe.com/test/apikeys)
+2. Click "Create secret key" to generate a NEW key
+3. Update `STRIPE_SECRET_KEY` in `server/.env`
+4. Restart the server
+
+For complete Stripe setup instructions, see: **[docs/STRIPE_SETUP.md](docs/STRIPE_SETUP.md)**
+
+## 📖 Documentation
+
+- **[Stripe Setup Guide](docs/STRIPE_SETUP.md)** - Complete guide for Stripe integration and troubleshooting
+- **[Frontend Workflows](docs/frontend-programmes-workflows.md)** - Frontend development patterns
+
+## 🛠️ Development Commands
+
+### Frontend (from root directory)
+```bash
+npm install          # Install dependencies
+npm run dev          # Start development server
+npm run build        # Build for production
+```
+
+### Backend (from server directory)
+```bash
+npm install          # Install dependencies
+npm run dev          # Start development server with hot reload
+npm run start        # Start production server
+```
+
+### Database (from server directory)
+```bash
+npx prisma migrate dev     # Run migrations
+npx prisma db seed         # Seed database with test data
+npx prisma generate        # Generate Prisma client
+npx prisma studio          # Open Prisma Studio GUI
+```
+
+## 🏗️ Project Structure
+
 ```
 brute
-├─ index.html
-├─ manifest.json
-├─ my-favicon
-│  ├─ apple-touch-icon.png
-│  ├─ favicon-96x96.png
-│  ├─ favicon.ico
-│  ├─ favicon.svg
-│  ├─ site.webmanifest
-│  ├─ web-app-manifest-192x192.png
-│  └─ web-app-manifest-512x512.png
-├─ package-lock.json
-├─ package.json
-├─ postcss.config.js
-├─ README.md
-├─ server
-│  ├─ .env
-│  ├─ auth.ts
-│  ├─ authMiddleware.ts
-│  ├─ email.ts
-│  ├─ index.ts
-│  ├─ package-lock.json
-│  ├─ package.json
-│  ├─ prisma
-│  │  ├─ dev.db
-│  │  ├─ migrations
-│  │  │  ├─ 20250521152123_init
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250523083816_add_name_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250618153358_add_referral_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250702144903_add_password_reset_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250707141705_add_workout_and_programme_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250721150027_add_is_selected
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250721150356_add_is_selected
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250722165817_add_profile_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250722170447_add_profile_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250728094111_add_birthday_field
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250728131150_add_new_profile_photo
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250804074549_add_active_programme_fields
-│  │  │  │  └─ migration.sql
-│  │  │  ├─ 20250917150156_add_target_reps_to_workout_set
-│  │  │  │  └─ migration.sql
-│  │  │  └─ migration_lock.toml
-│  │  ├─ schema.prisma
-│  │  └─ seed.ts
-│  ├─ prisma.ts
-│  ├─ programmes.ts
-│  ├─ protected.ts
-│  ├─ tsconfig.json
-│  ├─ uploads
-│  ├─ utils
-│  │  ├─ progressiveOverloadService.ts
-│  │  └─ referralUtils.ts
-│  └─ webhook.ts
-├─ src
-│  ├─ App.tsx
-│  ├─ assets
-│  │  ├─ icon_placeholder.png
-│  │  └─ logo.png
-│  ├─ components
-│  │  ├─ AuthLayout.tsx
-│  │  ├─ BottomBar.tsx
-│  │  ├─ BubblesBackground.tsx
-│  │  ├─ InstallPrompt.tsx
-│  │  ├─ OvalProgressIcon.tsx
-│  │  ├─ ProtectedRoute.tsx
-│  │  ├─ ResetPassword.tsx
-│  │  ├─ ScreenWrapper.tsx
-│  │  └─ WorkoutCompletionPopup.tsx
-│  ├─ images.d.ts
-│  ├─ index.css
-│  ├─ main.tsx
-│  ├─ screens
-│  │  ├─ Dashboard.tsx
-│  │  ├─ Login.tsx
-│  │  ├─ Onboarding.tsx
-│  │  ├─ ProgrammeEditor.tsx
-│  │  ├─ Programmes.tsx
-│  │  ├─ Settings.tsx
-│  │  ├─ Signup.tsx
-│  │  ├─ SubscriptionSuccess.tsx
-│  │  └─ Workouts.tsx
-│  ├─ services
-│  │  └─ authService.ts
-│  └─ utils
-│     └─ auth.ts
-├─ sw.js
-├─ tailwind.config.js
-├─ tsconfig.json
-└─ yarn.lock
+├─ src/                    # Frontend React application
+│  ├─ components/          # Reusable components
+│  ├─ screens/            # Page components
+│  ├─ services/           # API service layer
+│  └─ utils/              # Utility functions
+├─ server/                # Backend Express API
+│  ├─ auth.ts             # Authentication & main routes
+│  ├─ webhook.ts          # Stripe webhook handler
+│  ├─ prisma/             # Database schema & migrations
+│  └─ utils/              # Server utilities
+└─ docs/                  # Documentation
+```
 
+## 🔐 Security Notes
+
+- Never commit `.env` files to version control
+- Keep your Stripe secret keys private
+- Use test keys for development
+- Rotate API keys periodically
+
+## 🐛 Troubleshooting
+
+### "api_key_expired" Error
+Your Stripe API key has expired. See [Stripe Setup Guide](docs/STRIPE_SETUP.md) for solutions.
+
+### "STRIPE_SECRET_KEY environment variable is required"
+Make sure you've created `server/.env` file with all required variables.
+
+### Webhook events not received
+Ensure Stripe CLI is running: `stripe listen --forward-to localhost:4242/webhook`
+
+For more troubleshooting help, see: [docs/STRIPE_SETUP.md](docs/STRIPE_SETUP.md)
+
+## 📝 License
+
+[Add your license here]
 ```

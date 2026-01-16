@@ -10,20 +10,7 @@ export default function BottomBar({ onLogout }) {
         { icon: _jsx(Calendar, { size: 22 }), path: "/workouts", label: "Workouts" },
         { icon: _jsx(Settings, { size: 22 }), path: "/settings", label: "Settings" },
     ];
-    const isActive = (itemPath) => {
-        // Settings is active when on /settings, /metrics, or any metrics sub-pages (like exercise PRs)
-        if (itemPath === "/settings") {
-            return location.pathname === "/settings" || location.pathname.startsWith("/metrics");
-        }
-        // Programmes is active when on /programmes, /programmes/create, or /editor/* (programme editor)
-        if (itemPath === "/programmes") {
-            return location.pathname === "/programmes" ||
-                location.pathname === "/programmes/create" ||
-                location.pathname.startsWith("/editor");
-        }
-        return location.pathname === itemPath;
-    };
-    return (_jsx("div", { className: "fixed bottom-0 left-0 right-0 bg-[#0E1117] border-t border-[#1F1F1F] flex justify-around items-center py-2 z-50", children: navItems.map((item) => (_jsx("button", { onClick: () => navigate(item.path), className: `flex flex-col items-center text-sm ${isActive(item.path)
+    return (_jsx("div", { className: "fixed bottom-0 left-0 right-0 bg-[#0E1117] border-t border-[#1F1F1F] flex justify-around items-center py-2 z-50", children: navItems.map((item) => (_jsx("button", { onClick: () => navigate(item.path), className: `flex flex-col items-center text-sm ${location.pathname === item.path
                 ? "text-[#246BFD]"
                 : "text-[#5E6272]"}`, children: item.icon }, item.path))) }));
 }
