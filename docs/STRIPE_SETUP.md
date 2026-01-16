@@ -89,7 +89,10 @@ FATAL Error while authenticating with Stripe: Authorization failed, status=401, 
 }
 ```
 
-**Cause:** Your Stripe API key has expired. Stripe test mode keys expire periodically for security.
+**Important:** This error can come from two different places:
+
+#### If the error occurs when starting your server:
+Your server's API key has expired.
 
 **Solution:**
 1. Go to [Stripe Dashboard > API Keys](https://dashboard.stripe.com/test/apikeys)
@@ -101,12 +104,25 @@ FATAL Error while authenticating with Stripe: Authorization failed, status=401, 
    STRIPE_SECRET_KEY=sk_test_NEW_KEY_HERE
    ```
 6. **Restart your server** (the old process still has the expired key in memory)
-7. If using Stripe CLI, restart it too:
+
+#### If the error occurs when running `stripe listen`:
+**This is the most common issue!** The Stripe CLI has its own stored credentials that are separate from your server's `.env` file.
+
+**Solution:**
+1. Stop the Stripe CLI (Ctrl+C)
+2. Re-authenticate the CLI:
    ```powershell
-   # Stop the old session (Ctrl+C)
-   stripe login  # Re-authenticate if needed
+   stripe login
+   ```
+   This will open your browser to authorize the CLI with your Stripe account
+3. After successful login, restart the webhook listener:
+   ```powershell
    stripe listen --forward-to localhost:4242/webhook
    ```
+4. Copy the new `whsec_...` value and update `STRIPE_WEBHOOK_SECRET` in `server/.env`
+5. Restart your server
+
+**Note:** The Stripe CLI stores its credentials in `~/.config/stripe/config.toml` (Linux/Mac) or `%USERPROFILE%\.config\stripe\config.toml` (Windows). When these expire, you must run `stripe login` again.
 
 ### ❌ "No signatures found matching the expected signature for payload"
 

@@ -8,36 +8,60 @@ FATAL Error while authenticating with Stripe: Authorization failed, status=401
 "message": "Expired API Key provided: sk_test_..."
 ```
 
-## Why This Happens
-Your Stripe test API key has expired. Stripe periodically expires test keys for security reasons. Simply updating the same expired key in your `.env` file won't work - you need a **NEW** key from Stripe.
+## ⚠️ IMPORTANT: Where is the error coming from?
 
-## Quick Fix (5 minutes)
+This error can come from **two different places**. Check where you see the error:
 
-### Step 1: Generate a New Stripe Key
+### 🔴 If error appears when running `stripe listen`:
+**The Stripe CLI has its own expired credentials** (most common issue!)
+
+The CLI stores credentials separately from your server's `.env` file. Even if you updated `STRIPE_SECRET_KEY` in `.env`, the CLI won't use it.
+
+**Solution:**
+1. Stop Stripe CLI (Ctrl+C)
+2. Re-authenticate the CLI:
+   ```powershell
+   stripe login
+   ```
+   (This opens your browser to authorize)
+3. After successful login, restart:
+   ```powershell
+   stripe listen --forward-to localhost:4242/webhook
+   ```
+4. Copy the new `whsec_...` value from the output
+5. Update in `server/.env`:
+   ```env
+   STRIPE_WEBHOOK_SECRET=whsec_NEW_VALUE_HERE
+   ```
+6. Restart your server
+
+### 🔴 If error appears when starting your Node server:
+**Your server's `.env` file has an expired key**
+
+**Solution:**
 1. Go to: https://dashboard.stripe.com/test/apikeys
 2. Click **"Create secret key"**
-3. Give it a name (e.g., "Development Key - January 2026")
-4. Copy the new key (starts with `sk_test_`)
-
-### Step 2: Update Your .env File
-1. Open `server/.env` in your editor
-2. Replace the old `STRIPE_SECRET_KEY` value with your new key:
+3. Copy the new key (starts with `sk_test_`)
+4. Update in `server/.env`:
    ```env
    STRIPE_SECRET_KEY=sk_test_YOUR_NEW_KEY_HERE
    ```
-3. Save the file
+5. Restart the server
 
-### Step 3: Restart Everything
-```powershell
-# Stop your running server (Ctrl+C)
+## Why This Happens
+- Stripe test API keys expire periodically for security
+- The **Stripe CLI stores its own credentials** in `~/.config/stripe/config.toml` (separate from your `.env`)
+- When CLI credentials expire, you must run `stripe login` again
+- Simply updating `.env` won't fix CLI authentication errors
 
-# Restart the server
-cd server
-npm run dev
+## Quick Fix for "Key not in my .env" Issue
 
-# In another terminal, restart Stripe CLI webhook listener
-stripe listen --forward-to localhost:4242/webhook
-```
+If you see a key ending (like `...OeLJxl`) that's not in your `.env` file, it's because:
+- The error is from the **Stripe CLI**, not your server
+- The CLI uses credentials stored in `~/.config/stripe/config.toml` (Windows: `%USERPROFILE%\.config\stripe\config.toml`)
+- These credentials are separate from your server's `.env` file
+
+**Fix:** Run `stripe login` to refresh CLI credentials.
 
 ## Verify It's Working
 When you restart the server, you should see:
