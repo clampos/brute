@@ -101,7 +101,7 @@ export default function Workouts() {
       const target = event.target as HTMLElement;
       
       // Check if the click is on a menu button or inside a dropdown menu
-      const isMenuButton = target.closest('button[aria-haspopup="true"]');
+      const isMenuButton = target.closest('button[aria-haspopup]');
       const isDropdownMenu = target.closest('.dropdown-menu');
       
       // Close menus if clicking outside both the buttons and the dropdown menus

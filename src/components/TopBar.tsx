@@ -21,7 +21,7 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
       const target = event.target as HTMLElement;
       
       // Check if the click is on a menu button or inside a dropdown menu
-      const isMenuButton = target.closest('button[aria-haspopup="true"]');
+      const isMenuButton = target.closest('button[aria-haspopup]');
       const isDropdownMenu = target.closest('.dropdown-menu');
       
       // Close menu if clicking outside both the button and the dropdown menu
