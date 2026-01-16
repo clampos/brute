@@ -17,6 +17,15 @@ if (!process.env.STRIPE_SECRET_KEY) {
   );
 }
 
+if (!process.env.STRIPE_WEBHOOK_SECRET) {
+  throw new Error(
+    "STRIPE_WEBHOOK_SECRET environment variable is required. " +
+    "Without it, webhook signature verification will fail and subscriptions won't activate. " +
+    "Get it from Stripe CLI: stripe listen --forward-to localhost:4242/webhook " +
+    "Or create it in dashboard: https://dashboard.stripe.com/test/webhooks"
+  );
+}
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2025-04-30.basil',
 });

@@ -52,6 +52,24 @@ When you restart the server, you should see:
 
 ## Still Having Issues?
 
+### Subscription not activating after payment?
+This usually means the webhook secret is missing or incorrect.
+
+**Symptoms:**
+- Payment goes through successfully
+- User appears in Stripe dashboard
+- But user can't log in (subscription not marked as active)
+
+**Solution:**
+1. Check if `STRIPE_WEBHOOK_SECRET` is set in your `server/.env` file
+2. Make sure Stripe CLI is running:
+   ```powershell
+   stripe listen --forward-to localhost:4242/webhook
+   ```
+3. Copy the `whsec_...` value from the CLI output
+4. Update `STRIPE_WEBHOOK_SECRET` in `server/.env` with this value
+5. Restart the server
+
 ### "No signatures found matching the expected signature"
 Your webhook secret might also need updating:
 1. Copy the `whsec_` value from your Stripe CLI output

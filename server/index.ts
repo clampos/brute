@@ -11,12 +11,20 @@ import path from 'path';
 dotenv.config();
 
 // Validate critical environment variables
-const requiredEnvVars = ['JWT_SECRET', 'STRIPE_SECRET_KEY'];
+const requiredEnvVars = ['JWT_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingEnvVars.join(', '));
   console.error('📝 Please create a server/.env file based on server/.env.example');
+  console.error('');
+  if (missingEnvVars.includes('STRIPE_WEBHOOK_SECRET')) {
+    console.error('⚠️  STRIPE_WEBHOOK_SECRET is required for webhooks to work!');
+    console.error('   Without it, subscriptions will not activate after payment.');
+    console.error('   Get it from: stripe listen --forward-to localhost:4242/webhook');
+    console.error('   Or dashboard: https://dashboard.stripe.com/test/webhooks');
+    console.error('');
+  }
   console.error('📖 See docs/STRIPE_SETUP.md for setup instructions');
   process.exit(1);
 }
