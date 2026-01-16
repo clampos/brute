@@ -14,8 +14,6 @@ export default function Programmes() {
     const [activeUserProgram, setActiveUserProgram] = useState(null);
     const [filterTab, setFilterTab] = useState("all");
     const [previousPrograms, setPreviousPrograms] = useState([]);
-    const [showConfirmModal, setShowConfirmModal] = useState(false);
-    const [programmeToStart, setProgrammeToStart] = useState(null);
     useEffect(() => {
         const token = localStorage.getItem("token");
         if (!token) {
@@ -111,16 +109,6 @@ export default function Programmes() {
         navigate(`/editor/${programmeId}`);
     };
     const handleStartProgramme = async (programmeId) => {
-        // If there's an active programme, show confirmation modal instead of auto-canceling
-        if (activeUserProgram) {
-            setProgrammeToStart(programmeId);
-            setShowConfirmModal(true);
-            return;
-        }
-        // No active programme, proceed directly
-        await proceedWithStartingProgramme(programmeId);
-    };
-    const proceedWithStartingProgramme = async (programmeId) => {
         const token = localStorage.getItem("token");
         if (!token)
             return;
@@ -149,19 +137,14 @@ export default function Programmes() {
                 }),
             });
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || "Failed to start programme");
+                throw new Error("Failed to start programme");
             }
             alert("Programme started! Head to Workouts to begin.");
             navigate("/workouts");
         }
         catch (error) {
             console.error("Error starting programme:", error);
-            alert(error instanceof Error ? error.message : "Failed to start programme. Please try again.");
-        }
-        finally {
-            setShowConfirmModal(false);
-            setProgrammeToStart(null);
+            alert("Failed to start programme. Please try again.");
         }
     };
     return (_jsxs("div", { className: "min-h-screen text-[#5E6272] flex flex-col p-4 pb-16", style: {
@@ -197,12 +180,5 @@ export default function Programmes() {
                                                 ? "border-2 border-green-500"
                                                 : "border border-[#2F3544]"}`, children: [_jsx("div", { className: "flex items-start justify-between mb-2", children: _jsxs("div", { className: "flex-1", children: [_jsxs("div", { className: "flex items-center gap-2 mb-1", children: [_jsx("p", { className: "font-semibold text-white", children: prog.name }), isActive && (_jsx(CheckCircle, { className: "text-green-500", size: 16 }))] }), _jsxs("p", { className: "text-sm text-[#00FFAD]", children: [prog.daysPerWeek, " days \u00B7 ", prog.weeks, " weeks"] }), prog.description && (_jsx("p", { className: "text-xs text-[#5E6272] mt-1", children: prog.description }))] }) }), _jsxs("div", { className: "flex gap-2 mt-3", children: [_jsxs("button", { onClick: () => handleEditProgramme(prog.id), className: "flex-1 bg-[#2A2E38] hover:bg-[#3a3f4a] text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors", children: [_jsx(Edit3, { size: 14 }), "Customize"] }), !isActive && (_jsxs("button", { onClick: () => handleStartProgramme(prog.id), className: "flex-1 bg-[#246BFD] hover:bg-blue-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors", children: [_jsx(Play, { size: 14 }), "Start"] }))] })] }, prog.id));
                                     }) }))] }, idx));
-                    })) : (_jsx("div", { className: "w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center", children: _jsx("p", { className: "text-[#5E6272] font-semibold text-lg", children: "No programmes yet" }) })) }), showConfirmModal && (_jsx("div", { className: "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4", children: _jsxs("div", { className: "bg-[#1C1F26] rounded-xl p-6 max-w-sm w-full border border-[#2F3544]", children: [_jsx("h3", { className: "text-white font-bold text-lg mb-2", children: "Switch Programme?" }), _jsxs("p", { className: "text-[#9CA3AF] mb-4", children: ["You already have an active programme:", " ", _jsx("span", { className: "font-semibold text-white", children: activeUserProgram?.programme?.name })] }), _jsx("p", { className: "text-[#9CA3AF] mb-6", children: "Starting a new programme will cancel your current one. Any progress will be saved but you'll need to restart to continue." }), _jsxs("div", { className: "flex gap-3", children: [_jsx("button", { onClick: () => {
-                                        setShowConfirmModal(false);
-                                        setProgrammeToStart(null);
-                                    }, className: "flex-1 bg-[#2A2E38] hover:bg-[#3a3f4a] text-white py-2 rounded-lg font-medium transition-colors", children: "Cancel" }), _jsx("button", { onClick: () => {
-                                        if (programmeToStart) {
-                                            proceedWithStartingProgramme(programmeToStart);
-                                        }
-                                    }, className: "flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg font-medium transition-colors", children: "Switch Programme" })] })] }) })), _jsx(BottomBar, { onLogout: handleLogout })] }));
+                    })) : (_jsx("div", { className: "w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center", children: _jsx("p", { className: "text-[#5E6272] font-semibold text-lg", children: "No programmes yet" }) })) }), _jsx(BottomBar, { onLogout: handleLogout })] }));
 }

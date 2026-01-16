@@ -68,7 +68,6 @@ export default function Workouts() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   // Programme state
   const [userProgram, setUserProgram] = useState<UserProgram | null>(null);
@@ -99,7 +98,14 @@ export default function Workouts() {
   // Click outside handler
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as HTMLElement;
+      
+      // Check if the click is on a menu button or inside a dropdown menu
+      const isMenuButton = target.closest('button[aria-haspopup="true"]');
+      const isDropdownMenu = target.closest('.dropdown-menu');
+      
+      // Close menus if clicking outside both the buttons and the dropdown menus
+      if (!isMenuButton && !isDropdownMenu) {
         setOpenExerciseMenu(null);
         setOpenSetMenu(null);
       }
@@ -756,7 +762,7 @@ export default function Workouts() {
         </div>
       )}
 
-      <div className="px-4 mt-6 space-y-4" ref={menuRef}>
+      <div className="px-4 mt-6 space-y-4">
         <h3 className="text-sm text-white font-semibold tracking-widest uppercase text-center">
           Today's Workout - Day {userProgram?.currentDay}
         </h3>
@@ -829,7 +835,7 @@ export default function Workouts() {
                   </button>
 
                   {openExerciseMenu === exercise.exerciseId && (
-                    <div className="absolute right-0 mt-2 w-56 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
+                    <div className="dropdown-menu absolute right-0 mt-2 w-56 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
                       <div className="px-3 py-2 text-xs text-[#9CA3AF] font-semibold">
                         EXERCISE
                       </div>
@@ -905,7 +911,7 @@ export default function Workouts() {
                           </button>
 
                           {openSetMenu === key && (
-                            <div className="absolute left-8 w-44 mt-2 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
+                            <div className="dropdown-menu absolute left-8 w-44 mt-2 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
                               <div className="px-3 py-2 text-xs text-[#9CA3AF] font-semibold">
                                 SET
                               </div>
