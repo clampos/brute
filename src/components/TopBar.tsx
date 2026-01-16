@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import logo from "../assets/logo.png";
 import { MoreHorizontal } from "lucide-react";
 
@@ -15,11 +15,17 @@ type Props = {
 
 export default function TopBar({ title, pageIcon, menuItems }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as HTMLElement;
+      
+      // Check if the click is on a menu button or inside a dropdown menu
+      const isMenuButton = target.closest('button[aria-haspopup]');
+      const isDropdownMenu = target.closest('.dropdown-menu');
+      
+      // Close menu if clicking outside both the button and the dropdown menu
+      if (!isMenuButton && !isDropdownMenu) {
         setMenuOpen(false);
       }
     };
@@ -57,7 +63,7 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
           {title}
         </h2>
 
-        <div className="relative" ref={menuRef}>
+        <div className="relative">
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             aria-label="more"
@@ -69,7 +75,7 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
           </button>
 
           {menuOpen && menuItems && menuItems.length > 0 && (
-            <div className="absolute right-0 mt-2 w-56 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
+            <div className="dropdown-menu absolute right-0 mt-2 w-56 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
               <div className="px-3 py-2 text-xs text-[#9CA3AF] font-semibold">
                 SHORTCUTS TO
               </div>

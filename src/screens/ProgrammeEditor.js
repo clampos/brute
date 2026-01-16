@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Plus, ChevronDown, ChevronRight, Check, X, Save, } from "lucide-react";
+import { Plus, XCircle, ChevronDown, ChevronRight, Save, } from "lucide-react";
 import MuscleIcon from "../components/MuscleIcon";
 import TopBar from "../components/TopBar";
 import BottomBar from "../components/BottomBar";
@@ -18,8 +18,6 @@ export default function ProgrammeEditor() {
     const [allExercises, setAllExercises] = useState([]);
     const [savingDay, setSavingDay] = useState(null);
     const [submittingProgramme, setSubmittingProgramme] = useState(false);
-    const [confirmedExerciseId, setConfirmedExerciseId] = useState(null);
-    const [exerciseSearch, setExerciseSearch] = useState({});
     const toggleDay = (dayNumber) => {
         setOpenDays((prev) => ({
             ...prev,
@@ -108,27 +106,6 @@ export default function ProgrammeEditor() {
             console.error("Error fetching available exercises:", err);
             setError("Failed to load available exercises");
         }
-    };
-    // Group exercises by muscle group
-    const groupExercisesByMuscleGroup = (exercises) => {
-        return exercises.reduce((acc, exercise) => {
-            const group = exercise.muscleGroup || "Other";
-            if (!acc[group]) {
-                acc[group] = [];
-            }
-            acc[group].push(exercise);
-            return acc;
-        }, {});
-    };
-    // Filter exercises by search term (name or muscle group)
-    const filterExercisesBySearch = (exercises, searchTerm) => {
-        if (!searchTerm.trim())
-            return exercises;
-        const lower = searchTerm.toLowerCase();
-        return exercises.filter((ex) => ex.name.toLowerCase().includes(lower) ||
-            ex.muscleGroup.toLowerCase().includes(lower) ||
-            (ex.category && ex.category.toLowerCase().includes(lower)) ||
-            (ex.equipment && ex.equipment.toLowerCase().includes(lower)));
     };
     // Fetch all exercises based on body focus
     const fetchAvailableExercises = async (focus) => {
@@ -486,25 +463,14 @@ export default function ProgrammeEditor() {
                                             ? "bg-gray-600 text-gray-400 cursor-not-allowed"
                                             : "bg-green-600 hover:bg-green-700 text-white"}`, children: isSaving ? "Saving..." : "Confirm Day" }))] }), isOpen && (_jsxs("div", { className: "space-y-4", children: [day.exercises.length > 0 && (_jsxs("div", { className: "space-y-2", children: [_jsxs("h4", { className: "text-xs text-[#5E6272] font-semibold tracking-widest uppercase", children: ["Selected Exercises (", day.exercises.length, ")"] }), day.exercises.map((ex) => (_jsxs("div", { className: `border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${ex.id.startsWith("temp-")
                                                     ? "bg-[#1A1D23] border-orange-500/50"
-                                                    : "bg-[#1C1F26] border-[#2F3544]"}`, children: [_jsxs("div", { className: "flex items-center gap-3 flex-1", children: [_jsx(MuscleIcon, { muscleGroup: allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup || "", size: 28 }), _jsxs("div", { children: [_jsx("p", { className: "font-semibold text-white", children: ex.name }), _jsxs("div", { className: "flex gap-3 text-sm mt-1", children: [_jsxs("span", { className: "text-[#00FFAD]", children: [ex.sets, " sets"] }), _jsxs("span", { className: "text-[#5E6272]", children: [ex.reps, " reps"] })] })] })] }), _jsxs("div", { className: "flex gap-2 ml-3", children: [_jsx("button", { onClick: () => {
-                                                                    setConfirmedExerciseId(ex.id);
-                                                                    setTimeout(() => setConfirmedExerciseId(null), 300);
-                                                                }, className: `p-2 text-green-500 hover:bg-green-500/20 rounded transition ${confirmedExerciseId === ex.id ? "check-button-confirmed" : ""}`, title: "Keep exercise", children: _jsx(Check, { size: 16 }) }), _jsx("button", { onClick: () => handleRemoveExercise(ex.id, ex.exerciseId, day.dayNumber), className: "p-2 text-red-500 hover:bg-red-500/20 rounded transition", title: "Delete exercise", children: _jsx(X, { size: 16 }) })] })] }, ex.id)))] })), _jsxs("div", { className: "space-y-2", children: [day.exerciseOptions &&
+                                                    : "bg-[#1C1F26] border-[#2F3544]"}`, children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx(MuscleIcon, { muscleGroup: allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup || "", size: 28 }), _jsxs("div", { className: "flex-1 text-center", children: [_jsxs("p", { className: "font-semibold text-white flex items-center justify-center gap-2", children: [ex.name, ex.id.startsWith("temp-") && (_jsx("span", { className: "text-xs text-orange-400", children: "(unsaved)" }))] }), _jsxs("div", { className: "flex justify-center gap-3 text-sm mt-1", children: [_jsxs("span", { className: "text-[#00FFAD]", children: [ex.sets, " sets"] }), _jsxs("span", { className: "text-[#5E6272]", children: [ex.reps, " reps"] })] })] })] }), _jsx(XCircle, { className: "text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400 transition-colors", onClick: () => handleRemoveExercise(ex.id, ex.exerciseId, day.dayNumber) })] }, ex.id)))] })), _jsxs("div", { className: "space-y-2", children: [day.exerciseOptions &&
                                                 day.exerciseOptions.length > 0 && (_jsxs(_Fragment, { children: [_jsxs("h4", { className: "text-xs text-[#5E6272] font-semibold tracking-widest uppercase", children: ["Recommended for ", bodyFocus] }), day.exerciseOptions
                                                         .filter((ex) => !ex.isSelected)
                                                         .slice(0, 3)
                                                         .map((ex) => (_jsxs("div", { className: "bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors", onClick: () => handleAddExercise(ex.id, day.dayNumber), children: [_jsx(MuscleIcon, { muscleGroup: ex.muscleGroup, size: 20 }), _jsx("div", { className: "flex-1 text-center", children: _jsx("p", { className: "font-semibold text-[#9CA3AF]", children: ex.name }) }), _jsx(Plus, { className: "text-blue-400 w-5 h-5 ml-3" })] }, ex.id)))] })), _jsxs("button", { onClick: () => toggleAvailableExercises(day.dayNumber), className: "w-full text-sm text-blue-400 flex items-center justify-center gap-2 py-2 hover:text-blue-300 transition-colors", children: [_jsx(Plus, { size: 16 }), day.showMoreOptions
                                                         ? "Hide More Options"
-                                                        : "Add More Exercises"] }), day.showMoreOptions && (_jsxs("div", { className: "mt-3 space-y-3 border-t border-[#2F3544] pt-3", children: [_jsxs("h4", { className: "text-xs text-[#5E6272] font-semibold tracking-widest uppercase", children: ["Add Exercises (", bodyFocus, ")"] }), _jsx("input", { type: "text", placeholder: "Search exercises...", value: exerciseSearch[day.dayNumber] || "", onChange: (e) => setExerciseSearch((prev) => ({
-                                                            ...prev,
-                                                            [day.dayNumber]: e.target.value,
-                                                        })), className: "w-full bg-[#262A34] border border-[#404854] rounded-lg px-3 py-2 text-white placeholder:text-[#5E6272] focus:outline-none focus:border-[#246BFD] text-sm" }), day.loadingAvailable ? (_jsx("p", { className: "text-[#5E6272] text-sm text-center py-4", children: "Loading exercises..." })) : day.availableExercises.length > 0 ? ((() => {
-                                                        const unselectedExercises = day.availableExercises.filter((ex) => !ex.isSelected);
-                                                        const searchTerm = exerciseSearch[day.dayNumber] || "";
-                                                        const filtered = filterExercisesBySearch(unselectedExercises, searchTerm);
-                                                        const grouped = groupExercisesByMuscleGroup(filtered);
-                                                        const sortedGroups = Object.keys(grouped).sort();
-                                                        return sortedGroups.length > 0 ? (_jsx("div", { className: "max-h-96 overflow-y-auto space-y-3", children: sortedGroups.map((muscleGroup) => (_jsxs("div", { children: [_jsx("h5", { className: "text-xs text-[#9CA3AF] font-semibold mb-2 px-1 sticky top-0 bg-[#1F222B] py-1", children: muscleGroup }), _jsx("div", { className: "space-y-2", children: grouped[muscleGroup].map((ex) => (_jsxs("div", { className: "bg-[#1A1D23] border border-[#2A2D36] rounded-lg px-3 py-2 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors", onClick: () => handleAddExercise(ex.id, day.dayNumber), children: [_jsxs("div", { className: "flex items-center gap-2 flex-1", children: [_jsx(MuscleIcon, { muscleGroup: ex.muscleGroup, size: 18 }), _jsxs("div", { children: [_jsx("p", { className: "font-medium text-[#9CA3AF] text-sm", children: ex.name }), ex.equipment && (_jsx("p", { className: "text-xs text-[#6B7280]", children: ex.equipment }))] })] }), _jsx(Plus, { className: "text-blue-400 w-4 h-4 flex-shrink-0" })] }, ex.id))) })] }, muscleGroup))) })) : (_jsxs("p", { className: "text-[#5E6272] text-sm text-center py-4", children: ["No exercises found matching \"", searchTerm, "\""] }));
-                                                    })()) : (_jsx("p", { className: "text-[#5E6272] text-sm text-center py-4", children: "All available exercises have been added." }))] }))] })] }))] }, day.dayNumber));
+                                                        : "Add More Exercises"] }), day.showMoreOptions && (_jsxs("div", { className: "mt-3 space-y-2 border-t border-[#2F3544] pt-3", children: [_jsxs("h4", { className: "text-xs text-[#5E6272] font-semibold tracking-widest uppercase", children: ["All Available Exercises (", bodyFocus, ")"] }), day.loadingAvailable ? (_jsx("p", { className: "text-[#5E6272] text-sm text-center py-4", children: "Loading exercises..." })) : day.availableExercises.length > 0 ? (day.availableExercises
+                                                        .filter((ex) => !ex.isSelected)
+                                                        .map((ex) => (_jsxs("div", { className: "bg-[#1A1D23] border border-[#2A2D36] rounded-xl px-4 py-3 flex items-center justify-between cursor-pointer hover:border-[#3F4554] transition-colors", onClick: () => handleAddExercise(ex.id, day.dayNumber), children: [_jsx(MuscleIcon, { muscleGroup: ex.muscleGroup, size: 20 }), _jsxs("div", { className: "flex-1 text-center", children: [_jsx("p", { className: "font-semibold text-[#9CA3AF]", children: ex.name }), _jsxs("div", { className: "flex justify-center gap-3 text-sm mt-1", children: [_jsx("span", { className: "text-[#6B7280]", children: ex.muscleGroup }), _jsx("span", { className: "text-[#6B7280]", children: ex.category }), ex.equipment && (_jsx("span", { className: "text-[#6B7280]", children: ex.equipment }))] })] }), _jsx(Plus, { className: "text-blue-400 w-5 h-5 ml-3" })] }, ex.id)))) : (_jsx("p", { className: "text-[#5E6272] text-sm text-center py-4", children: "All available exercises have been added." }))] }))] })] }))] }, day.dayNumber));
                 }) })), _jsx(BottomBar, { onLogout: handleLogout })] }));
 }
