@@ -20,6 +20,15 @@ import {
   WorkoutData,
 } from "./utils/progressiveOverloadService";
 
+// Extend Express Request to include user property
+declare global {
+  namespace Express {
+    interface Request {
+      user?: { userId: string; email: string };
+    }
+  }
+}
+
 const router = express.Router();
 
 // Configure multer storage
@@ -120,7 +129,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<any> => {
       referralCode,
       "Referrer:",
       referrer.firstName,
-      referrer.surname
+      referrer.surname,
     );
   }
 
@@ -128,7 +137,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<any> => {
   const newUserReferralCode = await generateUniqueReferralCode(
     firstName,
     surname,
-    prisma
+    prisma,
   );
   console.log("🆔 Generated referral code for new user:", newUserReferralCode);
 
@@ -184,7 +193,7 @@ router.post("/signup", async (req: Request, res: Response): Promise<any> => {
 
     console.log(
       "🔄 Creating Stripe session with config:",
-      JSON.stringify(sessionConfig, null, 2)
+      JSON.stringify(sessionConfig, null, 2),
     );
 
     const session = await stripe.checkout.sessions.create(sessionConfig);
@@ -214,7 +223,7 @@ router.get("/token", async (req: Request, res: Response): Promise<any> => {
   const email = req.query.email as string;
 
   console.log(
-    `🔍 Token request for email: ${email} at ${new Date().toISOString()}`
+    `🔍 Token request for email: ${email} at ${new Date().toISOString()}`,
   );
 
   if (!email) {
@@ -289,7 +298,7 @@ router.get("/token", async (req: Request, res: Response): Promise<any> => {
     const token = jwt.sign(
       { userId: user.id, email: user.email },
       process.env.JWT_SECRET!,
-      { expiresIn: "1d" }
+      { expiresIn: "1d" },
     );
 
     console.log(`✅ Token generated successfully for: ${email}`, {
@@ -344,7 +353,7 @@ router.get(
       totalReferrals: user.referredUsers.length,
       activeReferrals: user.referredUsers.filter((u) => u.subscribed).length,
     });
-  }
+  },
 );
 
 // Add these endpoints to your auth.ts file
@@ -382,7 +391,7 @@ router.post(
       // Verify current password
       const passwordMatch = await bcrypt.compare(
         currentPassword,
-        user.password
+        user.password,
       );
       if (!passwordMatch) {
         return res.status(400).json({ error: "Current password is incorrect" });
@@ -403,7 +412,7 @@ router.post(
       console.error("❌ Change password error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // Change Email endpoint
@@ -457,7 +466,7 @@ router.post(
       console.error("Error changing email:", err);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // Forgot Password endpoint
@@ -484,7 +493,7 @@ router.post(
       const resetToken = jwt.sign(
         { userId: user.id, email: user.email, type: "password_reset" },
         JWT_SECRET!,
-        { expiresIn: "1h" }
+        { expiresIn: "1h" },
       );
 
       // Store reset token in database (you might want to add a passwordResetToken field to your User model)
@@ -510,7 +519,7 @@ router.post(
       console.error("❌ Forgot password error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // Reset Password endpoint (for when user clicks link in email)
@@ -584,7 +593,7 @@ router.post(
       console.error("❌ Reset password error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // DELETE /auth/delete-account
@@ -608,7 +617,7 @@ router.delete(
       console.error("❌ Failed to delete account:", error);
       res.status(500).json({ error: "Failed to delete account" });
     }
-  }
+  },
 );
 
 router.get("/dashboard", authenticateToken, async (req, res): Promise<any> => {
@@ -673,7 +682,7 @@ router.get(
       console.error("Settings fetch error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // GET /auth/settings
@@ -704,7 +713,7 @@ router.get(
       console.error("Settings fetch error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // POST /auth/user/profile-photo - Upload profile photo
@@ -732,7 +741,7 @@ router.post(
       });
 
       console.log(
-        `✅ Profile photo uploaded for user ${userId}: ${profilePhotoPath}`
+        `✅ Profile photo uploaded for user ${userId}: ${profilePhotoPath}`,
       );
 
       res.json({
@@ -743,7 +752,7 @@ router.post(
       console.error("Profile photo upload error:", error);
       res.status(500).json({ error: "Failed to upload profile photo" });
     }
-  }
+  },
 );
 
 // DELETE /auth/user/profile-photo - Remove profile photo
@@ -783,7 +792,7 @@ router.delete(
       console.error("Profile photo removal error:", error);
       res.status(500).json({ error: "Failed to remove profile photo" });
     }
-  }
+  },
 );
 
 // GET /user/profile
@@ -812,7 +821,7 @@ router.get(
       console.error("Error fetching user profile:", error);
       res.status(500).json({ error: "Failed to fetch profile" });
     }
-  }
+  },
 );
 
 // PUT /user/profile - Updated to handle profile data without photo upload
@@ -857,7 +866,7 @@ router.put(
       console.error("Profile update error:", err);
       res.status(500).json({ error: "Update failed" });
     }
-  }
+  },
 );
 
 // GET /auth/programmes
@@ -866,9 +875,18 @@ router.get(
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     try {
+      const userId = (req as any).user?.userId;
+
+      // Get library programmes (no userId) + user's custom programmes
       const programmes = await prisma.programme.findMany({
+        where: {
+          OR: [
+            { userId: null }, // Library programmes
+            { userId: userId }, // User's custom programmes
+          ],
+        },
         include: {
-          exercises: true, // optional, remove if you only want base data
+          exercises: true,
         },
         orderBy: {
           createdAt: "desc",
@@ -879,7 +897,7 @@ router.get(
       console.error("Error fetching programmes:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 router.get(
@@ -910,7 +928,7 @@ router.get(
       console.error("Error fetching programme:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 router.post(
@@ -918,6 +936,7 @@ router.post(
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     const { name, daysPerWeek, weeks, bodyPartFocus, description } = req.body;
+    const userId = (req as any).user?.userId;
 
     if (!name || !daysPerWeek || !weeks || !bodyPartFocus) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -931,6 +950,8 @@ router.post(
           weeks,
           bodyPartFocus,
           description,
+          isCustom: true, // Mark as custom
+          userId: userId, // Associate with the user
         },
       });
 
@@ -939,7 +960,7 @@ router.post(
       console.error("Error creating programme:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 router.put(
@@ -966,7 +987,7 @@ router.put(
       console.error("Error updating programme:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 router.delete(
@@ -985,7 +1006,7 @@ router.delete(
       console.error("Error deleting programme:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 router.get("/random", authenticateToken, async (req, res): Promise<any> => {
@@ -1049,7 +1070,7 @@ router.post(
       console.error("Error adding programme exercise:", err);
       return res.status(500).json({ error: "Failed to add exercise" });
     }
-  }
+  },
 );
 
 // routes/programmeRoutes.ts
@@ -1068,7 +1089,7 @@ router.delete(
       console.error("Error deleting programme exercise:", err);
       res.status(500).json({ error: "Server error" });
     }
-  }
+  },
 );
 
 // GET /auth/exercises/random?focus=Lower%20Body
@@ -1102,7 +1123,7 @@ router.get(
       console.error("Error fetching random exercise:", err);
       return res.status(500).json({ error: "Failed to get random exercise" });
     }
-  }
+  },
 );
 
 // Add these endpoints to your auth.ts file
@@ -1140,7 +1161,7 @@ router.get(
 
       console.debug(
         "GET /auth/exercises whereClause:",
-        JSON.stringify(whereClause)
+        JSON.stringify(whereClause),
       );
 
       const exercises = await prisma.exercise.findMany({
@@ -1155,11 +1176,11 @@ router.get(
       // error may be unknown; prefer Error stack when available
       console.error(
         "Error fetching exercises:",
-        error instanceof Error ? error.stack : (error as any)
+        error instanceof Error ? error.stack : (error as any),
       );
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // GET /auth/exercises/all - Get all exercises
@@ -1177,7 +1198,7 @@ router.get(
       console.error("Error fetching all exercises:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // POST /auth/exercises - Create new exercise (for admin use)
@@ -1209,7 +1230,7 @@ router.post(
       console.error("Error creating exercise:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // GET /auth/muscle-groups - Get all unique muscle groups
@@ -1234,7 +1255,7 @@ router.get(
       console.error("Error fetching muscle groups:", error);
       res.status(500).json({ error: "Internal server error" });
     }
-  }
+  },
 );
 
 // POST /auth/user-programs
@@ -1288,7 +1309,7 @@ router.post(
       console.error("Error creating user program:", error);
       res.status(500).json({ error: "Failed to create user program" });
     }
-  }
+  },
 );
 
 // Add this endpoint to your auth.ts file
@@ -1326,11 +1347,11 @@ router.get(
           if (up.status === "ACTIVE") {
             const currentDay = calculateCurrentDay(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
             const currentWeek = calculateCurrentWeek(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
 
             // Update if different
@@ -1360,7 +1381,7 @@ router.get(
             }
           }
           return up;
-        })
+        }),
       );
 
       res.json(updatedPrograms);
@@ -1368,7 +1389,7 @@ router.get(
       console.error("Error fetching user programs:", error);
       res.status(500).json({ error: "Failed to fetch user programs" });
     }
-  }
+  },
 );
 
 // POST /auth/workouts - Save completed workout with progression calculation
@@ -1392,7 +1413,7 @@ router.post(
           !Array.isArray(exercise.sets)
         ) {
           throw new Error(
-            `Invalid exercise data for exercise ${exercise.exerciseId}`
+            `Invalid exercise data for exercise ${exercise.exerciseId}`,
           );
         }
 
@@ -1411,7 +1432,7 @@ router.post(
       const result =
         await ProgressiveOverloadService.saveWorkoutAndCalculateProgression(
           userId,
-          workoutData
+          workoutData,
         );
 
       // Update workout with duration if provided
@@ -1426,7 +1447,7 @@ router.post(
       }
 
       console.log(
-        `✅ Workout saved for user ${userId}, workout ID: ${result.workoutId}`
+        `✅ Workout saved for user ${userId}, workout ID: ${result.workoutId}`,
       );
 
       res.json({
@@ -1441,7 +1462,7 @@ router.post(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // GET /auth/workouts/recommendations?exerciseIds=id1,id2,id3 - Get progression recommendations
@@ -1464,7 +1485,7 @@ router.get(
       const recommendations =
         await ProgressiveOverloadService.getProgressionRecommendations(
           userId,
-          exerciseIds
+          exerciseIds,
         );
 
       res.json({ recommendations });
@@ -1475,7 +1496,7 @@ router.get(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // GET /auth/workouts/history/:exerciseId - Get workout history for specific exercise
@@ -1563,7 +1584,7 @@ router.get(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // GET /auth/workouts/stats/:exerciseId - Get performance stats for exercise
@@ -1631,12 +1652,12 @@ router.get(
       const totalSets = allSets.length;
       const totalVolume = allSets.reduce(
         (sum, set) => sum + (set.weight ?? 0) * (set.reps ?? 0),
-        0
+        0,
       );
       const maxWeight = Math.max(...allSets.map((set) => set.weight ?? 0));
       const maxReps = Math.max(...allSets.map((set) => set.reps ?? 0));
       const maxVolume = Math.max(
-        ...allSets.map((set) => (set.weight ?? 0) * (set.reps ?? 0))
+        ...allSets.map((set) => (set.weight ?? 0) * (set.reps ?? 0)),
       );
 
       const setsWithRpe = allSets.filter((set) => set.rpe !== null);
@@ -1679,7 +1700,7 @@ router.get(
               workout.sets.filter((s: any) => s.rpe).length > 0
                 ? workout.sets.reduce(
                     (sum: number, s: any) => sum + (s.rpe || 0),
-                    0
+                    0,
                   ) / workout.sets.filter((s: any) => s.rpe).length
                 : null,
           };
@@ -1688,8 +1709,8 @@ router.get(
       const uniqueWorkouts = new Set(
         allSets.map(
           (set) =>
-            set.workoutExercise.workout.completedAt.toISOString().split("T")[0]
-        )
+            set.workoutExercise.workout.completedAt.toISOString().split("T")[0],
+        ),
       ).size;
 
       res.json({
@@ -1712,7 +1733,7 @@ router.get(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // POST /auth/workouts/complete-day - Mark current day as complete and advance
@@ -1742,11 +1763,11 @@ router.post(
       // This ensures the day advances naturally with the calendar
       const currentDay = calculateCurrentDay(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
       const currentWeek = calculateCurrentWeek(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
 
       // Update user program with recalculated values
@@ -1760,7 +1781,7 @@ router.post(
       });
 
       console.log(
-        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`
+        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`,
       );
 
       res.json({
@@ -1775,7 +1796,7 @@ router.post(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // Add these endpoints to your auth.ts file
@@ -1818,7 +1839,7 @@ router.patch(
       console.error("Error updating user program:", error);
       res.status(500).json({ error: "Failed to update user program" });
     }
-  }
+  },
 );
 
 // Updated POST /auth/user-programs - Create with calculated day
@@ -1872,7 +1893,7 @@ router.post(
       console.error("Error creating user program:", error);
       res.status(500).json({ error: "Failed to create user program" });
     }
-  }
+  },
 );
 
 // Updated GET /auth/user-programs - Returns with calculated current day
@@ -1908,11 +1929,11 @@ router.get(
           if (up.status === "ACTIVE") {
             const currentDay = calculateCurrentDay(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
             const currentWeek = calculateCurrentWeek(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
 
             // Update if different
@@ -1942,7 +1963,7 @@ router.get(
             }
           }
           return up;
-        })
+        }),
       );
 
       res.json(updatedPrograms);
@@ -1950,7 +1971,7 @@ router.get(
       console.error("Error fetching user programs:", error);
       res.status(500).json({ error: "Failed to fetch user programs" });
     }
-  }
+  },
 );
 
 // Updated POST /auth/workouts/complete-day - Now advances calendar day, not programme day
@@ -1980,11 +2001,11 @@ router.post(
       // This ensures the day advances naturally with the calendar
       const currentDay = calculateCurrentDay(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
       const currentWeek = calculateCurrentWeek(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
 
       // Update user program with recalculated values
@@ -1998,7 +2019,7 @@ router.post(
       });
 
       console.log(
-        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`
+        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`,
       );
 
       res.json({
@@ -2013,7 +2034,7 @@ router.post(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 router.delete(
@@ -2024,7 +2045,7 @@ router.delete(
 
     try {
       console.log(
-        `🗑️ Deleting all exercises for programme ${programmeId}, day ${dayNumber}`
+        `🗑️ Deleting all exercises for programme ${programmeId}, day ${dayNumber}`,
       );
 
       const deleted = await prisma.programmeExercise.deleteMany({
@@ -2045,7 +2066,7 @@ router.delete(
       console.error("Error deleting day exercises:", error);
       res.status(500).json({ error: "Failed to delete exercises" });
     }
-  }
+  },
 );
 
 router.patch(
@@ -2085,7 +2106,7 @@ router.patch(
       console.error("Error updating user program:", error);
       res.status(500).json({ error: "Failed to update user program" });
     }
-  }
+  },
 );
 
 // Add these endpoints to your auth.ts file
@@ -2128,7 +2149,7 @@ router.patch(
       console.error("Error updating user program:", error);
       res.status(500).json({ error: "Failed to update user program" });
     }
-  }
+  },
 );
 
 // Updated POST /auth/user-programs - Create with calculated day
@@ -2182,7 +2203,7 @@ router.post(
       console.error("Error creating user program:", error);
       res.status(500).json({ error: "Failed to create user program" });
     }
-  }
+  },
 );
 
 // Updated GET /auth/user-programs - Returns with calculated current day
@@ -2218,11 +2239,11 @@ router.get(
           if (up.status === "ACTIVE") {
             const currentDay = calculateCurrentDay(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
             const currentWeek = calculateCurrentWeek(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
 
             // Update if different
@@ -2252,7 +2273,7 @@ router.get(
             }
           }
           return up;
-        })
+        }),
       );
 
       res.json(updatedPrograms);
@@ -2260,7 +2281,7 @@ router.get(
       console.error("Error fetching user programs:", error);
       res.status(500).json({ error: "Failed to fetch user programs" });
     }
-  }
+  },
 );
 
 // Updated POST /auth/workouts/complete-day - Now advances calendar day, not programme day
@@ -2290,11 +2311,11 @@ router.post(
       // This ensures the day advances naturally with the calendar
       const currentDay = calculateCurrentDay(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
       const currentWeek = calculateCurrentWeek(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
 
       // Update user program with recalculated values
@@ -2308,7 +2329,7 @@ router.post(
       });
 
       console.log(
-        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`
+        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`,
       );
 
       res.json({
@@ -2323,7 +2344,7 @@ router.post(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // Add these endpoints to your auth.ts file
@@ -2337,7 +2358,7 @@ router.delete(
 
     try {
       console.log(
-        `🗑️ Deleting all exercises for programme ${programmeId}, day ${dayNumber}`
+        `🗑️ Deleting all exercises for programme ${programmeId}, day ${dayNumber}`,
       );
 
       const deleted = await prisma.programmeExercise.deleteMany({
@@ -2358,7 +2379,7 @@ router.delete(
       console.error("Error deleting day exercises:", error);
       res.status(500).json({ error: "Failed to delete exercises" });
     }
-  }
+  },
 );
 
 // PATCH /auth/user-programs/:id - Update user program status
@@ -2399,7 +2420,7 @@ router.patch(
       console.error("Error updating user program:", error);
       res.status(500).json({ error: "Failed to update user program" });
     }
-  }
+  },
 );
 
 // Helper function to calculate current day based on start date
@@ -2411,7 +2432,7 @@ function calculateCurrentDay(startDate: Date, daysPerWeek: number): number {
   start.setHours(0, 0, 0, 0);
 
   const daysSinceStart = Math.floor(
-    (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   // Determine day index within the 7-day programme week (startDate relative). Cap to daysPerWeek.
@@ -2430,7 +2451,7 @@ function calculateCurrentWeek(startDate: Date, daysPerWeek: number): number {
   start.setHours(0, 0, 0, 0);
 
   const daysSinceStart = Math.floor(
-    (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   // Calculate current week based on fixed 7-day windows starting at programme start date
@@ -2490,7 +2511,7 @@ router.post(
       console.error("Error creating user program:", error);
       res.status(500).json({ error: "Failed to create user program" });
     }
-  }
+  },
 );
 
 // Updated GET /auth/user-programs - Returns with calculated current day
@@ -2526,11 +2547,11 @@ router.get(
           if (up.status === "ACTIVE") {
             const currentDay = calculateCurrentDay(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
             const currentWeek = calculateCurrentWeek(
               up.startDate,
-              up.programme.daysPerWeek
+              up.programme.daysPerWeek,
             );
 
             // Update if different
@@ -2560,7 +2581,7 @@ router.get(
             }
           }
           return up;
-        })
+        }),
       );
 
       res.json(updatedPrograms);
@@ -2568,7 +2589,7 @@ router.get(
       console.error("Error fetching user programs:", error);
       res.status(500).json({ error: "Failed to fetch user programs" });
     }
-  }
+  },
 );
 
 // Updated POST /auth/workouts/complete-day - Now advances calendar day, not programme day
@@ -2598,11 +2619,11 @@ router.post(
       // This ensures the day advances naturally with the calendar
       const currentDay = calculateCurrentDay(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
       const currentWeek = calculateCurrentWeek(
         userProgram.startDate,
-        userProgram.programme.daysPerWeek
+        userProgram.programme.daysPerWeek,
       );
 
       // Update user program with recalculated values
@@ -2616,7 +2637,7 @@ router.post(
       });
 
       console.log(
-        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`
+        `✅ User ${userId} workout completed. Current: Week ${currentWeek}, Day ${currentDay}`,
       );
 
       res.json({
@@ -2631,7 +2652,7 @@ router.post(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // Add this endpoint to your auth.ts file
@@ -2746,7 +2767,7 @@ router.get(
       const totalSets = dailyStats.reduce((sum, day) => sum + day.sets, 0);
       const totalExercises = dailyStats.reduce(
         (sum, day) => sum + day.exercises,
-        0
+        0,
       );
 
       // Count unique workout days (days with at least one set)
@@ -2767,7 +2788,7 @@ router.get(
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
-  }
+  },
 );
 
 // Add these endpoints to your auth.ts file
@@ -2791,7 +2812,7 @@ router.get(
       console.error("Error fetching bodyweight history:", error);
       res.status(500).json({ error: "Failed to fetch bodyweight history" });
     }
-  }
+  },
 );
 
 // POST /auth/metrics/bodyweight - Add bodyweight entry
@@ -2826,7 +2847,7 @@ router.post(
       console.error("Error adding bodyweight entry:", error);
       res.status(500).json({ error: "Failed to add bodyweight entry" });
     }
-  }
+  },
 );
 
 // GET /auth/metrics/bodyfat - Get body fat history
@@ -2848,7 +2869,7 @@ router.get(
       console.error("Error fetching bodyfat history:", error);
       res.status(500).json({ error: "Failed to fetch bodyfat history" });
     }
-  }
+  },
 );
 
 // POST /auth/metrics/bodyfat - Add body fat entry
@@ -2879,7 +2900,7 @@ router.post(
       console.error("Error adding bodyfat entry:", error);
       res.status(500).json({ error: "Failed to add bodyfat entry" });
     }
-  }
+  },
 );
 
 // PUT /auth/metrics/bodyweight/:id - Update bodyweight entry
@@ -2917,7 +2938,7 @@ router.put(
       console.error("Error updating bodyweight entry:", error);
       res.status(500).json({ error: "Failed to update bodyweight entry" });
     }
-  }
+  },
 );
 
 // DELETE /auth/metrics/bodyweight/:id - Delete bodyweight entry
@@ -2947,7 +2968,7 @@ router.delete(
       console.error("Error deleting bodyweight entry:", error);
       res.status(500).json({ error: "Failed to delete bodyweight entry" });
     }
-  }
+  },
 );
 
 // PUT /auth/metrics/bodyfat/:id - Update bodyfat entry
@@ -2987,7 +3008,7 @@ router.put(
       console.error("Error updating bodyfat entry:", error);
       res.status(500).json({ error: "Failed to update bodyfat entry" });
     }
-  }
+  },
 );
 
 // DELETE /auth/metrics/bodyfat/:id - Delete bodyfat entry
@@ -3017,7 +3038,7 @@ router.delete(
       console.error("Error deleting bodyfat entry:", error);
       res.status(500).json({ error: "Failed to delete bodyfat entry" });
     }
-  }
+  },
 );
 
 // GET /auth/metrics/personal-records - Get personal records across all exercises
@@ -3118,7 +3139,7 @@ router.get(
       console.error("Error fetching personal records:", error);
       res.status(500).json({ error: "Failed to fetch personal records" });
     }
-  }
+  },
 );
 
 export default router;

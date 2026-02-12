@@ -13,8 +13,10 @@ export default function MuscleIcons() {
         });
         if (!res.ok) throw new Error("Failed to fetch exercises");
         const exercises = await res.json();
-        const unique = Array.from(
-          new Set((exercises || []).map((e: any) => e.muscleGroup || ""))
+        const unique = (
+          Array.from(
+            new Set((exercises || []).map((e: any) => e.muscleGroup || "")),
+          ) as string[]
         ).filter(Boolean);
         unique.sort();
         setGroups(unique);

@@ -1,59 +1,30 @@
 import { jsx as _jsx } from "react/jsx-runtime";
-import chestIcon from "../assets/Icons/Chest Icon.png";
-import backIcon from "../assets/Icons/Back Icon Muscle.png";
-import shoulderIcon from "../assets/Icons/Shoulder Icon.png";
-import bicepIcon from "../assets/Icons/Bicep Icon.png";
-import legIcon from "../assets/Icons/Leg Icon.png";
-import calfIcon from "../assets/Icons/Calves Icon.png";
+import ChestIcon from "../assets/Icons/Chest Icon.png";
+import BackIcon from "../assets/Icons/Back Icon Muscle.png";
+import ShoulderIcon from "../assets/Icons/Shoulder Icon.png";
+import BicepIcon from "../assets/Icons/Bicep Icon.png";
+import LegIcon from "../assets/Icons/Leg Icon.png";
+import CalvesIcon from "../assets/Icons/Calves Icon.png";
 function getIconImage(group) {
     const g = (group || "").toLowerCase().trim();
-    // Chest
-    if (g.includes("chest")) {
-        return chestIcon;
-    }
-    // Back
-    if (g.includes("back") || g.includes("lat")) {
-        return backIcon;
-    }
-    // Shoulders/Traps
-    if (g.includes("shoulder") || g.includes("trap")) {
-        return shoulderIcon;
-    }
-    // Arms
-    if (g.includes("bicep") ||
-        g.includes("tricep") ||
-        g.includes("forearm") ||
-        (g.includes("arm") && !g.includes("back"))) {
-        return bicepIcon;
-    }
-    // Legs
-    if (g.includes("quad") ||
-        g.includes("hamstring") ||
-        g.includes("glute") ||
-        g.includes("calf") ||
-        g.includes("adductor") ||
-        g.includes("abductor") ||
-        g.includes("leg")) {
-        return g.includes("calf") ? calfIcon : legIcon;
-    }
-    // Abs
-    if (g.includes("abdom") || g.includes("core") || g.includes("abs")) {
-        return chestIcon;
-    }
-    // Default
-    return chestIcon;
+    if (g.includes("chest"))
+        return ChestIcon;
+    if (g.includes("back") || g.includes("lat"))
+        return BackIcon;
+    if (g.includes("shoulder") || g.includes("trap"))
+        return ShoulderIcon;
+    if (g.includes("bicep") || g.includes("tricep") || g.includes("forearm") || (g.includes("arm") && !g.includes("back")))
+        return BicepIcon;
+    if (g.includes("quad") || g.includes("hamstring") || g.includes("glute") || g.includes("adductor") || g.includes("abductor") || (g.includes("leg") && !g.includes("bicep")))
+        return LegIcon;
+    if (g.includes("calf"))
+        return CalvesIcon;
+    return ChestIcon; // Default
 }
 export default function MuscleIcon({ muscleGroup, size = 40 }) {
-    const iconImage = getIconImage(muscleGroup || "");
-    return (_jsx("div", { style: {
+    return (_jsx("img", { src: getIconImage(muscleGroup || ""), alt: muscleGroup, title: muscleGroup, style: {
             width: size,
             height: size,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-        }, title: muscleGroup, role: "img", "aria-label": muscleGroup, children: _jsx("img", { src: iconImage, alt: muscleGroup, style: {
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-            } }) }));
+            objectFit: "contain",
+        } }));
 }

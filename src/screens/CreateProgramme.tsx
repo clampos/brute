@@ -29,7 +29,7 @@ export default function CreateProgramme() {
   const [focus, setFocus] = useState(bodyFocusOptions[0]);
   const [programmes, setProgrammes] = useState<any[]>([]);
   const [selectedProgramme, setSelectedProgramme] = useState<string | null>(
-    null
+    null,
   );
   const [loading, setLoading] = useState(false);
 
@@ -121,7 +121,7 @@ export default function CreateProgramme() {
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Dashboard", onClick: () => navigate("/dashboard") },
           { label: "Programmes", onClick: () => navigate("/programmes") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
           { label: "Track Metrics", onClick: () => navigate("/metrics") },

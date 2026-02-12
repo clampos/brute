@@ -24,13 +24,11 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
       }
     };
 
-    if (menuOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside);
-      };
-    }
-  }, [menuOpen]);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   return (
     <div className="w-full max-w-[375px] px-4 mx-auto">

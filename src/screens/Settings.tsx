@@ -578,7 +578,7 @@ export default function Settings() {
         title="Settings"
         pageIcon={<SettingsIcon size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Dashboard", onClick: () => navigate("/dashboard") },
           { label: "Programmes", onClick: () => navigate("/programmes") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
           { label: "Track Metrics", onClick: () => navigate("/metrics") },

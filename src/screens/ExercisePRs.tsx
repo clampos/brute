@@ -30,7 +30,7 @@ export default function ExercisePRs() {
           "http://localhost:4242/auth/metrics/personal-records",
           {
             headers: { Authorization: `Bearer ${token}` },
-          }
+          },
         );
         if (!res.ok) throw new Error("Failed to fetch PRs");
         const data = await res.json();
@@ -78,7 +78,7 @@ export default function ExercisePRs() {
         pageIcon={<Award size={18} />}
         menuItems={[
           { label: "Track Metrics", onClick: () => navigate("/metrics") },
-          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Dashboard", onClick: () => navigate("/dashboard") },
           { label: "Programmes", onClick: () => navigate("/programmes") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
           { label: "Settings", onClick: () => navigate("/settings") },

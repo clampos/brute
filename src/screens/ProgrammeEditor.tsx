@@ -94,7 +94,7 @@ export default function ProgrammeEditor() {
   // Get 3 random exercises for initial display
   const getRandomExercises = (
     exercises: Exercise[],
-    count: number = 3
+    count: number = 3,
   ): Exercise[] => {
     const shuffled = [...exercises].sort(() => 0.5 - Math.random());
     return shuffled.slice(0, count);
@@ -105,7 +105,7 @@ export default function ProgrammeEditor() {
     try {
       const muscleGroups = getMuscleGroupsForFocus(bodyFocus);
       const exercisePromises = muscleGroups.map((group) =>
-        fetchAvailableExercises(group)
+        fetchAvailableExercises(group),
       );
       const exerciseArrays = await Promise.all(exercisePromises);
       const fetchedExercises = exerciseArrays.flat();
@@ -113,7 +113,7 @@ export default function ProgrammeEditor() {
       // Remove duplicates based on exercise ID
       const uniqueExercises = fetchedExercises.filter(
         (exercise, index, self) =>
-          index === self.findIndex((e) => e.id === exercise.id)
+          index === self.findIndex((e) => e.id === exercise.id),
       );
 
       // Get only 3 random exercises for initial display
@@ -127,18 +127,18 @@ export default function ProgrammeEditor() {
                 exerciseOptions: initialOptions.map((ex) => ({
                   ...ex,
                   isSelected: day.exercises.some(
-                    (existing) => existing.exerciseId === ex.id
+                    (existing) => existing.exerciseId === ex.id,
                   ),
                 })),
                 availableExercises: uniqueExercises.map((ex) => ({
                   ...ex,
                   isSelected: day.exercises.some(
-                    (existing) => existing.exerciseId === ex.id
+                    (existing) => existing.exerciseId === ex.id,
                   ),
                 })),
               }
-            : day
-        )
+            : day,
+        ),
       );
 
       setAllExercises(uniqueExercises);
@@ -160,8 +160,8 @@ export default function ProgrammeEditor() {
         prevDays.map((day) =>
           day.dayNumber === dayNumber
             ? { ...day, showMoreOptions: true, loadingAvailable: true }
-            : day
-        )
+            : day,
+        ),
       );
 
       // fetch full list and update the day when ready
@@ -170,8 +170,10 @@ export default function ProgrammeEditor() {
       // hide
       setDays((prevDays) =>
         prevDays.map((day) =>
-          day.dayNumber === dayNumber ? { ...day, showMoreOptions: false } : day
-        )
+          day.dayNumber === dayNumber
+            ? { ...day, showMoreOptions: false }
+            : day,
+        ),
       );
     }
   };
@@ -181,25 +183,25 @@ export default function ProgrammeEditor() {
       const muscleGroups = getMuscleGroupsForFocus(bodyFocus);
       console.debug(
         `[ProgrammeEditor] fetchAndUpdateAvailableExercises called for day=${dayNumber}, bodyFocus='${bodyFocus}', groups=${JSON.stringify(
-          muscleGroups
-        )}`
+          muscleGroups,
+        )}`,
       );
 
       const exercisePromises = muscleGroups.map((group) =>
-        fetchAvailableExercises(group)
+        fetchAvailableExercises(group),
       );
       const exerciseArrays = await Promise.all(exercisePromises);
       console.debug(
         `[ProgrammeEditor] fetch arrays lengths: ${exerciseArrays
           .map((a) => (Array.isArray(a) ? a.length : 0))
-          .join(",")}`
+          .join(",")}`,
       );
       const fetchedExercises = exerciseArrays.flat();
 
       // Remove duplicates based on exercise ID
       const uniqueExercises = fetchedExercises.filter(
         (exercise, index, self) =>
-          index === self.findIndex((e) => e.id === exercise.id)
+          index === self.findIndex((e) => e.id === exercise.id),
       );
 
       setAllExercises(uniqueExercises);
@@ -212,13 +214,13 @@ export default function ProgrammeEditor() {
                 availableExercises: uniqueExercises.map((ex) => ({
                   ...ex,
                   isSelected: day.exercises.some(
-                    (existing) => existing.exerciseId === ex.id
+                    (existing) => existing.exerciseId === ex.id,
                   ),
                 })),
                 loadingAvailable: false,
               }
-            : day
-        )
+            : day,
+        ),
       );
     } catch (err) {
       console.error("Error fetching available exercises:", err);
@@ -228,11 +230,11 @@ export default function ProgrammeEditor() {
 
   // Fetch all exercises based on body focus
   const fetchAvailableExercises = async (
-    focus: string
+    focus: string,
   ): Promise<Exercise[]> => {
     try {
       const url = `http://localhost:4242/auth/exercises?muscleGroup=${encodeURIComponent(
-        focus
+        focus,
       )}`;
 
       console.debug(`[ProgrammeEditor] fetching exercises -> ${url}`);
@@ -244,7 +246,7 @@ export default function ProgrammeEditor() {
       });
 
       console.debug(
-        `[ProgrammeEditor] fetch status: ${res.status} ${res.statusText}`
+        `[ProgrammeEditor] fetch status: ${res.status} ${res.statusText}`,
       );
 
       if (!res.ok) {
@@ -263,7 +265,7 @@ export default function ProgrammeEditor() {
       console.debug(
         `[ProgrammeEditor] fetched ${
           Array.isArray(exercises) ? exercises.length : 0
-        } exercises for focus='${focus}'`
+        } exercises for focus='${focus}'`,
       );
       return exercises || [];
     } catch (err) {
@@ -293,22 +295,22 @@ export default function ProgrammeEditor() {
               ...day,
               exercises: [...day.exercises, tempProgrammeExercise],
               exerciseOptions: day.exerciseOptions.map((ex) =>
-                ex.id === exerciseId ? { ...ex, isSelected: true } : ex
+                ex.id === exerciseId ? { ...ex, isSelected: true } : ex,
               ),
               availableExercises: day.availableExercises.map((ex) =>
-                ex.id === exerciseId ? { ...ex, isSelected: true } : ex
+                ex.id === exerciseId ? { ...ex, isSelected: true } : ex,
               ),
               hasChanges: true,
             }
-          : day
-      )
+          : day,
+      ),
     );
   };
 
   const handleRemoveExercise = (
     programmeExerciseId: string,
     exerciseId: string,
-    dayNumber: number
+    dayNumber: number,
   ) => {
     setDays((prev) =>
       prev.map((day) =>
@@ -316,18 +318,18 @@ export default function ProgrammeEditor() {
           ? {
               ...day,
               exercises: day.exercises.filter(
-                (ex) => ex.id !== programmeExerciseId
+                (ex) => ex.id !== programmeExerciseId,
               ),
               exerciseOptions: day.exerciseOptions.map((ex) =>
-                ex.id === exerciseId ? { ...ex, isSelected: false } : ex
+                ex.id === exerciseId ? { ...ex, isSelected: false } : ex,
               ),
               availableExercises: day.availableExercises.map((ex) =>
-                ex.id === exerciseId ? { ...ex, isSelected: false } : ex
+                ex.id === exerciseId ? { ...ex, isSelected: false } : ex,
               ),
               hasChanges: true,
             }
-          : day
-      )
+          : day,
+      ),
     );
   };
 
@@ -342,7 +344,7 @@ export default function ProgrammeEditor() {
       console.log(`📊 Current exercises in state:`, day.exercises);
       console.log(
         `📊 Exercises to save:`,
-        day.exercises.filter((ex) => ex.isSelected)
+        day.exercises.filter((ex) => ex.isSelected),
       );
 
       // First, delete ALL existing exercises for this day from the database
@@ -353,7 +355,7 @@ export default function ProgrammeEditor() {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
-        }
+        },
       );
 
       if (!deleteRes.ok) {
@@ -365,7 +367,7 @@ export default function ProgrammeEditor() {
       const addedExercises: ProgrammeExercise[] = [];
 
       console.log(
-        `✅ Adding ${exercisesToAdd.length} exercises to Day ${dayNumber}`
+        `✅ Adding ${exercisesToAdd.length} exercises to Day ${dayNumber}`,
       );
 
       for (const exercise of exercisesToAdd) {
@@ -383,7 +385,7 @@ export default function ProgrammeEditor() {
               sets: exercise.sets,
               reps: exercise.reps,
             }),
-          }
+          },
         );
 
         if (!postRes.ok) {
@@ -405,7 +407,7 @@ export default function ProgrammeEditor() {
 
       console.log(
         `✅ Final saved exercises for Day ${dayNumber}:`,
-        addedExercises
+        addedExercises,
       );
 
       // Update the day with real IDs and mark as saved
@@ -418,8 +420,8 @@ export default function ProgrammeEditor() {
                 hasChanges: false,
                 showMoreOptions: false,
               }
-            : day
-        )
+            : day,
+        ),
       );
 
       alert(`Day ${dayNumber} saved with ${addedExercises.length} exercises!`);
@@ -442,7 +444,7 @@ export default function ProgrammeEditor() {
     // Check if programme has any exercises
     const totalExercises = days.reduce(
       (sum, day) => sum + day.exercises.length,
-      0
+      0,
     );
     if (totalExercises === 0) {
       setError("Please add at least one exercise to at least one day");
@@ -529,7 +531,7 @@ export default function ProgrammeEditor() {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-          }
+          },
         );
 
         const data: ProgrammeResponse = await res.json();
@@ -577,7 +579,7 @@ export default function ProgrammeEditor() {
 
         setDays(loadedDays);
         setOpenDays(
-          Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
+          Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true])),
         );
 
         // Fetch a single pool of available exercises for the programme focus
@@ -587,7 +589,7 @@ export default function ProgrammeEditor() {
           // Fetch across likely muscle groups for this focus (more robust than a single-focus fetch)
           const groups = getMuscleGroupsForFocus(focus);
           const arrays = await Promise.all(
-            groups.map((g) => fetchAvailableExercises(g))
+            groups.map((g) => fetchAvailableExercises(g)),
           );
           let pool = arrays.flat();
 
@@ -595,8 +597,8 @@ export default function ProgrammeEditor() {
           if (pool.length === 0) {
             console.debug(
               `[ProgrammeEditor] initial pool empty for focus='${focus}', groups=${JSON.stringify(
-                groups
-              )}; trying raw focus fallback`
+                groups,
+              )}; trying raw focus fallback`,
             );
             pool = await fetchAvailableExercises(focus);
           }
@@ -604,11 +606,11 @@ export default function ProgrammeEditor() {
           // Remove duplicates
           const uniquePool = pool.filter(
             (exercise, index, self) =>
-              index === self.findIndex((e) => e.id === exercise.id)
+              index === self.findIndex((e) => e.id === exercise.id),
           );
 
           console.debug(
-            `[ProgrammeEditor] initial uniquePool size=${uniquePool.length} for focus='${focus}'`
+            `[ProgrammeEditor] initial uniquePool size=${uniquePool.length} for focus='${focus}'`,
           );
 
           setAllExercises(uniquePool);
@@ -618,7 +620,7 @@ export default function ProgrammeEditor() {
             if (!day.exercises || day.exercises.length === 0) {
               const selected = getRandomExercises(uniquePool, 3).map((ex) => ({
                 id: `temp-${Date.now()}-${ex.id}-${Math.floor(
-                  Math.random() * 1000
+                  Math.random() * 1000,
                 )}`,
                 name: ex.name,
                 sets: 3,
@@ -647,7 +649,7 @@ export default function ProgrammeEditor() {
               availableExercises: uniquePool.map((ex) => ({
                 ...ex,
                 isSelected: day.exercises.some(
-                  (existing) => existing.exerciseId === ex.id
+                  (existing) => existing.exerciseId === ex.id,
                 ),
               })),
               exerciseOptions: [],
@@ -657,15 +659,15 @@ export default function ProgrammeEditor() {
           setDays(withInitialSelections);
           setOpenDays(
             Object.fromEntries(
-              withInitialSelections.map((d) => [d.dayNumber, true])
-            )
+              withInitialSelections.map((d) => [d.dayNumber, true]),
+            ),
           );
         } catch (err) {
           console.error("Error loading initial exercise pool:", err);
           // fallback: keep loadedDays as-is
           setDays(loadedDays);
           setOpenDays(
-            Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true]))
+            Object.fromEntries(loadedDays.map((d) => [d.dayNumber, true])),
           );
         }
       } catch (err: any) {
@@ -694,7 +696,7 @@ export default function ProgrammeEditor() {
         title="Programmes"
         pageIcon={null}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Dashboard", onClick: () => navigate("/dashboard") },
           { label: "Programmes", onClick: () => navigate("/programmes") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
           { label: "Track Metrics", onClick: () => navigate("/metrics") },
@@ -732,8 +734,8 @@ export default function ProgrammeEditor() {
             {submittingProgramme
               ? "Saving..."
               : isReadyToSubmit
-              ? "Done Editing"
-              : "Confirm All Days First"}
+                ? "Done Editing"
+                : "Confirm All Days First"}
           </button>
         </div>
       )}
@@ -806,7 +808,7 @@ export default function ProgrammeEditor() {
                               <MuscleIcon
                                 muscleGroup={
                                   allExercises.find(
-                                    (a) => a.id === ex.exerciseId
+                                    (a) => a.id === ex.exerciseId,
                                   )?.muscleGroup || ""
                                 }
                                 size={28}
@@ -836,7 +838,7 @@ export default function ProgrammeEditor() {
                                 handleRemoveExercise(
                                   ex.id,
                                   ex.exerciseId,
-                                  day.dayNumber
+                                  day.dayNumber,
                                 )
                               }
                             />

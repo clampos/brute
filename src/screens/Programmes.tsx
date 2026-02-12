@@ -19,12 +19,18 @@ export default function Programmes() {
   const [surname, setSurname] = useState("Doe");
   const [loading, setLoading] = useState(true);
   const [programmesData, setProgrammesData] = useState<Record<string, any[]>>(
-    {}
+    {},
   );
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
   const [filterTab, setFilterTab] = useState<"all" | "previous">("all");
   const [previousPrograms, setPreviousPrograms] = useState<any[]>([]);
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const [selectedProgrammeId, setSelectedProgrammeId] = useState<string | null>(
+    null,
+  );
+  const [selectedProgrammeName, setSelectedProgrammeName] =
+    useState<string>("");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -51,7 +57,7 @@ export default function Programmes() {
           "http://localhost:4242/auth/user-programs",
           {
             headers: { Authorization: `Bearer ${token}` },
-          }
+          },
         );
 
         if (userProgramRes.ok) {
@@ -61,7 +67,7 @@ export default function Programmes() {
 
           // Get completed programs
           const completed = userPrograms.filter(
-            (up: any) => up.status === "COMPLETED"
+            (up: any) => up.status === "COMPLETED",
           );
           setPreviousPrograms(completed);
         }
@@ -139,6 +145,26 @@ export default function Programmes() {
   };
 
   const handleStartProgramme = async (programmeId: string) => {
+    // Check if there's an active programme that's different from the one being selected
+    if (activeUserProgram && activeUserProgram.programmeId !== programmeId) {
+      // Find the programme name
+      let programmeName = "";
+      Object.values(programmesData).forEach((programs: any[]) => {
+        const found = programs.find((p) => p.id === programmeId);
+        if (found) programmeName = found.name;
+      });
+
+      setSelectedProgrammeId(programmeId);
+      setSelectedProgrammeName(programmeName);
+      setShowWarningModal(true);
+      return;
+    }
+
+    // If no active programme or it's the same one, proceed directly
+    await startSelectedProgramme(programmeId);
+  };
+
+  const startSelectedProgramme = async (programmeId: string) => {
     const token = localStorage.getItem("token");
     if (!token) return;
 
@@ -154,7 +180,7 @@ export default function Programmes() {
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({ status: "CANCELLED" }),
-          }
+          },
         );
       }
 
@@ -175,6 +201,8 @@ export default function Programmes() {
         throw new Error("Failed to start programme");
       }
 
+      setShowWarningModal(false);
+      localStorage.removeItem("workoutSession");
       alert("Programme started! Head to Workouts to begin.");
       navigate("/workouts");
     } catch (error) {
@@ -194,7 +222,7 @@ export default function Programmes() {
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Dashboard", onClick: () => navigate("/dashboard") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
           { label: "Track Metrics", onClick: () => navigate("/metrics") },
           { label: "Settings", onClick: () => navigate("/settings") },
@@ -407,6 +435,54 @@ export default function Programmes() {
           </div>
         )}
       </div>
+
+      {/* Warning Modal */}
+      {showWarningModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl">
+            <h2 className="text-white text-2xl font-bold text-center mb-4">
+              Switch Programme?
+            </h2>
+            <p className="text-[#A0AEC0] text-center mb-6">
+              You currently have{" "}
+              <span className="text-[#00FFAD] font-semibold">
+                {activeUserProgram?.programme?.name}
+              </span>{" "}
+              in progress. Starting a new programme will pause your current
+              progress.
+            </p>
+            <p className="text-[#5E6272] text-center text-sm mb-6">
+              Are you sure you want to switch to{" "}
+              <span className="text-[#246BFD] font-semibold">
+                {selectedProgrammeName}
+              </span>
+              ?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowWarningModal(false);
+                  setSelectedProgrammeId(null);
+                  setSelectedProgrammeName("");
+                }}
+                className="flex-1 px-4 py-3 rounded-lg bg-[#2A2E38] hover:bg-[#3A3E48] text-white font-semibold transition-colors"
+              >
+                Keep Current
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedProgrammeId) {
+                    startSelectedProgramme(selectedProgrammeId);
+                  }
+                }}
+                className="flex-1 px-4 py-3 rounded-lg bg-[#246BFD] hover:bg-blue-700 text-white font-semibold transition-colors"
+              >
+                Switch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BottomBar onLogout={handleLogout} />
     </div>

@@ -52,7 +52,7 @@ export default function ExercisePRs() {
             backgroundColor: "#0A0E1A",
         }, children: [_jsx(TopBar, { title: "Track Metrics", pageIcon: _jsx(Award, { size: 18 }), menuItems: [
                     { label: "Track Metrics", onClick: () => navigate("/metrics") },
-                    { label: "Dashboard", onClick: () => navigate("/") },
+                    { label: "Dashboard", onClick: () => navigate("/dashboard") },
                     { label: "Programmes", onClick: () => navigate("/programmes") },
                     { label: "Workouts", onClick: () => navigate("/workouts") },
                     { label: "Settings", onClick: () => navigate("/settings") },

@@ -51,23 +51,23 @@ export default function Metrics() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"bodyweight" | "bodyfat" | "prs">(
-    "bodyweight"
+    "bodyweight",
   );
 
   // Unit system state
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(getUnitPreference());
   const [imperialWeightType, setImperialWeightType] = useState<"lbs" | "stone">(
-    getWeightDisplayPreference()
+    getWeightDisplayPreference(),
   );
 
   // Bodyweight tracking
   const [bodyweightHistory, setBodyweightHistory] = useState<BodyweightEntry[]>(
-    []
+    [],
   );
   const [showAddBodyweight, setShowAddBodyweight] = useState(false);
   const [newBodyweight, setNewBodyweight] = useState("");
   const [editingBodyweightId, setEditingBodyweightId] = useState<string | null>(
-    null
+    null,
   );
 
   // Imperial weight input state
@@ -109,7 +109,7 @@ export default function Metrics() {
           "http://localhost:4242/auth/metrics/bodyweight",
           {
             headers: { Authorization: `Bearer ${token}` },
-          }
+          },
         );
         if (bodyweightRes.ok) {
           const data = await bodyweightRes.json();
@@ -121,7 +121,7 @@ export default function Metrics() {
           "http://localhost:4242/auth/metrics/bodyfat",
           {
             headers: { Authorization: `Bearer ${token}` },
-          }
+          },
         );
         if (bodyfatRes.ok) {
           const data = await bodyfatRes.json();
@@ -133,13 +133,13 @@ export default function Metrics() {
           "http://localhost:4242/auth/metrics/personal-records",
           {
             headers: { Authorization: `Bearer ${token}` },
-          }
+          },
         );
         if (prsRes.ok) {
           const data = await prsRes.json();
           // Only keep exercises that have at least one PR entry (1,2,3,5,10)
-          const filtered = data.filter((d) =>
-            Object.values(d.prs || {}).some((v) => v != null)
+          const filtered = data.filter((d: any) =>
+            Object.values(d.prs || {}).some((v) => v != null),
           );
           setPersonalRecords(filtered);
         }
@@ -219,7 +219,7 @@ export default function Metrics() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ weight: weightInKg }),
-        }
+        },
       );
 
       if (response.ok) {
@@ -253,7 +253,7 @@ export default function Metrics() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ bodyfat }),
-        }
+        },
       );
 
       if (response.ok) {
@@ -285,7 +285,7 @@ export default function Metrics() {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       );
 
       if (response.ok) {
@@ -308,7 +308,7 @@ export default function Metrics() {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       );
 
       if (response.ok) {
@@ -345,15 +345,15 @@ export default function Metrics() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ weight }),
-        }
+        },
       );
 
       if (response.ok) {
         const updated = await response.json();
         setBodyweightHistory(
           bodyweightHistory.map((e) =>
-            e.id === editingBodyweightId ? updated : e
-          )
+            e.id === editingBodyweightId ? updated : e,
+          ),
         );
         setEditingBodyweightId(null);
         setNewBodyweight("");
@@ -379,13 +379,13 @@ export default function Metrics() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ bodyfat }),
-        }
+        },
       );
 
       if (response.ok) {
         const updated = await response.json();
         setBodyfatHistory(
-          bodyfatHistory.map((e) => (e.id === editingBodyfatId ? updated : e))
+          bodyfatHistory.map((e) => (e.id === editingBodyfatId ? updated : e)),
         );
         setEditingBodyfatId(null);
         setNewBodyfat("");
@@ -429,7 +429,7 @@ export default function Metrics() {
     data: any[],
     valueKey: string,
     color: string,
-    unit: string
+    unit: string,
   ) => {
     if (data.length === 0) return null;
 
@@ -748,7 +748,7 @@ export default function Metrics() {
         title="Track Metrics"
         pageIcon={<Award size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/") },
+          { label: "Dashboard", onClick: () => navigate("/dashboard") },
           { label: "Programmes", onClick: () => navigate("/programmes") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
           { label: "Settings", onClick: () => navigate("/settings") },
@@ -822,13 +822,13 @@ export default function Metrics() {
                   {unitSystem === "metric"
                     ? bodyweightHistory[0].weight
                     : imperialWeightType === "stone"
-                    ? (() => {
-                        const { stone, lbs } = kgToStone(
-                          bodyweightHistory[0].weight
-                        );
-                        return `${stone} st ${lbs}`;
-                      })()
-                    : kgToLbs(bodyweightHistory[0].weight)}
+                      ? (() => {
+                          const { stone, lbs } = kgToStone(
+                            bodyweightHistory[0].weight,
+                          );
+                          return `${stone} st ${lbs}`;
+                        })()
+                      : kgToLbs(bodyweightHistory[0].weight)}
                 </span>
                 <span className="text-xl text-[#5E6272]">
                   {getWeightUnit()}
@@ -867,7 +867,7 @@ export default function Metrics() {
               bodyweightHistory,
               "weight",
               "#00FFAD",
-              getWeightUnit()
+              getWeightUnit(),
             )}
 
           {/* Add New Entry Button */}
@@ -1003,7 +1003,7 @@ export default function Metrics() {
                             {formatWeight(
                               entry.weight,
                               unitSystem,
-                              imperialWeightType === "stone"
+                              imperialWeightType === "stone",
                             )}
                           </span>
                         </div>

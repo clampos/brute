@@ -80,7 +80,7 @@ export default function Dashboard() {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
 
         if (!dashboardRes.ok) throw new Error("Unauthorized");
@@ -97,7 +97,7 @@ export default function Dashboard() {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
 
         if (profileRes.ok) {
@@ -112,7 +112,7 @@ export default function Dashboard() {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
 
         if (userProgramRes.ok) {
@@ -145,7 +145,7 @@ export default function Dashboard() {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
 
         if (response.ok) {
@@ -492,67 +492,106 @@ export default function Dashboard() {
               className="text-[#5E6272] font-semibold text-sm mb-6"
               style={{ fontFamily: "'Poppins', sans-serif" }}
             >
-              Weight moved in the last 7 days
+              Workouts This Week
             </h3>
             {loadingStats ? (
               <p className="text-white text-sm">Loading stats...</p>
             ) : weeklyStats && weeklyStats.dailyStats.length > 0 ? (
               <div>
-                {/* Bar Chart */}
-                <div className="flex items-end justify-between h-32 mb-4 gap-2">
+                {/* Bar Chart - two bars per day (Exercises and Sets) */}
+                <div className="flex items-end justify-between h-40 mb-6 gap-2">
                   {weeklyStats.dailyStats.map((day, index) => {
-                    const maxSets = Math.max(
-                      ...weeklyStats.dailyStats.map((d) => d.sets),
-                      1
+                    // Use common max for both bars so they're visually comparable
+                    const commonMax = Math.max(
+                      ...weeklyStats.dailyStats.flatMap((d) => [
+                        d.exercises,
+                        d.sets,
+                      ]),
+                      1,
                     );
-                    const heightPercentage = (day.sets / maxSets) * 100;
+                    const exercisesHeight = (day.exercises / commonMax) * 100;
+                    const setsHeight = (day.sets / commonMax) * 100;
 
                     return (
                       <div
                         key={index}
                         className="flex-1 flex flex-col items-center"
                       >
-                        <div className="w-full flex flex-col items-center justify-end h-full">
-                          {/* Sets bar */}
-                          {day.sets > 0 && (
-                            <div
-                              className="w-full bg-gradient-to-t from-[#9C6BFF] to-[#6A45FF] rounded-t transition-all duration-300 relative group"
-                              style={{
-                                height: `${heightPercentage}%`,
-                                minHeight: day.sets > 0 ? "8px" : "0",
-                              }}
-                            >
-                              {/* Tooltip */}
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                {day.sets} sets
-                                <br />
-                                {day.exercises} exercises
+                        <div className="flex items-end justify-center gap-1.5 h-full w-full">
+                          {/* Exercises bar */}
+                          <div
+                            className="flex-1 bg-gradient-to-t from-[#00FFAD] to-[#00D699] rounded-t transition-all duration-300 relative group overflow-visible"
+                            style={{
+                              height: `${exercisesHeight}%`,
+                              minHeight: day.exercises > 0 ? "4px" : "0px",
+                            }}
+                            title={`${day.exercises} ${day.exercises === 1 ? "exercise" : "exercises"}`}
+                          >
+                            {/* Tooltip on hover */}
+                            {day.exercises > 0 && (
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black/90 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                {day.exercises}{" "}
+                                {day.exercises === 1 ? "exercise" : "exercises"}
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
+                          {/* Sets bar */}
+                          <div
+                            className="flex-1 bg-gradient-to-t from-[#9C6BFF] to-[#7B5FD6] rounded-t transition-all duration-300 relative group overflow-visible"
+                            style={{
+                              height: `${setsHeight}%`,
+                              minHeight: day.sets > 0 ? "4px" : "0px",
+                            }}
+                            title={`${day.sets} ${day.sets === 1 ? "set" : "sets"}`}
+                          >
+                            {/* Tooltip on hover */}
+                            {day.sets > 0 && (
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black/90 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                                {day.sets} {day.sets === 1 ? "set" : "sets"}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         {/* Day label */}
                         <p className="text-[#5E6272] text-xs mt-2 font-medium">
-                          {day.dayName.charAt(0)}
+                          {day.dayName.substring(0, 3)}
                         </p>
                       </div>
                     );
                   })}
                 </div>
 
+                {/* Legend */}
+                <div className="flex justify-center gap-6 mb-4 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-gradient-to-br from-[#00FFAD] to-[#00D699] rounded"></div>
+                    <span className="text-[#5E6272]">Exercises</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-gradient-to-br from-[#9C6BFF] to-[#7B5FD6] rounded"></div>
+                    <span className="text-[#5E6272]">Sets</span>
+                  </div>
+                </div>
+
                 {/* Summary */}
                 <div className="flex justify-center gap-6 pt-4 border-t border-[#1A1D23]">
                   <div className="text-center">
                     <p className="text-2xl font-bold text-white">
-                      {weeklyStats.totalSets}
+                      {weeklyStats.totalExercises}
                     </p>
-                    <p className="text-xs text-[#5E6272]">Sets</p>
+                    <p className="text-xs text-[#5E6272]">
+                      {weeklyStats.totalExercises === 1
+                        ? "Exercise"
+                        : "Exercises"}
+                    </p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-white">
-                      {weeklyStats.totalExercises}
+                      {weeklyStats.totalSets}
                     </p>
-                    <p className="text-xs text-[#5E6272]">Exercises</p>
+                    <p className="text-xs text-[#5E6272]">
+                      {weeklyStats.totalSets === 1 ? "Set" : "Sets"}
+                    </p>
                   </div>
                 </div>
               </div>

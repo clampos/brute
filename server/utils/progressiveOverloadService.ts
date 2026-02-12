@@ -1,5 +1,5 @@
 // server/utils/progressiveOverloadService.ts
-import { prisma } from "../prisma";
+import { prisma } from "../prisma.js";
 
 export interface WorkoutSetData {
   weight: number;
@@ -99,7 +99,7 @@ export class ProgressiveOverloadService {
   private static async getPerformanceHistory(
     userId: string,
     exerciseId: string,
-    weeks: number = 3
+    weeks: number = 3,
   ): Promise<PerformanceHistory[]> {
     const workouts = await prisma.workout.findMany({
       where: {
@@ -175,7 +175,7 @@ export class ProgressiveOverloadService {
     previousWeight: number,
     previousReps: number,
     newWeight: number,
-    sets: number
+    sets: number,
   ): number {
     const previousVolume = sets * previousReps * previousWeight;
     let newReps = Math.round(previousVolume / (sets * newWeight));
@@ -211,7 +211,7 @@ export class ProgressiveOverloadService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const daysSinceStart = Math.floor(
-      (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+      (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
     );
 
     const currentWeek = Math.floor(daysSinceStart / 7) + 1;
@@ -235,7 +235,7 @@ export class ProgressiveOverloadService {
    */
   static async getProgressionRecommendations(
     userId: string,
-    exerciseIds: string[]
+    exerciseIds: string[],
   ): Promise<ProgressionRecommendation[]> {
     const recommendations: ProgressionRecommendation[] = [];
 
@@ -303,7 +303,7 @@ export class ProgressiveOverloadService {
         else if (history.length >= 2) {
           const last2Weeks = history.slice(-2);
           const underperformed = last2Weeks.every(
-            (week) => week.targetReps > 0 && week.actualReps < week.targetReps
+            (week) => week.targetReps > 0 && week.actualReps < week.targetReps,
           );
 
           if (underperformed) {
@@ -323,7 +323,7 @@ export class ProgressiveOverloadService {
               (week) =>
                 week.targetReps > 0 &&
                 week.actualReps >
-                  week.targetReps * this.OVERPERFORMANCE_THRESHOLD
+                  week.targetReps * this.OVERPERFORMANCE_THRESHOLD,
             );
 
             if (overperformed) {
@@ -335,7 +335,7 @@ export class ProgressiveOverloadService {
                 currentWeight,
                 lastReps,
                 recommendedWeight,
-                sets
+                sets,
               );
               progressionType = "OVERPERFORMANCE";
               reasoning = `Consistently exceeding targets by >10% for 2 weeks! Increasing weight by 5% with volume-preserving reps for the 3rd week.`;
@@ -362,7 +362,7 @@ export class ProgressiveOverloadService {
             currentWeight,
             lastReps,
             recommendedWeight,
-            sets
+            sets,
           );
           progressionType = "REP_CAP";
           reasoning = `Rep cap reached (≥${this.REP_CAP})! Increasing weight by 5% with volume-preserving reps.`;
@@ -402,7 +402,7 @@ export class ProgressiveOverloadService {
    */
   static async saveWorkoutAndCalculateProgression(
     userId: string,
-    workoutData: WorkoutData[]
+    workoutData: WorkoutData[],
   ): Promise<{
     workoutId: string;
     recommendations: ProgressionRecommendation[];
@@ -416,14 +416,14 @@ export class ProgressiveOverloadService {
       const start = new Date(userProgram.startDate);
       start.setHours(0, 0, 0, 0);
       const daysSinceStart = Math.floor(
-        (completedAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+        (completedAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
       );
 
       const weekNumber = Math.floor(daysSinceStart / 7) + 1;
       const dayIndex = daysSinceStart % 7;
       const dayNumber = Math.min(
         dayIndex + 1,
-        userProgram.programme.daysPerWeek || 3
+        userProgram.programme.daysPerWeek || 3,
       );
 
       // Create workout record with week/day based on startDate-relative weeks
@@ -474,7 +474,7 @@ export class ProgressiveOverloadService {
       if (isEndOfWeek) {
         recommendations = await this.getProgressionRecommendations(
           userId,
-          exerciseIds
+          exerciseIds,
         );
       } else {
         // Not end of week yet: return empty recommendations and do not perform progression logic
@@ -488,7 +488,7 @@ export class ProgressiveOverloadService {
         weeklySummary = await this.getWeeklySummary(
           userId,
           weekNumber,
-          exerciseIds
+          exerciseIds,
         );
       }
 
@@ -510,7 +510,7 @@ export class ProgressiveOverloadService {
   static async getWeeklySummary(
     userId: string,
     currentWeek: number,
-    exerciseIds: string[]
+    exerciseIds: string[],
   ): Promise<WeeklySummary> {
     try {
       const summary: WeeklySummary = {
@@ -579,7 +579,7 @@ export class ProgressiveOverloadService {
 
         if (totalLastVolume > 0) {
           summary.strengthGainVsLastWeek = Math.round(
-            ((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100
+            ((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100,
           );
         }
       }
@@ -595,7 +595,7 @@ export class ProgressiveOverloadService {
 
         if (totalWeek1Volume > 0) {
           summary.strengthGainVsProgramStart = Math.round(
-            ((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100
+            ((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100,
           );
         }
       }
@@ -612,11 +612,11 @@ export class ProgressiveOverloadService {
           // Current week max
           currentWorkouts.forEach((workout) => {
             const ex = workout.exercises.find(
-              (e: any) => e.exerciseId === exId
+              (e: any) => e.exerciseId === exId,
             );
             if (ex && ex.sets.length > 0) {
               const maxSet = ex.sets.reduce((best: any, current: any) =>
-                (current.reps || 0) > (best.reps || 0) ? current : best
+                (current.reps || 0) > (best.reps || 0) ? current : best,
               );
               currentMaxReps = Math.max(currentMaxReps, maxSet.reps || 0);
             }
@@ -625,11 +625,11 @@ export class ProgressiveOverloadService {
           // Previous week max
           previousWorkouts.forEach((workout) => {
             const ex = workout.exercises.find(
-              (e: any) => e.exerciseId === exId
+              (e: any) => e.exerciseId === exId,
             );
             if (ex && ex.sets.length > 0) {
               const maxSet = ex.sets.reduce((best: any, current: any) =>
-                (current.reps || 0) > (best.reps || 0) ? current : best
+                (current.reps || 0) > (best.reps || 0) ? current : best,
               );
               previousMaxReps = Math.max(previousMaxReps, maxSet.reps || 0);
             }

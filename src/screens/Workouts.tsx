@@ -80,14 +80,37 @@ export default function Workouts() {
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
   const [weeklySummary, setWeeklySummary] = useState<any>(null);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(
-    null
+    null,
   );
   const [workoutCompleted, setWorkoutCompleted] = useState(false);
+  const [showLeavingModal, setShowLeavingModal] = useState(false);
+  const [nextLocation, setNextLocation] = useState<string | null>(null);
 
   const navigate = useNavigate();
+
+  // Safely navigate with workout in progress check
+  const safeNavigate = (path: string) => {
+    // Show modal if workout has been started (timer has run or is running)
+    console.log("🔍 safeNavigate called", {
+      path,
+      workoutCompleted,
+      timerRunning,
+      secondsElapsed,
+    });
+    if (!workoutCompleted && (timerRunning || secondsElapsed > 0)) {
+      console.log("✅ Showing modal");
+      setNextLocation(path);
+      setShowLeavingModal(true);
+    } else {
+      console.log("➡️ Navigating directly to", path);
+      navigate(path);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("installPromptDismissed");
+    localStorage.removeItem("workoutSession");
     navigate("/login");
   };
 
@@ -96,22 +119,43 @@ export default function Workouts() {
   // Set menu state (keyed by `${exerciseId}:${setIdx}`)
   const [openSetMenu, setOpenSetMenu] = useState<string | null>(null);
 
+  // Create refs for menu containers to track click-outside
+  const exerciseMenuRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const setMenuRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
   // Click outside handler
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setOpenExerciseMenu(null);
-        setOpenSetMenu(null);
+      // Check exercise menus
+      if (openExerciseMenu) {
+        const menuRef = exerciseMenuRefs.current.get(openExerciseMenu);
+        if (menuRef && !menuRef.contains(event.target as Node)) {
+          setOpenExerciseMenu(null);
+        }
+      }
+
+      // Check set menus
+      if (openSetMenu) {
+        const menuRef = setMenuRefs.current.get(openSetMenu);
+        if (menuRef && !menuRef.contains(event.target as Node)) {
+          setOpenSetMenu(null);
+        }
       }
     };
 
-    if (openExerciseMenu || openSetMenu) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside);
-      };
-    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, [openExerciseMenu, openSetMenu]);
+
+  // Cleanup old refs when exercises change
+  useEffect(() => {
+    return () => {
+      exerciseMenuRefs.current.clear();
+      setMenuRefs.current.clear();
+    };
+  }, []);
 
   const moveExercise = (exerciseId: string, direction: "up" | "down") => {
     setTodayExercises((prev) => {
@@ -135,9 +179,9 @@ export default function Workouts() {
       const token = localStorage.getItem("token");
       const res = await fetch(
         `http://localhost:4242/auth/exercises/random?focus=${encodeURIComponent(
-          exercise.muscleGroup
+          exercise.muscleGroup,
         )}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!res.ok) throw new Error("Failed to fetch replacement exercise");
       const newEx = await res.json();
@@ -150,8 +194,8 @@ export default function Workouts() {
                 exerciseId: newEx.id,
                 muscleGroup: newEx.muscleGroup || ex.muscleGroup,
               }
-            : ex
-        )
+            : ex,
+        ),
       );
     } catch (err) {
       console.error("Replace exercise error:", err);
@@ -172,8 +216,8 @@ export default function Workouts() {
                 { weight: "", reps: "", completed: false },
               ],
             }
-          : ex
-      )
+          : ex,
+      ),
     );
     setOpenExerciseMenu(null);
   };
@@ -185,10 +229,10 @@ export default function Workouts() {
         const idx = ex.workoutSets.findIndex((s) => !s.completed);
         if (idx === -1) return ex;
         const nextSets = ex.workoutSets.map((s, i) =>
-          i === idx ? { ...s, completed: true } : s
+          i === idx ? { ...s, completed: true } : s,
         );
         return { ...ex, workoutSets: nextSets };
-      })
+      }),
     );
     setOpenExerciseMenu(null);
   };
@@ -196,7 +240,7 @@ export default function Workouts() {
   const deleteExerciseById = (exerciseId: string) => {
     if (!confirm("Delete this exercise from the workout?")) return;
     setTodayExercises((prev) =>
-      prev.filter((ex) => ex.exerciseId !== exerciseId)
+      prev.filter((ex) => ex.exerciseId !== exerciseId),
     );
     setOpenExerciseMenu(null);
   };
@@ -214,8 +258,8 @@ export default function Workouts() {
                 ...ex.workoutSets.slice(setIdx + 1),
               ],
             }
-          : ex
-      )
+          : ex,
+      ),
     );
     setOpenSetMenu(null);
   };
@@ -227,11 +271,11 @@ export default function Workouts() {
           ? {
               ...ex,
               workoutSets: ex.workoutSets.map((s, i) =>
-                i === setIdx ? { ...s, completed: true } : s
+                i === setIdx ? { ...s, completed: true } : s,
               ),
             }
-          : ex
-      )
+          : ex,
+      ),
     );
     setOpenSetMenu(null);
   };
@@ -245,8 +289,8 @@ export default function Workouts() {
               ...ex,
               workoutSets: ex.workoutSets.filter((_, i) => i !== setIdx),
             }
-          : ex
-      )
+          : ex,
+      ),
     );
     setOpenSetMenu(null);
   };
@@ -283,7 +327,7 @@ export default function Workouts() {
     exerciseId: string,
     setIndex: number,
     field: "weight" | "reps",
-    value: string
+    value: string,
   ) => {
     setTodayExercises((prev) =>
       prev.map((exercise) =>
@@ -291,11 +335,11 @@ export default function Workouts() {
           ? {
               ...exercise,
               workoutSets: exercise.workoutSets.map((set, idx) =>
-                idx === setIndex ? { ...set, [field]: value } : set
+                idx === setIndex ? { ...set, [field]: value } : set,
               ),
             }
-          : exercise
-      )
+          : exercise,
+      ),
     );
   };
 
@@ -306,11 +350,11 @@ export default function Workouts() {
           ? {
               ...exercise,
               workoutSets: exercise.workoutSets.map((set, idx) =>
-                idx === setIndex ? { ...set, completed: !set.completed } : set
+                idx === setIndex ? { ...set, completed: !set.completed } : set,
               ),
             }
-          : exercise
-      )
+          : exercise,
+      ),
     );
   };
 
@@ -329,8 +373,8 @@ export default function Workouts() {
                 },
               ],
             }
-          : exercise
-      )
+          : exercise,
+      ),
     );
   };
 
@@ -344,8 +388,8 @@ export default function Workouts() {
     try {
       const exercisesWithData = todayExercises.filter((exercise) =>
         exercise.workoutSets.some(
-          (set) => set.completed && set.weight && set.reps
-        )
+          (set) => set.completed && set.weight && set.reps,
+        ),
       );
 
       if (exercisesWithData.length === 0) {
@@ -366,7 +410,7 @@ export default function Workouts() {
       }));
 
       const duration = Math.floor(
-        (new Date().getTime() - workoutStartTime.getTime()) / 1000 / 60
+        (new Date().getTime() - workoutStartTime.getTime()) / 1000 / 60,
       );
 
       const response = await fetch("http://localhost:4242/auth/workouts", {
@@ -417,7 +461,7 @@ export default function Workouts() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
-        }
+        },
       );
 
       if (!response.ok) {
@@ -432,15 +476,63 @@ export default function Workouts() {
               ...prev,
               currentWeek: result.currentWeek,
               currentDay: result.currentDay,
+              programme: prev.programme,
             }
-          : prev
+          : prev,
       );
 
+      // Reset timer and workout state
       setTimerRunning(false);
       setSecondsElapsed(0);
       setWorkoutStartTime(null);
+      setWeeklySummary(null);
+      setWorkoutCompleted(false);
 
-      window.location.reload();
+      // Fetch the next day's exercises
+      const programmeResponse = await fetch(
+        `http://localhost:4242/auth/programmes/${userProgram?.programme?.id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        },
+      );
+
+      if (!programmeResponse.ok) {
+        throw new Error("Failed to fetch programme details");
+      }
+
+      const programmeData = await programmeResponse.json();
+      const nextDayExercises = programmeData.exercises.filter(
+        (exercise: ProgrammeExercise) =>
+          exercise.dayNumber === result.currentDay,
+      );
+
+      const workoutExercises: WorkoutExercise[] = nextDayExercises.map(
+        (exercise: ProgrammeExercise) => {
+          const initialSets: WorkoutSet[] = Array.from(
+            { length: exercise.sets },
+            () => ({
+              weight: "",
+              reps: "",
+              completed: false,
+            }),
+          );
+
+          return {
+            id: exercise.id,
+            name: exercise.exercise.name,
+            muscleGroup: exercise.exercise.muscleGroup,
+            sets: exercise.sets,
+            reps: exercise.reps,
+            exerciseId: exercise.exercise.id,
+            workoutSets: initialSets,
+          };
+        },
+      );
+
+      setTodayExercises(workoutExercises);
+      await loadProgressionRecommendationsForExercises(workoutExercises);
     } catch (err: any) {
       console.error("Error advancing to next day:", err);
       setError(err.message || "Failed to advance to next day");
@@ -461,13 +553,13 @@ export default function Workouts() {
 
       const response = await fetch(
         `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
-          ","
+          ",",
         )}`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
           },
-        }
+        },
       );
 
       if (!response.ok) {
@@ -479,18 +571,59 @@ export default function Workouts() {
       setTodayExercises((prev) =>
         prev.map((exercise) => {
           const recommendation = result.recommendations.find(
-            (rec: any) => rec.exerciseId === exercise.exerciseId
+            (rec: any) => rec.exerciseId === exercise.exerciseId,
           );
           return {
             ...exercise,
             recommendation,
           };
-        })
+        }),
       );
     } catch (err: any) {
       console.error("Error loading recommendations:", err);
     } finally {
       setLoadingRecommendations(false);
+    }
+  };
+
+  const loadProgressionRecommendationsForExercises = async (
+    exercises: WorkoutExercise[],
+  ) => {
+    if (!userProgram || exercises.length === 0) return;
+
+    try {
+      const exerciseIds = exercises.map((ex) => ex.exerciseId);
+
+      const response = await fetch(
+        `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
+          ",",
+        )}`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to load recommendations");
+      }
+
+      const result = await response.json();
+
+      setTodayExercises((prev) =>
+        prev.map((exercise) => {
+          const recommendation = result.recommendations.find(
+            (rec: any) => rec.exerciseId === exercise.exerciseId,
+          );
+          return {
+            ...exercise,
+            recommendation,
+          };
+        }),
+      );
+    } catch (err: any) {
+      console.error("Error loading recommendations:", err);
     }
   };
 
@@ -500,13 +633,33 @@ export default function Workouts() {
         setLoading(true);
         setError("");
 
+        // Check if there's a saved session first
+        const savedSession = localStorage.getItem("workoutSession");
+        if (savedSession) {
+          try {
+            const session = JSON.parse(savedSession);
+            setUserProgram(session.userProgram);
+            setTodayExercises(session.todayExercises);
+            if (session.workoutStartTime) {
+              setWorkoutStartTime(new Date(session.workoutStartTime));
+            }
+            setTimerRunning(session.timerRunning);
+            setSecondsElapsed(session.secondsElapsed);
+            setLoading(false);
+            return; // Exit early - don't fetch fresh data
+          } catch (err) {
+            console.error("Failed to restore workout session:", err);
+            // Fall through to fetch fresh data
+          }
+        }
+
         const response = await fetch(
           "http://localhost:4242/auth/user-programs",
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-          }
+          },
         );
 
         if (!response.ok) {
@@ -521,7 +674,7 @@ export default function Workouts() {
 
         if (!activeProgram) {
           setError(
-            "No active programme found. Please select a programme first."
+            "No active programme found. Please select a programme first.",
           );
           setLoading(false);
           return;
@@ -533,7 +686,7 @@ export default function Workouts() {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-          }
+          },
         );
 
         if (!programmeResponse.ok) {
@@ -551,7 +704,7 @@ export default function Workouts() {
 
         if (!programmeData.exercises || programmeData.exercises.length === 0) {
           setError(
-            "This programme has no exercises configured. Please add exercises in the Programme Editor."
+            "This programme has no exercises configured. Please add exercises in the Programme Editor.",
           );
           setLoading(false);
           return;
@@ -559,12 +712,12 @@ export default function Workouts() {
 
         const currentDayExercises = programmeData.exercises.filter(
           (exercise: ProgrammeExercise) =>
-            exercise.dayNumber === activeProgram.currentDay
+            exercise.dayNumber === activeProgram.currentDay,
         );
 
         if (currentDayExercises.length === 0) {
           setError(
-            `No exercises scheduled for Day ${activeProgram.currentDay}. Please add exercises in the Programme Editor.`
+            `No exercises scheduled for Day ${activeProgram.currentDay}. Please add exercises in the Programme Editor.`,
           );
           setLoading(false);
           return;
@@ -578,7 +731,7 @@ export default function Workouts() {
                 weight: "",
                 reps: "",
                 completed: false,
-              })
+              }),
             );
 
             return {
@@ -590,7 +743,7 @@ export default function Workouts() {
               exerciseId: exercise.exercise.id,
               workoutSets: initialSets,
             };
-          }
+          },
         );
 
         setTodayExercises(workoutExercises);
@@ -610,6 +763,60 @@ export default function Workouts() {
       loadProgressionRecommendations();
     }
   }, [userProgram?.currentDay]);
+
+  // Save workout session to localStorage whenever state changes
+  useEffect(() => {
+    if (!workoutCompleted && userProgram && todayExercises.length > 0) {
+      const sessionData = {
+        userProgram,
+        todayExercises,
+        workoutStartTime: workoutStartTime?.toISOString() || null,
+        timerRunning,
+        secondsElapsed,
+      };
+      localStorage.setItem("workoutSession", JSON.stringify(sessionData));
+    }
+  }, [
+    userProgram,
+    todayExercises,
+    workoutStartTime,
+    timerRunning,
+    secondsElapsed,
+    workoutCompleted,
+  ]);
+
+  // Warn before leaving if workout is in progress
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Warn if workout has been started (timer has run or is running)
+      if (!workoutCompleted && (timerRunning || secondsElapsed > 0)) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [workoutCompleted, timerRunning, secondsElapsed]);
+
+  // Handle scroll lock when modal opens/closes
+  useEffect(() => {
+    console.log(
+      "💬 Modal visibility changed:",
+      showLeavingModal,
+      "nextLocation:",
+      nextLocation,
+    );
+    if (showLeavingModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [showLeavingModal, nextLocation]);
 
   useEffect(() => {
     if (timerRunning) {
@@ -675,10 +882,10 @@ export default function Workouts() {
         title="Workouts"
         pageIcon={<Calendar size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/") },
-          { label: "Programmes", onClick: () => navigate("/programmes") },
-          { label: "Track Metrics", onClick: () => navigate("/metrics") },
-          { label: "Settings", onClick: () => navigate("/settings") },
+          { label: "Dashboard", onClick: () => safeNavigate("/dashboard") },
+          { label: "Programmes", onClick: () => safeNavigate("/programmes") },
+          { label: "Track Metrics", onClick: () => safeNavigate("/metrics") },
+          { label: "Settings", onClick: () => safeNavigate("/settings") },
         ]}
       />
 
@@ -814,15 +1021,21 @@ export default function Workouts() {
                     </div>
                   )}
                 </div>
-                <div className="relative">
+                <div
+                  className="relative"
+                  ref={(el) => {
+                    if (el)
+                      exerciseMenuRefs.current.set(exercise.exerciseId, el);
+                  }}
+                >
                   <button
-                    onClick={() =>
+                    onClick={() => {
                       setOpenExerciseMenu((s) =>
-                        s === exercise.exerciseId ? null : exercise.exerciseId
-                      )
-                    }
+                        s === exercise.exerciseId ? null : exercise.exerciseId,
+                      );
+                    }}
                     className="text-white p-1"
-                    aria-haspopup
+                    aria-haspopup="true"
                     aria-expanded={openExerciseMenu === exercise.exerciseId}
                   >
                     <MoreHorizontal />
@@ -888,17 +1101,23 @@ export default function Workouts() {
 
               {exercise.workoutSets.map((set, setIdx) => (
                 <div key={setIdx} className="flex items-center gap-2 mt-3">
-                  <div className="relative">
+                  <div
+                    className="relative"
+                    ref={(el) => {
+                      const key = `${exercise.exerciseId}:${setIdx}`;
+                      if (el) setMenuRefs.current.set(key, el);
+                    }}
+                  >
                     {(() => {
                       const key = `${exercise.exerciseId}:${setIdx}`;
                       return (
                         <>
                           <button
-                            onClick={() =>
-                              setOpenSetMenu((s) => (s === key ? null : key))
-                            }
+                            onClick={() => {
+                              setOpenSetMenu((s) => (s === key ? null : key));
+                            }}
                             className="w-4 text-[#9CA3AF] p-0"
-                            aria-haspopup
+                            aria-haspopup="true"
                             aria-expanded={openSetMenu === key}
                           >
                             ⋮
@@ -949,7 +1168,7 @@ export default function Workouts() {
                         exercise.exerciseId,
                         setIdx,
                         "weight",
-                        e.target.value
+                        e.target.value,
                       );
                     }}
                     onFocus={() => setSelectedExerciseId(exercise.exerciseId)}
@@ -967,7 +1186,7 @@ export default function Workouts() {
                         exercise.exerciseId,
                         setIdx,
                         "reps",
-                        e.target.value
+                        e.target.value,
                       );
                     }}
                     onFocus={() => setSelectedExerciseId(exercise.exerciseId)}
@@ -1031,42 +1250,49 @@ export default function Workouts() {
             </h2>
 
             <div className="space-y-4 mb-6">
-              {weeklySummary.strengthGainVsLastWeek !== null && (
-                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#00FFAD]/30">
-                  <p className="text-[#5E6272] text-sm mb-1">Week-over-week</p>
-                  <p className="text-white font-semibold">
-                    You are{" "}
-                    <span
-                      className={
-                        weeklySummary.strengthGainVsLastWeek > 0
-                          ? "text-[#86FF99]"
-                          : "text-red-400"
-                      }
-                    >
-                      {Math.abs(weeklySummary.strengthGainVsLastWeek)}%{" "}
-                      {weeklySummary.strengthGainVsLastWeek > 0
-                        ? "stronger"
-                        : "weaker"}
-                    </span>{" "}
-                    this week compared to last week
-                  </p>
-                </div>
-              )}
+              {weeklySummary.strengthGainVsLastWeek !== null &&
+                !isNaN(weeklySummary.strengthGainVsLastWeek) && (
+                  <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#00FFAD]/30">
+                    <p className="text-[#5E6272] text-sm mb-1">
+                      Week-over-week
+                    </p>
+                    <p className="text-white font-semibold">
+                      You are{" "}
+                      <span
+                        className={
+                          weeklySummary.strengthGainVsLastWeek > 0
+                            ? "text-[#86FF99]"
+                            : "text-red-400"
+                        }
+                      >
+                        {Math.abs(weeklySummary.strengthGainVsLastWeek).toFixed(
+                          1,
+                        )}
+                        %{" "}
+                        {weeklySummary.strengthGainVsLastWeek > 0
+                          ? "stronger"
+                          : "weaker"}
+                      </span>{" "}
+                      this week compared to last week
+                    </p>
+                  </div>
+                )}
 
-              {weeklySummary.strengthGainVsProgramStart !== null && (
-                <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
-                  <p className="text-[#5E6272] text-sm mb-1">
-                    Since programme start
-                  </p>
-                  <p className="text-white font-semibold">
-                    You are{" "}
-                    <span className="text-[#246BFD]">
-                      {weeklySummary.strengthGainVsProgramStart}%
-                    </span>{" "}
-                    stronger than when you started this programme
-                  </p>
-                </div>
-              )}
+              {weeklySummary.strengthGainVsProgramStart !== null &&
+                !isNaN(weeklySummary.strengthGainVsProgramStart) && (
+                  <div className="p-4 rounded-lg bg-[#2A2E38] border border-[#246BFD]/30">
+                    <p className="text-[#5E6272] text-sm mb-1">
+                      Since programme start
+                    </p>
+                    <p className="text-white font-semibold">
+                      You are{" "}
+                      <span className="text-[#246BFD]">
+                        {weeklySummary.strengthGainVsProgramStart.toFixed(1)}%
+                      </span>{" "}
+                      stronger than when you started this programme
+                    </p>
+                  </div>
+                )}
 
               {weeklySummary.newRepMaxes &&
                 weeklySummary.newRepMaxes.length > 0 && (
@@ -1105,22 +1331,61 @@ export default function Workouts() {
                             {rec.reasoning}
                           </p>
                         </div>
-                      )
+                      ),
                     )}
                   </div>
                 )}
             </div>
 
             <button
-              onClick={() => {
-                setWeeklySummary(null);
-                setWorkoutCompleted(false);
-                advanceToNextDay();
-              }}
+              onClick={advanceToNextDay}
               className="w-full bg-[#86FF99] hover:bg-[#6bd664] text-black font-semibold py-3 rounded-lg transition-colors"
             >
               Continue to Next Workout
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Leaving Workout Modal */}
+      {showLeavingModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl">
+            <h2 className="text-white text-2xl font-bold text-center mb-4">
+              Leave Workout?
+            </h2>
+            <p className="text-[#A0AEC0] text-center mb-6">
+              Your workout progress will be saved. You can continue where you
+              left off when you come back.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  console.log("Continue button clicked");
+                  setShowLeavingModal(false);
+                  setNextLocation(null);
+                }}
+                className="flex-1 px-4 py-3 rounded-lg bg-[#2A2E38] hover:bg-[#3A3E48] text-white font-semibold transition-colors"
+              >
+                Continue Workout
+              </button>
+              <button
+                onClick={() => {
+                  console.log(
+                    "Leave button clicked, navigating to",
+                    nextLocation,
+                  );
+                  setShowLeavingModal(false);
+                  // Keep the workout session saved - don't remove it!
+                  if (nextLocation) {
+                    navigate(nextLocation);
+                  }
+                }}
+                className="flex-1 px-4 py-3 rounded-lg bg-red-900/20 hover:bg-red-900/30 text-red-400 font-semibold transition-colors border border-red-500/50"
+              >
+                Leave
+              </button>
+            </div>
           </div>
         </div>
       )}

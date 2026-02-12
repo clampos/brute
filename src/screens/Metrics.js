@@ -404,7 +404,7 @@ export default function Metrics() {
     return (_jsxs("div", { className: "min-h-screen text-[#5E6272] flex flex-col p-4 pb-16", style: {
             backgroundColor: "#0A0E1A",
         }, children: [_jsx(TopBar, { title: "Track Metrics", pageIcon: _jsx(Award, { size: 18 }), menuItems: [
-                    { label: "Dashboard", onClick: () => navigate("/") },
+                    { label: "Dashboard", onClick: () => navigate("/dashboard") },
                     { label: "Programmes", onClick: () => navigate("/programmes") },
                     { label: "Workouts", onClick: () => navigate("/workouts") },
                     { label: "Settings", onClick: () => navigate("/settings") },
