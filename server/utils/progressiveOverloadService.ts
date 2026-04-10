@@ -5,11 +5,36 @@ export interface WorkoutSetData {
   weight: number;
   reps: number;
   completed: boolean;
+  isDropSet?: boolean;
+  dropSetGroupId?: string;
+}
+
+interface SetDefinition {
+  type: "main" | "drop";
+  groupId?: string;
+}
+
+export interface ExerciseSetLayout {
+  exerciseId: string;
+  setDefinitions: SetDefinition[];
+}
+
+interface WorkoutSetHistory extends WorkoutSetData {
+  setNumber: number;
+  targetReps: number;
+  setType: "main" | "drop";
+  dropSetGroupId?: string;
 }
 
 export interface WorkoutData {
   exerciseId: string;
   sets: WorkoutSetData[];
+}
+
+export interface SetProgressionRecommendation {
+  setNumber: number;
+  recommendedWeight: number;
+  recommendedReps: number;
 }
 
 export interface ProgressionRecommendation {
@@ -26,6 +51,7 @@ export interface ProgressionRecommendation {
     | "OVERPERFORMANCE"
     | "INITIAL";
   reasoning: string;
+  setRecommendations: SetProgressionRecommendation[];
 }
 
 interface PerformanceHistory {
@@ -54,6 +80,36 @@ export class ProgressiveOverloadService {
   private static readonly WEIGHT_DECREASE_PERCENT = 0.1;
   private static readonly MANUAL_INCREASE_THRESHOLD = 1.1;
   private static readonly OVERPERFORMANCE_THRESHOLD = 1.1;
+
+  private static parseWorkoutSetDefinition(notes?: string | null): SetDefinition {
+    if (!notes) {
+      return { type: "main" };
+    }
+
+    try {
+      const parsed = JSON.parse(notes);
+      return {
+        type: parsed?.type === "drop" ? "drop" : "main",
+        groupId: parsed?.groupId,
+      };
+    } catch {
+      return { type: "main" };
+    }
+  }
+
+  private static normalizeCurrentSetDefinitions(
+    setDefinitions: SetDefinition[] | undefined,
+    setCount: number,
+  ): SetDefinition[] {
+    const count = setDefinitions ? Math.max(setCount, setDefinitions.length) : setCount;
+    return Array.from({ length: count }, (_, index) => {
+      const definition = setDefinitions?.[index];
+      return {
+        type: definition?.type === "drop" ? "drop" : "main",
+        groupId: definition?.groupId,
+      };
+    });
+  }
 
   /**
    * Generate RPE progression table based on program length
@@ -148,8 +204,13 @@ export class ProgressiveOverloadService {
           };
         }
 
+        const mainSets = exercise.sets.filter(
+          (set) => this.parseWorkoutSetDefinition(set.notes).type === "main",
+        );
+        const candidateSets = mainSets.length > 0 ? mainSets : exercise.sets;
+
         // Get best set (highest reps at given weight, or highest volume)
-        const bestSet = exercise.sets.reduce((best, current) => {
+        const bestSet = candidateSets.reduce((best, current) => {
           const bestVolume = (best.weight || 0) * (best.reps || 0);
           const currentVolume = (current.weight || 0) * (current.reps || 0);
           return currentVolume > bestVolume ? current : best;
@@ -163,6 +224,177 @@ export class ProgressiveOverloadService {
         };
       })
       .reverse(); // Reverse to get chronological order
+  }
+
+  private static async getLastWorkoutSetsForExercise(
+    userId: string,
+    exerciseId: string,
+  ): Promise<WorkoutSetHistory[]> {
+    const workout = await prisma.workout.findFirst({
+      where: {
+        userProgram: {
+          userId,
+          status: "ACTIVE",
+        },
+        exercises: {
+          some: {
+            exerciseId,
+          },
+        },
+      },
+      include: {
+        exercises: {
+          where: {
+            exerciseId,
+          },
+          include: {
+            sets: {
+              orderBy: {
+                setNumber: "asc",
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        completedAt: "desc",
+      },
+    });
+
+    const exercise = workout?.exercises?.[0];
+    if (!exercise) return [];
+
+    return exercise.sets.map((set) => {
+      const setDefinition = this.parseWorkoutSetDefinition(set.notes);
+      return {
+        setNumber: set.setNumber,
+        weight: set.weight || 0,
+        reps: set.reps || 0,
+        targetReps: set.targetReps ?? set.reps ?? 0,
+        completed: set.completed,
+        setType: setDefinition.type,
+        dropSetGroupId: setDefinition.groupId,
+      };
+    });
+  }
+
+  private static calculateSetRecommendation(
+    previousSet: WorkoutSetHistory,
+    currentRPE: number,
+    sets: number,
+    progressionType: ProgressionRecommendation["progressionType"],
+  ): SetProgressionRecommendation {
+    let recommendedWeight = previousSet.weight;
+    let recommendedReps = previousSet.targetReps || previousSet.reps;
+
+    if (progressionType === "MANUAL_JUMP") {
+      recommendedWeight = previousSet.weight;
+      recommendedReps = previousSet.reps;
+    } else if (progressionType === "UNDERPERFORMANCE") {
+      recommendedWeight = previousSet.weight * (1 - this.WEIGHT_DECREASE_PERCENT);
+      recommendedReps = Math.max(
+        1,
+        Math.floor((previousSet.targetReps || previousSet.reps) * 0.9),
+      );
+    } else if (progressionType === "OVERPERFORMANCE") {
+      recommendedWeight = previousSet.weight * (1 + this.WEIGHT_INCREASE_PERCENT);
+      recommendedReps = this.calculateVolumePreservingReps(
+        previousSet.weight,
+        previousSet.reps,
+        recommendedWeight,
+        sets,
+      );
+    } else if (progressionType === "FAILURE") {
+      recommendedWeight = previousSet.weight * (1 - this.WEIGHT_DECREASE_PERCENT);
+      recommendedReps = this.REP_FAIL;
+    } else if (progressionType === "REP_CAP") {
+      recommendedWeight = previousSet.weight * (1 + this.WEIGHT_INCREASE_PERCENT);
+      recommendedReps = this.calculateVolumePreservingReps(
+        previousSet.weight,
+        previousSet.reps,
+        recommendedWeight,
+        sets,
+      );
+    } else if (progressionType === "NORMAL") {
+      recommendedWeight = previousSet.weight;
+      recommendedReps = Math.min(
+        (previousSet.targetReps || previousSet.reps) + 1,
+        this.REP_CAP,
+      );
+    }
+
+    recommendedWeight = Math.round(recommendedWeight * 2) / 2;
+
+    return {
+      setNumber: previousSet.setNumber,
+      recommendedWeight,
+      recommendedReps,
+    };
+  }
+
+  private static buildSetRecommendations(
+    previousSets: WorkoutSetHistory[],
+    currentSetDefinitions: SetDefinition[],
+    currentRPE: number,
+    progressionType: ProgressionRecommendation["progressionType"],
+  ): SetProgressionRecommendation[] {
+    if (previousSets.length === 0) {
+      const baseline = {
+        weight: 20,
+        reps: 8,
+        targetReps: 8,
+        setNumber: 1,
+        completed: true,
+        setType: "main" as const,
+      } as WorkoutSetHistory;
+
+      let mainIndex = 0;
+      return currentSetDefinitions.flatMap((definition, idx) => {
+        if (definition.type === "drop") {
+          return [];
+        }
+
+        mainIndex += 1;
+        return {
+          setNumber: idx + 1,
+          recommendedWeight: baseline.weight,
+          recommendedReps: baseline.reps,
+        };
+      });
+    }
+
+    const previousMainSets = previousSets.filter(
+      (set) => set.setType !== "drop",
+    );
+    const previousDropSets = previousSets.filter(
+      (set) => set.setType === "drop",
+    );
+
+    let mainIndex = 0;
+    let dropIndex = 0;
+
+    return currentSetDefinitions.flatMap((definition, idx) => {
+      const previousSet =
+        definition.type === "drop"
+          ? previousDropSets[dropIndex++]
+          : previousMainSets[mainIndex++];
+
+      if (!previousSet) {
+        return [];
+      }
+
+      const setRecommendation = this.calculateSetRecommendation(
+        previousSet,
+        currentRPE,
+        currentSetDefinitions.length,
+        progressionType,
+      );
+
+      return {
+        ...setRecommendation,
+        setNumber: idx + 1,
+      };
+    });
   }
 
   /**
@@ -236,6 +468,8 @@ export class ProgressiveOverloadService {
   static async getProgressionRecommendations(
     userId: string,
     exerciseIds: string[],
+    setCounts: number[] = [],
+    setLayouts: ExerciseSetLayout[] = [],
   ): Promise<ProgressionRecommendation[]> {
     const recommendations: ProgressionRecommendation[] = [];
 
@@ -249,19 +483,44 @@ export class ProgressiveOverloadService {
       const currentRPE =
         rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
 
-      for (const exerciseId of exerciseIds) {
+      for (let index = 0; index < exerciseIds.length; index += 1) {
+        const exerciseId = exerciseIds[index];
+        const setCount =
+          setCounts[index] && setCounts[index] > 0 ? setCounts[index] : 3;
+        const currentSetDefinitions = this.normalizeCurrentSetDefinitions(
+          setLayouts.find((layout) => layout.exerciseId === exerciseId)
+            ?.setDefinitions,
+          setCount,
+        );
+
         // Get performance history (last 3 weeks for consistency checks)
         const history = await this.getPerformanceHistory(userId, exerciseId, 3);
+        const lastWorkoutSets = await this.getLastWorkoutSetsForExercise(
+          userId,
+          exerciseId,
+        );
 
         // If no history, provide initial recommendations (Week 1 Setup)
-        if (history.length === 0) {
+        if (history.length === 0 || lastWorkoutSets.length === 0) {
+          const defaultSetRecommendations = currentSetDefinitions.flatMap(
+            (definition, idx) =>
+              definition.type === "drop"
+                ? []
+                : {
+                    setNumber: idx + 1,
+                    recommendedWeight: 20,
+                    recommendedReps: 8,
+                  },
+          );
+
           recommendations.push({
             exerciseId,
-            recommendedWeight: 20, // Default starting weight
+            recommendedWeight: 20,
             recommendedReps: 8,
             recommendedRPE: currentRPE,
             progressionType: "INITIAL",
             reasoning: `Starting weight for Week ${currentWeek}. Aim for RPE ${currentRPE}.`,
+            setRecommendations: defaultSetRecommendations,
           });
           continue;
         }
@@ -271,9 +530,6 @@ export class ProgressiveOverloadService {
         const currentWeight = lastSession.weight;
         const lastReps = lastSession.actualReps;
         const lastTargetReps = lastSession.targetReps || lastReps;
-
-        // Assume 3 sets as default
-        const sets = 3;
 
         let recommendedWeight = currentWeight;
         let recommendedReps = lastTargetReps;
@@ -327,15 +583,13 @@ export class ProgressiveOverloadService {
             );
 
             if (overperformed) {
-              // Increase weight by 5%
               recommendedWeight =
                 currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
-              // Recalculate reps using volume-preserving rule
               recommendedReps = this.calculateVolumePreservingReps(
                 currentWeight,
                 lastReps,
                 recommendedWeight,
-                sets,
+                setCount,
               );
               progressionType = "OVERPERFORMANCE";
               reasoning = `Consistently exceeding targets by >10% for 2 weeks! Increasing weight by 5% with volume-preserving reps for the 3rd week.`;
@@ -362,7 +616,7 @@ export class ProgressiveOverloadService {
             currentWeight,
             lastReps,
             recommendedWeight,
-            sets,
+            setCount,
           );
           progressionType = "REP_CAP";
           reasoning = `Rep cap reached (≥${this.REP_CAP})! Increasing weight by 5% with volume-preserving reps.`;
@@ -376,16 +630,27 @@ export class ProgressiveOverloadService {
           reasoning = `Normal progression: Add +1 rep per set. Target RPE ${currentRPE}.`;
         }
 
-        // Round weight to nearest 0.5kg
-        recommendedWeight = Math.round(recommendedWeight * 2) / 2;
+        const setRecommendations = this.buildSetRecommendations(
+          lastWorkoutSets,
+          currentSetDefinitions,
+          currentRPE,
+          progressionType,
+        );
+
+        const topRecommendation = setRecommendations[0] || {
+          setNumber: 1,
+          recommendedWeight,
+          recommendedReps,
+        };
 
         recommendations.push({
           exerciseId,
-          recommendedWeight,
-          recommendedReps,
+          recommendedWeight: topRecommendation.recommendedWeight,
+          recommendedReps: topRecommendation.recommendedReps,
           recommendedRPE: currentRPE,
           progressionType,
           reasoning,
+          setRecommendations,
         });
       }
 
@@ -409,30 +674,20 @@ export class ProgressiveOverloadService {
     weeklySummary?: WeeklySummary;
   }> {
     try {
-      // Get user program and compute week/day based on startDate
+      // Get user program details
       const { userProgram } = await this.getUserProgramDetails(userId);
 
-      const completedAt = new Date();
-      const start = new Date(userProgram.startDate);
-      start.setHours(0, 0, 0, 0);
-      const daysSinceStart = Math.floor(
-        (completedAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
-      );
+      // Use the current program position for this workout
+      const weekNumber = userProgram.currentWeek;
+      const dayNumber = userProgram.currentDay;
 
-      const weekNumber = Math.floor(daysSinceStart / 7) + 1;
-      const dayIndex = daysSinceStart % 7;
-      const dayNumber = Math.min(
-        dayIndex + 1,
-        userProgram.programme.daysPerWeek || 3,
-      );
-
-      // Create workout record with week/day based on startDate-relative weeks
+      // Create workout record with current program position
       const workout = await prisma.workout.create({
         data: {
           userProgramId: userProgram.id,
           weekNumber,
           dayNumber,
-          completedAt,
+          completedAt: new Date(),
         },
       });
 
@@ -458,6 +713,10 @@ export class ProgressiveOverloadService {
               reps: set.reps,
               targetReps: set.reps, // Store actual reps as target for next session comparison
               rpe: null, // RPE is no longer user-recorded
+              notes: JSON.stringify({
+                type: set.isDropSet ? "drop" : "main",
+                groupId: set.dropSetGroupId,
+              }),
               completed: set.completed,
             },
           });
@@ -466,15 +725,45 @@ export class ProgressiveOverloadService {
 
       // Get all exercise IDs for next session recommendations
       const exerciseIds = workoutData.map((ex) => ex.exerciseId);
-      // Only calculate weekly recommendations at the end of the user's programme week
-      // i.e., when the completedAt falls on the 7th day since the start of the week window (dayIndex === 6)
-      const isEndOfWeek = daysSinceStart % 7 === 6;
+      const setLayouts = workoutData.map((exercise) => ({
+        exerciseId: exercise.exerciseId,
+        setDefinitions: exercise.sets.map((set) => ({
+          type: (set.isDropSet ? "drop" : "main") as "main" | "drop",
+          groupId: set.dropSetGroupId,
+        })),
+      }));
+      
+      // Check if this workout completes the current week
+      const isEndOfWeek = dayNumber >= (userProgram.programme.daysPerWeek || 3);
+
+      // Update user program progress
+      const nextDay = dayNumber >= (userProgram.programme.daysPerWeek || 3) 
+        ? 1 
+        : dayNumber + 1;
+      const nextWeek = dayNumber >= (userProgram.programme.daysPerWeek || 3) 
+        ? weekNumber + 1 
+        : weekNumber;
+
+      // Check if program is completed
+      const isProgramCompleted = nextWeek > (userProgram.programme.weeks || 4);
+      
+      await prisma.userProgram.update({
+        where: { id: userProgram.id },
+        data: {
+          currentDay: isProgramCompleted ? userProgram.programme.daysPerWeek || 3 : nextDay,
+          currentWeek: isProgramCompleted ? userProgram.programme.weeks || 4 : nextWeek,
+          status: isProgramCompleted ? "COMPLETED" : "ACTIVE",
+          endDate: isProgramCompleted ? new Date() : null,
+        },
+      });
 
       let recommendations: ProgressionRecommendation[] = [];
       if (isEndOfWeek) {
         recommendations = await this.getProgressionRecommendations(
           userId,
           exerciseIds,
+          workoutData.map((exercise) => exercise.sets.length),
+          setLayouts,
         );
       } else {
         // Not end of week yet: return empty recommendations and do not perform progression logic

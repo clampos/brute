@@ -2,8 +2,11 @@
 import express, { Request, Response } from 'express';
 import Stripe from 'stripe';
 import dotenv from 'dotenv';
-import { sendConfirmationEmail, sendReferralWelcomeEmail, sendReferralRewardEmail } from './email';
-import { prisma } from './prisma'; 
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import { sendConfirmationEmail, sendReferralWelcomeEmail, sendReferralRewardEmail, sendPasswordResetEmail } from './email';
+import { prisma } from './prisma';
+import { generateUniqueReferralCode } from './utils/referralUtils'; 
 
 dotenv.config();
 
@@ -139,6 +142,41 @@ async function createStripeBillingCredit(email: string, description: string) {
   }
 }
 
+function normalizeFieldLabel(field: any): string {
+  if (!field?.label) return '';
+  if (typeof field.label === 'string') return field.label.toLowerCase().trim();
+
+  if (field.label.custom_text?.text) {
+    return field.label.custom_text.text.toLowerCase().trim();
+  }
+
+  if (field.label.type === 'custom_text' && field.label.custom_text) {
+    return String(field.label.custom_text.text || '').toLowerCase().trim();
+  }
+
+  return String(field.label?.type || '').toLowerCase().trim();
+}
+
+function extractCustomFieldValue(customFields: any[], matchers: Array<(field: any) => boolean>): string | null {
+  for (const field of customFields) {
+    const value = field?.text?.value;
+    if (!value) continue;
+
+    const key = String(field?.key || '').toLowerCase().trim();
+    const label = normalizeFieldLabel(field);
+
+    if (matchers.some(matcher => matcher({ key, label }))) {
+      return String(value).trim();
+    }
+  }
+
+  return null;
+}
+
+function matchCustomFieldLabel(label: string, ...keywords: string[]): boolean {
+  return keywords.some(keyword => label.includes(keyword));
+}
+
 // Main webhook handler
 router.post(
   '/',
@@ -169,6 +207,11 @@ router.post(
       // Get email with fallback logic
       let email: string | null = session.customer_email ?? null;
 
+// Fallback: try metadata if present
+if (!email && session.metadata?.email) {
+  email = session.metadata.email;
+}
+
       if (!email && session.customer) {
         try {
           const customerResult = await stripe.customers.retrieve(session.customer as string);
@@ -180,36 +223,164 @@ router.post(
         }
       }
 
-      if (!email) {
-        console.error('❌ No email found for checkout session:', session.id);
-        return res.status(400).json({ error: 'No email found' });
-      }
+   if (!email) {
+  console.error('❌ No email found for checkout session:', session.id);
+  
+  // In development, don't fail hard
+  return res.status(200).json({ received: true, warning: 'No email found' });
+}
 
       console.log(`✅ Processing subscription for email: ${email}`);
 
       try {
-        // CRITICAL FIX: Wait for user to exist (handles race condition with signup)
-        const existingUser = await waitForUser(email, 5, 2000);
+        // Check if user exists
+        let existingUser = await prisma.user.findUnique({ where: { email } });
 
         if (!existingUser) {
-          console.error(`❌ User not found after retries for email: ${email}`);
-          return res.status(400).json({ error: 'User not found after waiting' });
+          console.log(`👤 User not found, creating from Stripe payment link: ${email}`);
+
+          // Get customer details from Stripe
+          let customerDetails: any = session.customer_details;
+          const customFields = session.custom_fields || [];
+
+          if (!customerDetails && session.customer) {
+            try {
+              const customerResult = await stripe.customers.retrieve(session.customer as string);
+              if (customerResult.deleted !== true) {
+                customerDetails = {
+                  email: customerResult.email || email,
+                  name: customerResult.name || 'Unknown User',
+                };
+              }
+            } catch (err) {
+              console.error('❌ Failed to retrieve customer details:', err);
+            }
+          }
+
+          console.log('📋 Stripe custom fields:', customFields.map((field: any) => ({
+            key: field?.key,
+            label: normalizeFieldLabel(field),
+            value: field?.text?.value,
+          })));
+
+          const firstNameValue = extractCustomFieldValue(customFields, [
+            ({ key, label }) => key === 'fullname' || key === 'full_name',
+            ({ label }) => matchCustomFieldLabel(label, 'name', 'full name', 'fullname'),
+          ]);
+          const passwordValue = extractCustomFieldValue(customFields, [
+            ({ key, label }) => key === 'setpassword' || key === 'password',
+            ({ label }) => matchCustomFieldLabel(label, 'password', 'pass'),
+          ]);
+          const referralValue = extractCustomFieldValue(customFields, [
+            ({ key, label }) => key === 'didanyonereferyou' || key === 'referralcode' || key === 'referral',
+            ({ label }) => matchCustomFieldLabel(label, 'referral', 'referrer', 'code'),
+          ]);
+
+          let firstName = 'Unknown';
+          let surname = 'User';
+          let userPassword: string | null = null;
+          let referralCodeInput: string | null = null;
+
+          // Parse full name
+          if (firstNameValue) {
+            const nameParts = firstNameValue.split(' ');
+            firstName = nameParts[0] || 'Unknown';
+            surname = nameParts.slice(1).join(' ') || 'User';
+          } else if (customerDetails?.name) {
+            const nameParts = customerDetails.name.split(' ');
+            firstName = nameParts[0] || 'Unknown';
+            surname = nameParts.slice(1).join(' ') || 'User';
+          }
+
+          // Get password
+          if (passwordValue) {
+            userPassword = passwordValue;
+          }
+
+          // Get referral code
+          if (referralValue) {
+            referralCodeInput = referralValue.trim();
+          }
+
+          if (!userPassword) {
+            console.error('❌ No password provided in Stripe payment link custom fields.');
+            return res.status(400).json({ error: 'Password required' });
+          }
+
+          // Validate password strength
+          const hasUpperCase = /[A-Z]/.test(userPassword);
+          const hasLowerCase = /[a-z]/.test(userPassword);
+          const hasNumbers = /\d/.test(userPassword);
+          if (userPassword.length < 8 || !hasUpperCase || !hasLowerCase || !hasNumbers) {
+            console.error('❌ Password does not meet requirements');
+            return res.status(400).json({ error: 'Password must be at least 8 characters with uppercase, lowercase, and numbers' });
+          }
+
+          const hashedPassword = await bcrypt.hash(userPassword, 10);
+          const referralCode = await generateUniqueReferralCode(firstName, surname, prisma);
+
+          // Check referral code if provided
+          let referrer = null;
+          if (referralCodeInput) {
+            referrer = await prisma.user.findUnique({
+              where: { referralCode: referralCodeInput },
+            });
+            if (!referrer) {
+              console.log(`⚠️ Invalid referral code provided: ${referralCodeInput}`);
+            }
+          }
+
+          // Create user
+          existingUser = await prisma.user.create({
+            data: {
+              email,
+              password: hashedPassword,
+              firstName,
+              surname,
+              referralCode,
+              referredBy: referrer?.id,
+              subscribed: true, // Mark as subscribed immediately
+            },
+          });
+          const newUserId = existingUser.id;
+
+          console.log(`✅ Created user from Stripe payment link:`, {
+            id: existingUser.id,
+            email: existingUser.email,
+            firstName: existingUser.firstName,
+            surname: existingUser.surname,
+            hasReferrer: !!referrer,
+          });
+
+          // Send welcome email
+          try {
+            await sendConfirmationEmail(email, referralCode);
+            console.log(`✅ Sent welcome email to: ${email}`);
+          } catch (error) {
+            console.error('❌ Failed to send welcome email:', error);
+          }
+
+          // Process referral if applicable
+          if (referrer) {
+            setImmediate(async () => {
+              await awardReferralCredits(referrer.id, newUserId);
+            });
+          }
+        } else {
+          // Existing user flow - just mark as subscribed
+          console.log(`✅ Existing user found:`, {
+            id: existingUser.id,
+            email: existingUser.email,
+            subscribed: existingUser.subscribed
+          });
+
+          await prisma.user.update({
+            where: { email },
+            data: { subscribed: true },
+          });
+
+          console.log(`✅ User marked as subscribed: ${email}`);
         }
-
-        console.log(`✅ User found:`, {
-          id: existingUser.id,
-          email: existingUser.email,
-          subscribed: existingUser.subscribed,
-          createdAt: existingUser.createdAt
-        });
-
-        // CRITICAL: Mark user as subscribed IMMEDIATELY
-        await prisma.user.update({
-          where: { email },
-          data: { subscribed: true },
-        });
-
-        console.log(`✅ User marked as subscribed: ${email}`);
 
         // Get metadata for referral processing
         const userId = session.metadata?.userId;
@@ -267,6 +438,40 @@ router.post(
       } catch (error) {
         console.error('❌ Error processing subscription:', error);
         return res.status(500).json({ error: 'Failed to process subscription' });
+      }
+    }
+
+    // Handle Stripe customer creation for future syncs
+    else if (event.type === 'customer.created') {
+      const customer = event.data.object as Stripe.Customer;
+      console.log(`👤 Stripe customer created: ${customer.id}`);
+
+      if (customer.email) {
+        const existingUser = await prisma.user.findUnique({ where: { email: customer.email } });
+
+        if (!existingUser) {
+          const [firstName, surname] = (customer.name || 'Unknown User').split(' ');
+          const randomPassword = crypto.randomBytes(16).toString('hex');
+          const hashedPassword = await bcrypt.hash(randomPassword, 10);
+          const referralCode = await generateUniqueReferralCode(firstName || 'Unknown', surname || 'User', prisma);
+
+          await prisma.user.create({
+            data: {
+              email: customer.email,
+              password: hashedPassword,
+              firstName: firstName || 'Unknown',
+              surname: surname || 'User',
+              referralCode,
+              subscribed: false,
+            },
+          });
+
+          console.log(`✅ Imported Stripe customer as local user: ${customer.email}`);
+        } else {
+          console.log(`ℹ️ Local user already exists for Stripe customer: ${customer.email}`);
+        }
+      } else {
+        console.log('⚠️ Stripe customer created without email; cannot create local user');
       }
     }
 

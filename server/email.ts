@@ -6,7 +6,7 @@ dotenv.config();
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-export async function sendConfirmationEmail(to: string, userReferralCode?: string) {
+export async function sendConfirmationEmail(to: string, userReferralCode?: string, generatedPassword?: string) {
   console.log("📤 Sending welcome email to:", to);
   try {
     const referralSection = userReferralCode ? `

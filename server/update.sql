@@ -1,0 +1,1 @@
+UPDATE User SET password = '$2b$10$Smkqdhtp8dOoD4Fvanb5eei0TJja1vihkJ5I.A/USAcYQJW9KLVHe' WHERE email = 'charlie@onyxdigital.io';
