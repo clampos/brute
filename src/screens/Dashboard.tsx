@@ -7,6 +7,8 @@ import {
   Scale,
   Trophy,
   ListTodo,
+  Flame,
+  Shield,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
@@ -44,11 +46,25 @@ interface WeeklyStats {
   totalExercises: number;
 }
 
+interface StreakStatus {
+  streakCount: number;
+  streakGoal: number;
+  currentWindowWorkouts: number;
+  currentWindowStart: string | null;
+  lastWorkoutAt: string | null;
+  streakFreezeAvailable: boolean;
+  freezeUsedOnCurrentStreak: boolean;
+  showCountdown: boolean;
+  countdownDaysRemaining: number | null;
+  daysUntilExpiry: number | null;
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [userProgram, setUserProgram] = useState<UserProgram | null>(null);
   const [todayWorkout, setTodayWorkout] = useState<any>(null);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
+  const [streakStatus, setStreakStatus] = useState<StreakStatus | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
 
   const navItems = ["overview", "performance"];
@@ -59,7 +75,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
-  const [firstName, setFirstName] = useState("John");
+  const [firstName, setFirstName] = useState("");
   const [surname, setSurname] = useState("Doe");
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
 
@@ -86,7 +102,10 @@ export default function Dashboard() {
         if (!dashboardRes.ok) throw new Error("Unauthorized");
 
         const userData = await dashboardRes.json();
-        setFirstName(userData.firstName);
+        const dashboardFirstName = (userData?.firstName ?? "").trim();
+        if (dashboardFirstName) {
+          setFirstName(dashboardFirstName);
+        }
         setSurname(userData.surname);
         setMessage(userData.message);
 
@@ -102,6 +121,10 @@ export default function Dashboard() {
 
         if (profileRes.ok) {
           const profileData = await profileRes.json();
+          const profileFirstName = (profileData?.firstName ?? "").trim();
+          if (profileFirstName) {
+            setFirstName(profileFirstName);
+          }
           setProfilePhoto(profileData.profilePhoto);
         }
 
@@ -119,6 +142,18 @@ export default function Dashboard() {
           const userPrograms = await userProgramRes.json();
           const active = userPrograms.find((up: any) => up.status === "ACTIVE");
           setUserProgram(active);
+        }
+
+        // Run streak expiry check and fetch latest streak state on app open
+        const streakRes = await fetch("http://localhost:4242/auth/streak", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (streakRes.ok) {
+          const streakData = await streakRes.json();
+          setStreakStatus(streakData);
         }
 
         setLoading(false);
@@ -201,17 +236,39 @@ export default function Dashboard() {
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const displayFirstName = firstName.trim();
 
   return (
-    <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
-      style={{
-        backgroundColor: "#0A0E1A",
-      }}
-    >
+    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
       <TopBar
         title="Dashboard"
-        pageIcon={null}
+        pageIcon={
+          <button
+            className="w-8 h-8 rounded-full overflow-hidden cursor-pointer border border-[#246BFD]/60 hover:border-[#6BA9FF] transition-colors relative"
+            onClick={() => navigate("/settings")}
+            aria-label="Open profile settings"
+            title="Profile"
+          >
+            {profilePhoto ? (
+              <img
+                src={`http://localhost:4242${profilePhoto}`}
+                alt="Profile"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.error("Failed to load profile image:", profilePhoto);
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            ) : null}
+            <div
+              className={`absolute inset-0 w-full h-full bg-[#262A34] flex items-center justify-center ${
+                profilePhoto ? "hidden" : "flex"
+              }`}
+            >
+              <User size={16} className="text-[#9CA3AF]" />
+            </div>
+          </button>
+        }
         menuItems={[
           { label: "Programmes", onClick: () => navigate("/programmes") },
           { label: "Workouts", onClick: () => navigate("/workouts") },
@@ -220,36 +277,9 @@ export default function Dashboard() {
         ]}
       />
 
-      {/* Profile avatar row beneath TopBar */}
-      <div className="w-full px-4 flex justify-end mt-2">
-        <div
-          className="w-10 h-10 rounded-full overflow-hidden cursor-pointer border-2 border-[#246BFD] hover:border-[#1a52cc] transition-colors relative"
-          onClick={() => navigate("/settings")}
-        >
-          {profilePhoto ? (
-            <img
-              src={`http://localhost:4242${profilePhoto}`}
-              alt="Profile"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                console.error("Failed to load profile image:", profilePhoto);
-                e.currentTarget.style.display = "none";
-              }}
-            />
-          ) : null}
-          <div
-            className={`absolute inset-0 w-full h-full bg-[#262A34] flex items-center justify-center ${
-              profilePhoto ? "hidden" : "flex"
-            }`}
-          >
-            <User size={20} className="text-[#5E6272]" />
-          </div>
-        </div>
-      </div>
-
       {/* Welcome Message */}
       <h1
-        className="text-center mt-4"
+        className="text-center mt-1"
         style={{
           fontFamily: "'Poppins', sans-serif",
           fontWeight: 600,
@@ -259,11 +289,11 @@ export default function Dashboard() {
           color: "white",
         }}
       >
-        {greeting}, {firstName}
+        {displayFirstName ? `${greeting}, ${displayFirstName}` : `${greeting}!`}
       </h1>
 
       {/* Filter Menu */}
-      <div className="flex justify-around mt-6 mb-4">
+      <div className="flex justify-around mt-3 mb-4">
         {navItems.map((item) => (
           <button
             key={item}
@@ -316,6 +346,51 @@ export default function Dashboard() {
           )}
 
           {/* Old code removed - was showing progress bar and view programme button */}
+
+          {/* Rolling consistency streak */}
+          {streakStatus && (
+            <div className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Flame size={18} className="text-[#FF8C42]" />
+                  <span className="text-white font-semibold text-base">
+                    {streakStatus.streakCount}-week streak
+                  </span>
+                </div>
+                {streakStatus.freezeUsedOnCurrentStreak && (
+                  <div className="flex items-center gap-1 text-[#8AB4FF] text-xs font-medium">
+                    <Shield size={14} />
+                    Freeze used
+                  </div>
+                )}
+              </div>
+
+              <p className="text-[#9AA0AE] text-sm mt-2">
+                {streakStatus.currentWindowWorkouts} / {streakStatus.streakGoal} workouts this window
+              </p>
+
+              <div className="w-full bg-[#1A1D23] rounded-full h-2 mt-3 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-[#FF8C42] to-[#FFC857] h-2 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (streakStatus.currentWindowWorkouts /
+                        Math.max(streakStatus.streakGoal, 1)) *
+                        100,
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              {streakStatus.showCountdown && (
+                <p className="text-[#AFC4E8] text-xs mt-3">
+                  Log a workout in the next {streakStatus.countdownDaysRemaining} day
+                  {streakStatus.countdownDaysRemaining === 1 ? "" : "s"} to keep your streak.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Quick Action Boxes */}
           <div

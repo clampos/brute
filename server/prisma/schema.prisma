@@ -40,6 +40,14 @@ model User {
   passwordResetToken   String?   
   passwordResetExpires DateTime?
 
+  // Rolling window consistency streak fields
+  streak_count             Int      @default(0)
+  streak_goal              Int      @default(3)
+  current_window_start     DateTime?
+  current_window_workouts  Int      @default(0)
+  streak_freeze_available  Boolean  @default(true)
+  last_workout_at          DateTime?
+
   userPrograms UserProgram[]
   bodyweightEntries BodyweightEntry[]
   bodyfatEntries    BodyfatEntry[]

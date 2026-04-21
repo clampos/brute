@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   Edit3,
   Play,
+  X,
 } from "lucide-react";
 
 export default function Programmes() {
@@ -31,6 +32,8 @@ export default function Programmes() {
   );
   const [selectedProgrammeName, setSelectedProgrammeName] =
     useState<string>("");
+  const [showEndProgrammeModal, setShowEndProgrammeModal] = useState(false);
+  const [endingProgramme, setEndingProgramme] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -211,13 +214,57 @@ export default function Programmes() {
     }
   };
 
+  const endActiveProgramme = async () => {
+    if (!activeUserProgram) return;
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    setEndingProgramme(true);
+
+    try {
+      const response = await fetch(
+        `http://localhost:4242/auth/user-programs/${activeUserProgram.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ status: "COMPLETED" }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to end programme");
+      }
+
+      const updatedProgram = await response.json();
+
+      setPreviousPrograms((prev) => [
+        {
+          ...activeUserProgram,
+          status: "COMPLETED",
+          endDate: updatedProgram.endDate ?? new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      setActiveUserProgram(null);
+      setShowEndProgrammeModal(false);
+      localStorage.removeItem("workoutSession");
+    } catch (error) {
+      console.error("Error ending programme:", error);
+      alert("Failed to end programme. Please try again.");
+    } finally {
+      setEndingProgramme(false);
+    }
+  };
+
   return (
-    <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
-      style={{
-        backgroundColor: "#0A0E1A",
-      }}
-    >
+    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
       <TopBar
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
@@ -230,7 +277,7 @@ export default function Programmes() {
       />
 
       {/* Filter Tabs */}
-      <div className="flex gap-2 mt-4 mb-6">
+      <div className="flex gap-2 mt-3 mb-5">
         <button
           onClick={() => setFilterTab("all")}
           className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
@@ -261,7 +308,14 @@ export default function Programmes() {
               <span className="text-black font-semibold text-sm">
                 ACTIVE PROGRAMME
               </span>
-              <CheckCircle className="text-green-700" size={20} />
+              <button
+                onClick={() => setShowEndProgrammeModal(true)}
+                className="w-7 h-7 rounded-full bg-black/20 hover:bg-black/30 text-black flex items-center justify-center transition-colors"
+                aria-label="End active programme"
+                title="End programme"
+              >
+                <X size={16} />
+              </button>
             </div>
             <h3 className="text-black font-bold text-lg mb-1">
               {activeUserProgram.programme.name}
@@ -478,6 +532,45 @@ export default function Programmes() {
                 className="flex-1 px-4 py-3 rounded-lg bg-[#246BFD] hover:bg-blue-700 text-white font-semibold transition-colors"
               >
                 Switch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* End Active Programme Modal */}
+      {showEndProgrammeModal && activeUserProgram && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl">
+            <h2 className="text-white text-2xl font-bold text-center mb-4">
+              End Programme?
+            </h2>
+            <p className="text-[#A0AEC0] text-center mb-2">
+              This will end
+              <span className="text-[#00FFAD] font-semibold"> {activeUserProgram.programme?.name}</span>
+              .
+            </p>
+            <p className="text-[#5E6272] text-center text-sm mb-6">
+              Your progress and workout history will still be saved. You can start
+              another programme anytime.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowEndProgrammeModal(false)}
+                className="flex-1 px-4 py-3 rounded-lg bg-[#2A2E38] hover:bg-[#3A3E48] text-white font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={endActiveProgramme}
+                disabled={endingProgramme}
+                className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors ${
+                  endingProgramme
+                    ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+                    : "bg-red-900/20 hover:bg-red-900/30 text-red-400 border border-red-500/50"
+                }`}
+              >
+                {endingProgramme ? "Ending..." : "End Programme"}
               </button>
             </div>
           </div>

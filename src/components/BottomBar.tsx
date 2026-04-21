@@ -1,5 +1,5 @@
 import React from "react";
-import { Home, Dumbbell, Calendar, Settings, LogOut } from "lucide-react";
+import { Home, Dumbbell, Calendar, Settings } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 interface BottomBarProps {
@@ -18,20 +18,30 @@ export default function BottomBar({ onLogout }: BottomBarProps) {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-[#0E1117] border-t border-[#1F1F1F] flex justify-around items-center py-2 z-50">
-      {navItems.map((item) => (
-        <button
-          key={item.path}
-          onClick={() => navigate(item.path)}
-          className={`flex flex-col items-center text-sm ${
-            location.pathname === item.path
-              ? "text-[#246BFD]"
-              : "text-[#5E6272]"
-          }`}
-        >
-          {item.icon}
-        </button>
-      ))}
+    <div className="fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
+      <div className="pointer-events-auto mx-auto mb-3 w-[calc(100%-1.5rem)] max-w-[430px]">
+        <div className="glass-modal rounded-2xl px-3 py-3 border border-white/15">
+          <div className="flex items-center justify-between gap-1">
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  aria-label={item.label}
+                  className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all duration-200 ${
+                    isActive
+                      ? "bg-white/14 text-[#8EC5FF] shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_8px_18px_rgba(6,16,40,0.45)]"
+                      : "text-[#98A2B8] hover:bg-white/8 hover:text-white"
+                  }`}
+                >
+                  {item.icon}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

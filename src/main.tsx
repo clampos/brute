@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import App from "./App.tsx";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -9,7 +9,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   </React.StrictMode>
 );
 
-if ("serviceWorker" in navigator) {
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("/sw.js")
@@ -20,4 +20,14 @@ if ("serviceWorker" in navigator) {
         console.log("SW registration failed: ", registrationError);
       });
   });
+} else if ("serviceWorker" in navigator) {
+  // Prevent stale local caches from blanking the app during development.
+  navigator.serviceWorker
+    .getRegistrations()
+    .then((registrations) => {
+      registrations.forEach((registration) => registration.unregister());
+    })
+    .catch(() => {
+      // ignore
+    });
 }

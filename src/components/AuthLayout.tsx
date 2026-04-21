@@ -18,7 +18,7 @@ export default function AuthLayout({
       <BubblesBackground />
       <div className="relative z-10 flex flex-col items-center justify-center h-full px-6">
         <img src={logo} alt="Logo" className="mb-6 w-40 h-auto" />
-        <div className="w-full max-w-md px-4 space-y-6">
+        <div className="glass-modal w-full max-w-md px-4 py-6 rounded-2xl space-y-6">
           <h1 className="text-3xl font-semibold font-poppins text-center">
             {title}
           </h1>

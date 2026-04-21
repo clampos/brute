@@ -49,6 +49,7 @@ export interface ProgressionRecommendation {
     | "MANUAL_JUMP"
     | "UNDERPERFORMANCE"
     | "OVERPERFORMANCE"
+    | "DELOAD"
     | "INITIAL";
   reasoning: string;
   setRecommendations: SetProgressionRecommendation[];
@@ -64,6 +65,29 @@ interface PerformanceHistory {
 export interface WeeklySummary {
   strengthGainVsLastWeek: number | null; // percentage
   strengthGainVsProgramStart: number | null; // percentage
+  weekOnWeekVsWeek1: number | null; // percentage context for current week vs week 1
+  previousWorkoutComparison: {
+    totalVolumeChangePct: number | null;
+    totalCurrentVolume: number;
+    totalPreviousVolume: number;
+    totalExtraWeightMovedKg: number;
+    exerciseDeltas: Array<{
+      exerciseId: string;
+      exerciseName: string;
+      currentVolume: number;
+      previousVolume: number;
+      changePct: number | null;
+      extraWeightMovedKg: number;
+    }>;
+  } | null;
+  personalRecords: Array<{
+    exerciseId: string;
+    exerciseName: string;
+    metric: "reps" | "weight" | "volume" | "repsAtWeight";
+    value: number;
+    previousBest: number;
+    contextWeightKg?: number;
+  }>;
   newRepMaxes: Array<{
     exerciseName: string;
     reps: number;
@@ -114,39 +138,26 @@ export class ProgressiveOverloadService {
   /**
    * Generate RPE progression table based on program length
    * Rules:
-   * - Week 1 = RPE 7
-   * - Penultimate week = RPE 10
-   * - Last week = RPE 5 (deload)
-   * - Intermediate weeks spread evenly between 7 and 10, rounded down
+   * - Base programme week 1 starts at RPE 7
+   * - Final base programme week reaches RPE 10
+   * - Optional post-programme deload week is appended at RPE 5
    */
   private static generateRPETable(programLength: number): number[] {
-    const rpeTable: number[] = [];
+    const baseWeeks = Math.max(1, programLength);
+    const baseRPEs: number[] = [];
 
-    // Week 1 always starts at RPE 7
-    rpeTable[0] = 7;
-
-    // Handle edge cases
-    if (programLength === 1) return [7];
-    if (programLength === 2) return [7, 5];
-    if (programLength === 3) return [7, 10, 5];
-
-    // Penultimate week = RPE 10
-    rpeTable[programLength - 2] = 10;
-
-    // Last week = RPE 5 (deload)
-    rpeTable[programLength - 1] = 5;
-
-    // Calculate intermediate weeks
-    const numIntermediate = programLength - 3;
-    const rpeRange = 10 - 7; // 3 RPE points to spread
-
-    for (let i = 1; i <= numIntermediate; i++) {
-      // Spread evenly between 7 and 10, rounded down
-      const rpe = Math.floor(7 + (rpeRange / (numIntermediate + 1)) * i);
-      rpeTable[i] = rpe;
+    if (baseWeeks === 1) {
+      baseRPEs.push(7);
+    } else {
+      for (let weekIndex = 0; weekIndex < baseWeeks; weekIndex += 1) {
+        const progress = weekIndex / (baseWeeks - 1);
+        const rpe = Math.round(7 + progress * 3); // 7 -> 10
+        baseRPEs.push(Math.max(7, Math.min(10, rpe)));
+      }
     }
 
-    return rpeTable;
+    // Append optional deload week at the end.
+    return [...baseRPEs, 5];
   }
 
   /**
@@ -315,6 +326,9 @@ export class ProgressiveOverloadService {
         recommendedWeight,
         sets,
       );
+    } else if (progressionType === "DELOAD") {
+      recommendedWeight = previousSet.weight * 0.55;
+      recommendedReps = previousSet.targetReps || previousSet.reps;
     } else if (progressionType === "NORMAL") {
       recommendedWeight = previousSet.weight;
       recommendedReps = Math.min(
@@ -339,28 +353,8 @@ export class ProgressiveOverloadService {
     progressionType: ProgressionRecommendation["progressionType"],
   ): SetProgressionRecommendation[] {
     if (previousSets.length === 0) {
-      const baseline = {
-        weight: 20,
-        reps: 8,
-        targetReps: 8,
-        setNumber: 1,
-        completed: true,
-        setType: "main" as const,
-      } as WorkoutSetHistory;
-
-      let mainIndex = 0;
-      return currentSetDefinitions.flatMap((definition, idx) => {
-        if (definition.type === "drop") {
-          return [];
-        }
-
-        mainIndex += 1;
-        return {
-          setNumber: idx + 1,
-          recommendedWeight: baseline.weight,
-          recommendedReps: baseline.reps,
-        };
-      });
+      // No hardcoded load/reps for a brand new exercise; guide by RPE only.
+      return [];
     }
 
     const previousMainSets = previousSets.filter(
@@ -370,10 +364,27 @@ export class ProgressiveOverloadService {
       (set) => set.setType === "drop",
     );
 
+    const effectiveDefinitions =
+      progressionType === "DELOAD"
+        ? (() => {
+            const mainSetIndexes = currentSetDefinitions
+              .map((definition, idx) => ({ definition, idx }))
+              .filter((item) => item.definition.type !== "drop")
+              .map((item) => item.idx);
+
+            const keepMainSets = Math.max(1, Math.ceil(mainSetIndexes.length * 0.5));
+            const keepSetIndexes = new Set(mainSetIndexes.slice(0, keepMainSets));
+
+            return currentSetDefinitions.map((definition, idx) =>
+              keepSetIndexes.has(idx) ? definition : { type: "drop" as const },
+            );
+          })()
+        : currentSetDefinitions;
+
     let mainIndex = 0;
     let dropIndex = 0;
 
-    return currentSetDefinitions.flatMap((definition, idx) => {
+    return effectiveDefinitions.flatMap((definition, idx) => {
       const previousSet =
         definition.type === "drop"
           ? previousDropSets[dropIndex++]
@@ -437,21 +448,9 @@ export class ProgressiveOverloadService {
       throw new Error("No active program found for user");
     }
 
-    // Compute currentWeek and currentDay based on startDate and 7-day weeks
-    const start = new Date(userProgram.startDate);
-    start.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const daysSinceStart = Math.floor(
-      (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
-    );
-
-    const currentWeek = Math.floor(daysSinceStart / 7) + 1;
-
-    // Current day within the user's programme week: day index within the 7-day window, capped to daysPerWeek
-    const dayIndex = daysSinceStart % 7;
-    const daysPerWeek = userProgram.programme.daysPerWeek || 3;
-    const currentDay = Math.min(dayIndex + 1, daysPerWeek);
+    // Use persisted progression state; this is advanced only when workouts are completed.
+    const currentWeek = userProgram.currentWeek || 1;
+    const currentDay = userProgram.currentDay || 1;
 
     return {
       userProgram,
@@ -482,6 +481,7 @@ export class ProgressiveOverloadService {
       const rpeTable = this.generateRPETable(programLength);
       const currentRPE =
         rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
+      const isDeloadWeek = currentWeek === programLength + 1;
 
       for (let index = 0; index < exerciseIds.length; index += 1) {
         const exerciseId = exerciseIds[index];
@@ -502,25 +502,14 @@ export class ProgressiveOverloadService {
 
         // If no history, provide initial recommendations (Week 1 Setup)
         if (history.length === 0 || lastWorkoutSets.length === 0) {
-          const defaultSetRecommendations = currentSetDefinitions.flatMap(
-            (definition, idx) =>
-              definition.type === "drop"
-                ? []
-                : {
-                    setNumber: idx + 1,
-                    recommendedWeight: 20,
-                    recommendedReps: 8,
-                  },
-          );
-
           recommendations.push({
             exerciseId,
-            recommendedWeight: 20,
-            recommendedReps: 8,
+            recommendedWeight: 0,
+            recommendedReps: 0,
             recommendedRPE: currentRPE,
             progressionType: "INITIAL",
-            reasoning: `Starting weight for Week ${currentWeek}. Aim for RPE ${currentRPE}.`,
-            setRecommendations: defaultSetRecommendations,
+            reasoning: `Week ${currentWeek} setup: choose a load that lands around RPE ${currentRPE}.`,
+            setRecommendations: [],
           });
           continue;
         }
@@ -537,6 +526,13 @@ export class ProgressiveOverloadService {
           "NORMAL";
         let reasoning = "";
 
+        if (isDeloadWeek) {
+          recommendedWeight = currentWeight * 0.55;
+          recommendedReps = Math.max(1, Math.floor(lastTargetReps));
+          progressionType = "DELOAD";
+          reasoning = `Deload week: reduce load to ~50-60% of 1RM (using 55%) and cut total sets by about 50%.`; 
+        }
+
         // STEP 1: Manual Weight Jump Rule
         // If user manually increases weight >10%, default to RPE schedule
         let manualIncrease = false;
@@ -547,7 +543,7 @@ export class ProgressiveOverloadService {
             currentWeight / previousWeight > this.MANUAL_INCREASE_THRESHOLD;
         }
 
-        if (manualIncrease) {
+        if (!isDeloadWeek && manualIncrease) {
           recommendedWeight = currentWeight;
           recommendedReps = lastReps; // Keep same reps
           progressionType = "MANUAL_JUMP";
@@ -556,7 +552,7 @@ export class ProgressiveOverloadService {
 
         // STEP 2: Consistency-Based Adjustment - Underperformance
         // If user performs below target reps for 2 consecutive weeks
-        else if (history.length >= 2) {
+        else if (!isDeloadWeek && history.length >= 2) {
           const last2Weeks = history.slice(-2);
           const underperformed = last2Weeks.every(
             (week) => week.targetReps > 0 && week.actualReps < week.targetReps,
@@ -745,13 +741,13 @@ export class ProgressiveOverloadService {
         : weekNumber;
 
       // Check if program is completed
-      const isProgramCompleted = nextWeek > (userProgram.programme.weeks || 4);
+      const isProgramCompleted = nextWeek > ((userProgram.programme.weeks || 4) + 1);
       
       await prisma.userProgram.update({
         where: { id: userProgram.id },
         data: {
           currentDay: isProgramCompleted ? userProgram.programme.daysPerWeek || 3 : nextDay,
-          currentWeek: isProgramCompleted ? userProgram.programme.weeks || 4 : nextWeek,
+          currentWeek: isProgramCompleted ? (userProgram.programme.weeks || 4) + 1 : nextWeek,
           status: isProgramCompleted ? "COMPLETED" : "ACTIVE",
           endDate: isProgramCompleted ? new Date() : null,
         },
@@ -770,16 +766,15 @@ export class ProgressiveOverloadService {
         recommendations = [];
       }
 
-      // Get weekly summary if at end of week
-      let weeklySummary: WeeklySummary | undefined;
-      if (isEndOfWeek) {
-        const exerciseIds = workoutData.map((ex) => ex.exerciseId);
-        weeklySummary = await this.getWeeklySummary(
-          userId,
-          weekNumber,
-          exerciseIds,
-        );
-      }
+      // Return post-workout summary for every completed workout
+      // (weekly comparisons may be null when there is insufficient history).
+      const weeklySummary = await this.getWeeklySummary(
+        userId,
+        weekNumber,
+        exerciseIds,
+        workout.id,
+        isEndOfWeek,
+      );
 
       return {
         workoutId: workout.id,
@@ -800,26 +795,67 @@ export class ProgressiveOverloadService {
     userId: string,
     currentWeek: number,
     exerciseIds: string[],
+    currentWorkoutId: string,
+    isEndOfWeek: boolean,
   ): Promise<WeeklySummary> {
     try {
+      const currentWorkout = await prisma.workout.findUnique({
+        where: { id: currentWorkoutId },
+        include: {
+          exercises: {
+            include: {
+              exercise: {
+                select: {
+                  name: true,
+                },
+              },
+              sets: {
+                where: { completed: true },
+              },
+            },
+          },
+        },
+      });
+
+      const hasComparisonBaseline = currentWeek > 1;
+
       const summary: WeeklySummary = {
         strengthGainVsLastWeek: null,
         strengthGainVsProgramStart: null,
+        weekOnWeekVsWeek1: null,
+        previousWorkoutComparison: null,
+        personalRecords: [],
         newRepMaxes: [],
-        isEndOfWeek: true,
+        isEndOfWeek,
       };
 
-      // Get workout history: current week and previous week
-      const workoutsPastThreeWeeks = await prisma.workout.findMany({
+      if (!currentWorkout) {
+        return summary;
+      }
+
+      const comparisonDayNumber = currentWorkout.dayNumber || null;
+
+      // Get only the weeks needed for comparisons so stats are available every workout:
+      // current week, previous week, and week 1 baseline.
+      const weeksToFetch = Array.from(
+        new Set([currentWeek, Math.max(currentWeek - 1, 1), 1]),
+      );
+
+      const workoutsForComparisons = await prisma.workout.findMany({
         where: {
-          userProgram: {
-            userId,
-            status: "ACTIVE",
+          userProgramId: currentWorkout.userProgramId,
+          weekNumber: {
+            in: weeksToFetch,
           },
         },
         include: {
           exercises: {
             include: {
+              exercise: {
+                select: {
+                  name: true,
+                },
+              },
               sets: {
                 where: { completed: true },
                 orderBy: { setNumber: "asc" },
@@ -827,114 +863,349 @@ export class ProgressiveOverloadService {
             },
           },
         },
-        orderBy: { weekNumber: "desc" },
-        take: 3,
+        orderBy: [{ weekNumber: "desc" }, { completedAt: "desc" }],
       });
 
       // Organize by week
       const weeklyData: Record<number, any[]> = {};
-      workoutsPastThreeWeeks.forEach((workout) => {
+      workoutsForComparisons.forEach((workout) => {
         const week = workout.weekNumber || 0;
         if (!weeklyData[week]) weeklyData[week] = [];
         weeklyData[week].push(workout);
       });
 
-      // Calculate volume for each exercise per week
-      const getWeekVolume = (week: number, exId: string): number => {
-        const workouts = weeklyData[week] || [];
+      // Calculate week-to-date volume at the same day index as the current workout.
+      const getWeekToDateVolume = (week: number, dayNumber: number | null): number => {
+        const workouts = (weeklyData[week] || []).filter((workout) => {
+          if (!dayNumber || !workout.dayNumber) return true;
+          return workout.dayNumber <= dayNumber;
+        });
+
         let totalVolume = 0;
         workouts.forEach((workout) => {
-          const ex = workout.exercises.find((e: any) => e.exerciseId === exId);
-          if (ex && ex.sets.length > 0) {
-            const bestSet = ex.sets.reduce((best: any, current: any) => {
-              const bestVol = (best.weight || 0) * (best.reps || 0);
-              const currVol = (current.weight || 0) * (current.reps || 0);
-              return currVol > bestVol ? current : best;
+          workout.exercises.forEach((ex: any) => {
+            (ex.sets || []).forEach((set: any) => {
+              totalVolume += (set.weight || 0) * (set.reps || 0);
             });
-            totalVolume += (bestSet.weight || 0) * (bestSet.reps || 0);
-          }
+          });
         });
         return totalVolume;
       };
 
-      // Strength gain vs last week
-      if (weeklyData[currentWeek] && weeklyData[currentWeek - 1]) {
-        let totalCurrentVolume = 0;
-        let totalLastVolume = 0;
-        exerciseIds.forEach((exId) => {
-          totalCurrentVolume += getWeekVolume(currentWeek, exId);
-          totalLastVolume += getWeekVolume(currentWeek - 1, exId);
-        });
+      // Strength gain vs last week (only from week 2 onward)
+      if (
+        hasComparisonBaseline &&
+        weeklyData[currentWeek] &&
+        weeklyData[currentWeek - 1]
+      ) {
+        const totalCurrentVolume = getWeekToDateVolume(
+          currentWeek,
+          comparisonDayNumber,
+        );
+        const totalLastVolume = getWeekToDateVolume(
+          currentWeek - 1,
+          comparisonDayNumber,
+        );
 
         if (totalLastVolume > 0) {
-          summary.strengthGainVsLastWeek = Math.round(
-            ((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100,
-          );
+          summary.strengthGainVsLastWeek =
+            ((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100;
         }
       }
 
-      // Strength gain vs programme start (week 1)
-      if (weeklyData[currentWeek] && weeklyData[1]) {
-        let totalCurrentVolume = 0;
-        let totalWeek1Volume = 0;
-        exerciseIds.forEach((exId) => {
-          totalCurrentVolume += getWeekVolume(currentWeek, exId);
-          totalWeek1Volume += getWeekVolume(1, exId);
-        });
+      // Strength gain vs programme start (week 1), only when not currently in week 1
+      if (hasComparisonBaseline && weeklyData[currentWeek] && weeklyData[1]) {
+        const totalCurrentVolume = getWeekToDateVolume(
+          currentWeek,
+          comparisonDayNumber,
+        );
+        const totalWeek1Volume = getWeekToDateVolume(1, comparisonDayNumber);
 
         if (totalWeek1Volume > 0) {
-          summary.strengthGainVsProgramStart = Math.round(
-            ((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100,
-          );
+          summary.strengthGainVsProgramStart =
+            ((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100;
+          summary.weekOnWeekVsWeek1 = summary.strengthGainVsProgramStart;
         }
       }
 
-      // Detect new rep maxes
-      if (weeklyData[currentWeek]) {
-        for (const exId of exerciseIds) {
-          const currentWorkouts = weeklyData[currentWeek] || [];
-          const previousWorkouts = weeklyData[currentWeek - 1] || [];
+      // Compare each exercise against its most recent previous session.
+      // Comparisons are intentionally disabled during week 1.
+      if (hasComparisonBaseline && currentWorkout) {
+        const previousWorkouts = await prisma.workout.findMany({
+          where: {
+            id: { not: currentWorkoutId },
+            userProgramId: currentWorkout.userProgramId,
+          },
+          include: {
+            exercises: {
+              include: {
+                exercise: {
+                  select: {
+                    name: true,
+                  },
+                },
+                sets: {
+                  where: { completed: true },
+                },
+              },
+            },
+          },
+          orderBy: { completedAt: "desc" },
+          take: 30,
+        });
 
-          let currentMaxReps = 0;
-          let previousMaxReps = 0;
+        const getExerciseVolume = (sets: any[]) =>
+          (sets || []).reduce(
+            (total: number, set: any) => total + (set.weight || 0) * (set.reps || 0),
+            0,
+          );
 
-          // Current week max
-          currentWorkouts.forEach((workout) => {
-            const ex = workout.exercises.find(
-              (e: any) => e.exerciseId === exId,
+        const getExtraWeightMovedKg = (currentSets: any[], previousSets: any[]) => {
+          // Compare aligned sets only to avoid false positives when sets were added/removed/reordered.
+          const sortedCurrent = [...(currentSets || [])].sort(
+            (a, b) => (a.setNumber || 0) - (b.setNumber || 0),
+          );
+          const sortedPrevious = [...(previousSets || [])].sort(
+            (a, b) => (a.setNumber || 0) - (b.setNumber || 0),
+          );
+
+          const comparableCount = Math.min(sortedCurrent.length, sortedPrevious.length);
+          let total = 0;
+
+          for (let index = 0; index < comparableCount; index += 1) {
+            const currentSet = sortedCurrent[index];
+            const previousSet = sortedPrevious[index];
+            const currentReps = currentSet?.reps || 0;
+            const previousReps = previousSet?.reps || 0;
+            const repDelta = currentReps - previousReps;
+
+            total += repDelta * (currentSet?.weight || 0);
+          }
+
+          return total;
+        };
+
+        const exerciseDeltas = currentWorkout.exercises.map((currentExercise: any) => {
+          const exerciseId = currentExercise.exerciseId;
+          const exerciseName = currentExercise.exercise?.name || "Unknown";
+          const currentVolume = getExerciseVolume(currentExercise.sets || []);
+
+          let previousVolume = 0;
+          let previousSets: any[] = [];
+          for (const previousWorkout of previousWorkouts) {
+            const matched = previousWorkout.exercises.find(
+              (prevEx: any) => prevEx.exerciseId === exerciseId,
             );
-            if (ex && ex.sets.length > 0) {
-              const maxSet = ex.sets.reduce((best: any, current: any) =>
-                (current.reps || 0) > (best.reps || 0) ? current : best,
-              );
-              currentMaxReps = Math.max(currentMaxReps, maxSet.reps || 0);
+            if (matched) {
+              previousVolume = getExerciseVolume(matched.sets || []);
+              previousSets = matched.sets || [];
+              break;
             }
+          }
+
+          const extraWeightMovedKg = getExtraWeightMovedKg(
+            currentExercise.sets || [],
+            previousSets,
+          );
+
+          const changePct =
+            previousVolume > 0
+              ? ((currentVolume - previousVolume) / previousVolume) * 100
+              : null;
+
+          return {
+            exerciseId,
+            exerciseName,
+            currentVolume,
+            previousVolume,
+            changePct,
+            extraWeightMovedKg,
+          };
+        });
+
+        const totalCurrentVolume = exerciseDeltas.reduce(
+          (sum, item) => sum + item.currentVolume,
+          0,
+        );
+        const totalPreviousVolume = exerciseDeltas.reduce(
+          (sum, item) => sum + item.previousVolume,
+          0,
+        );
+        const totalExtraWeightMovedKg = exerciseDeltas.reduce(
+          (sum, item) => sum + item.extraWeightMovedKg,
+          0,
+        );
+
+        summary.previousWorkoutComparison = {
+          totalVolumeChangePct:
+            totalPreviousVolume > 0
+              ? ((totalCurrentVolume - totalPreviousVolume) / totalPreviousVolume) *
+                100
+              : null,
+          totalCurrentVolume,
+          totalPreviousVolume,
+          totalExtraWeightMovedKg,
+          exerciseDeltas,
+        };
+      }
+
+      // Detect true personal records from this workout (vs all prior workouts)
+      const currentWorkoutDetails = await prisma.workout.findUnique({
+        where: { id: currentWorkoutId },
+        include: {
+          exercises: {
+            include: {
+              exercise: {
+                select: {
+                  name: true,
+                },
+              },
+              sets: {
+                where: { completed: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (currentWorkoutDetails) {
+        for (const exercise of currentWorkoutDetails.exercises) {
+          const completedSets = exercise.sets || [];
+          if (completedSets.length === 0) continue;
+
+          const currentBestReps = completedSets.reduce(
+            (max, set) => Math.max(max, set.reps || 0),
+            0,
+          );
+          const currentBestWeight = completedSets.reduce(
+            (max, set) => Math.max(max, set.weight || 0),
+            0,
+          );
+          const currentBestVolume = completedSets.reduce(
+            (max, set) => Math.max(max, (set.weight || 0) * (set.reps || 0)),
+            0,
+          );
+
+          const historicalSets = await prisma.workoutSet.findMany({
+            where: {
+              completed: true,
+              workoutExercise: {
+                exerciseId: exercise.exerciseId,
+                workout: {
+                  id: { not: currentWorkoutDetails.id },
+                  userProgram: {
+                    userId,
+                  },
+                },
+              },
+            },
+            select: {
+              reps: true,
+              weight: true,
+            },
           });
 
-          // Previous week max
-          previousWorkouts.forEach((workout) => {
-            const ex = workout.exercises.find(
-              (e: any) => e.exerciseId === exId,
-            );
-            if (ex && ex.sets.length > 0) {
-              const maxSet = ex.sets.reduce((best: any, current: any) =>
-                (current.reps || 0) > (best.reps || 0) ? current : best,
-              );
-              previousMaxReps = Math.max(previousMaxReps, maxSet.reps || 0);
-            }
-          });
+          const previousBestReps = historicalSets.reduce(
+            (max, set) => Math.max(max, set.reps || 0),
+            0,
+          );
+          const previousBestWeight = historicalSets.reduce(
+            (max, set) => Math.max(max, set.weight || 0),
+            0,
+          );
+          const previousBestVolume = historicalSets.reduce(
+            (max, set) => Math.max(max, (set.weight || 0) * (set.reps || 0)),
+            0,
+          );
 
-          // New rep max detected
-          if (currentMaxReps > previousMaxReps) {
-            const exercise = await prisma.exercise.findUnique({
-              where: { id: exId },
+          if (currentBestReps > previousBestReps) {
+            summary.personalRecords.push({
+              exerciseId: exercise.exerciseId,
+              exerciseName: exercise.exercise?.name || "Unknown",
+              metric: "reps",
+              value: currentBestReps,
+              previousBest: previousBestReps,
             });
+
+            const repsBestSet = completedSets.reduce((best, current) =>
+              (current.reps || 0) > (best.reps || 0) ? current : best,
+            );
             summary.newRepMaxes.push({
-              exerciseName: exercise?.name || "Unknown",
-              reps: currentMaxReps,
-              weight: 0, // We could calculate this but keeping it simple
+              exerciseName: exercise.exercise?.name || "Unknown",
+              reps: currentBestReps,
+              weight: repsBestSet?.weight || 0,
             });
           }
+
+          if (currentBestWeight > previousBestWeight) {
+            summary.personalRecords.push({
+              exerciseId: exercise.exerciseId,
+              exerciseName: exercise.exercise?.name || "Unknown",
+              metric: "weight",
+              value: currentBestWeight,
+              previousBest: previousBestWeight,
+            });
+          }
+
+          if (currentBestVolume > previousBestVolume) {
+            summary.personalRecords.push({
+              exerciseId: exercise.exerciseId,
+              exerciseName: exercise.exercise?.name || "Unknown",
+              metric: "volume",
+              value: currentBestVolume,
+              previousBest: previousBestVolume,
+            });
+          }
+
+          // Reps-at-weight PR: most reps ever performed at the same load.
+          const historicalBestRepsByWeight = new Map<number, number>();
+          historicalSets.forEach((set) => {
+            const weight = set.weight || 0;
+            const reps = set.reps || 0;
+            const currentBest = historicalBestRepsByWeight.get(weight) || 0;
+            if (reps > currentBest) {
+              historicalBestRepsByWeight.set(weight, reps);
+            }
+          });
+
+          // Emit a reps-at-weight PR for each weight where the user beat their
+          // historical best reps at that exact load in this workout.
+          const currentBestRepsByWeight = new Map<number, number>();
+          completedSets.forEach((set) => {
+            const weight = set.weight || 0;
+            const reps = set.reps || 0;
+            const bestForWeight = currentBestRepsByWeight.get(weight) || 0;
+            if (reps > bestForWeight) {
+              currentBestRepsByWeight.set(weight, reps);
+            }
+          });
+
+          const repsAtWeightRecords = Array.from(
+            currentBestRepsByWeight.entries(),
+          )
+            .map(([weight, reps]) => {
+              const previousBestAtWeight =
+                historicalBestRepsByWeight.get(weight) || 0;
+              return {
+                weight,
+                reps,
+                previousBestAtWeight,
+                improvement: reps - previousBestAtWeight,
+              };
+            })
+            .filter((record) => record.improvement > 0)
+            .sort((a, b) => b.weight - a.weight);
+
+          repsAtWeightRecords.forEach((record) => {
+            summary.personalRecords.push({
+              exerciseId: exercise.exerciseId,
+              exerciseName: exercise.exercise?.name || "Unknown",
+              metric: "repsAtWeight",
+              value: record.reps,
+              previousBest: record.previousBestAtWeight,
+              contextWeightKg: record.weight,
+            });
+          });
         }
       }
 
@@ -944,8 +1215,11 @@ export class ProgressiveOverloadService {
       return {
         strengthGainVsLastWeek: null,
         strengthGainVsProgramStart: null,
+        weekOnWeekVsWeek1: null,
+        previousWorkoutComparison: null,
+        personalRecords: [],
         newRepMaxes: [],
-        isEndOfWeek: true,
+        isEndOfWeek,
       };
     }
   }

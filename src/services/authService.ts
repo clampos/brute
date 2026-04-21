@@ -3,8 +3,9 @@ import axios from 'axios';
 
 export async function login(email: string, password: string) {
   try {
+    const normalizedEmail = email?.trim().toLowerCase();
     const res = await axios.post("http://localhost:4242/auth/login", {
-      email,
+      email: normalizedEmail,
       password,
     });
     return res.data; // should be { token }

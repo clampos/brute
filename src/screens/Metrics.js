@@ -69,8 +69,9 @@ export default function Metrics() {
                 });
                 if (prsRes.ok) {
                     const data = await prsRes.json();
-                    // Only keep exercises that have at least one PR entry (1,2,3,5,10)
-                    const filtered = data.filter((d) => Object.values(d.prs || {}).some((v) => v != null));
+                    // Keep exercises that have either an exact PR entry or a predicted 1RM.
+                    const filtered = data.filter((d) => Object.values(d.prs || {}).some((v) => v != null) ||
+                        d.predictedOneRepMax);
                     setPersonalRecords(filtered);
                 }
                 setLoading(false);
@@ -438,6 +439,7 @@ export default function Metrics() {
                         .filter(Boolean)
                         .map((p) => p.weight)
                         .sort((a, b) => b - a)[0];
-                    return (_jsx(Link, { to: `/metrics/pr/${pr.exerciseId}`, children: _jsx("div", { className: "bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD] hover:opacity-90", children: _jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx(MuscleIcon, { muscleGroup: pr.muscleGroup, size: 28 }), _jsx("h4", { className: "text-white font-semibold", children: pr.exerciseName })] }), _jsx("div", { className: "text-right", children: _jsx("div", { className: "text-[#5E6272] text-xs", children: pr.muscleGroup }) })] }) }) }, pr.exerciseId));
+                    const predictedOneRepMax = pr.predictedOneRepMax?.value;
+                    return (_jsx(Link, { to: `/metrics/pr/${pr.exerciseId}`, children: _jsxs("div", { className: "bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD] hover:opacity-90", children: [_jsxs("div", { className: "flex items-start justify-between mb-2", children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx(MuscleIcon, { muscleGroup: pr.muscleGroup, size: 28 }), _jsx("h4", { className: "text-white font-semibold", children: pr.exerciseName })] }), _jsx("div", { className: "text-right", children: _jsx("div", { className: "text-[#5E6272] text-xs", children: pr.muscleGroup }) })] }), _jsxs("div", { className: "mt-2 space-y-1", children: [typeof top === "number" && (_jsxs("div", { className: "text-sm text-[#9CA3AF]", children: ["Actual best PR: ", top, " kg"] })), typeof predictedOneRepMax === "number" && (_jsxs("div", { className: "text-sm text-[#60A5FA]", children: ["Predicted 1RM: ", predictedOneRepMax.toFixed(1), " kg"] }))] })] }) }, pr.exerciseId));
                 })) : (_jsxs("div", { className: "bg-[#262A34] rounded-xl p-8 text-center", children: [_jsx(Award, { size: 48, className: "text-[#5E6272] mx-auto mb-4" }), _jsx("p", { className: "text-white font-semibold mb-2", children: "No Personal Records Yet" }), _jsx("p", { className: "text-[#5E6272] text-sm", children: "Complete workouts to start tracking your PRs!" })] })) })), _jsx(BottomBar, { onLogout: handleLogout })] }));
 }

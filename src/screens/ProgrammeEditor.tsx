@@ -686,12 +686,7 @@ export default function ProgrammeEditor() {
     days.length > 0 && !days.some((day) => day.hasChanges);
 
   return (
-    <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
-      style={{
-        backgroundColor: "#0A0E1A",
-      }}
-    >
+    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
       <TopBar
         title="Programmes"
         pageIcon={null}
@@ -705,7 +700,7 @@ export default function ProgrammeEditor() {
       />
 
       {/* Programme Name */}
-      <div className="mt-6 mb-4 text-center">
+      <div className="mt-3 mb-4 text-center">
         <h3 className="text-white text-xl font-semibold">{displayName}</h3>
         <p className="text-sm text-[#5E6272]">{description}</p>
         <p className="text-xs text-[#FBA3FF] mt-1">{bodyFocus}</p>

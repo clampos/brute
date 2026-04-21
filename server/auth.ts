@@ -19,6 +19,8 @@ import {
   ProgressiveOverloadService,
   WorkoutData,
 } from "./utils/progressiveOverloadService";
+import { RollingWindowStreakService } from "./utils/rollingWindowStreakService";
+import { getSuggestedReps } from "./utils/repAdjustmentService";
 
 // Extend Express Request to include user property
 declare global {
@@ -1486,6 +1488,8 @@ router.post(
           workoutData,
         );
 
+      const streak = await RollingWindowStreakService.onWorkoutLogged(userId);
+
       // Update workout with duration if provided
       if (duration) {
         await prisma.workout.update({
@@ -1504,12 +1508,82 @@ router.post(
       res.json({
         workoutId: result.workoutId,
         recommendations: result.recommendations,
+        weeklySummary: result.weeklySummary,
+        streak,
         message: "Workout saved successfully",
       });
     } catch (error) {
       console.error("❌ Error saving workout:", error);
       res.status(500).json({
         error: "Failed to save workout",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
+
+// GET /auth/streak - Get rolling window streak status and apply expiry checks
+router.get(
+  "/streak",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+
+    try {
+      const streak = await RollingWindowStreakService.getStatus(userId);
+      res.json(streak);
+    } catch (error) {
+      console.error("❌ Error getting streak status:", error);
+      res.status(500).json({
+        error: "Failed to get streak status",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
+
+// PATCH /auth/streak/goal - Update workouts-per-window streak goal
+router.patch(
+  "/streak/goal",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const parsedGoal = parseInt(req.body?.streakGoal, 10);
+
+    if (!Number.isInteger(parsedGoal) || parsedGoal < 1 || parsedGoal > 14) {
+      return res.status(400).json({
+        error: "streakGoal must be an integer between 1 and 14",
+      });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { current_window_workouts: true },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          streak_goal: parsedGoal,
+          // Keep progress coherent when goal is lowered below current progress.
+          current_window_workouts: Math.min(
+            user.current_window_workouts,
+            Math.max(parsedGoal - 1, 0),
+          ),
+        },
+      });
+
+      const streak = await RollingWindowStreakService.getStatus(userId);
+      res.json(streak);
+    } catch (error) {
+      console.error("❌ Error updating streak goal:", error);
+      res.status(500).json({
+        error: "Failed to update streak goal",
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -2669,6 +2743,47 @@ router.get(
     } catch (error) {
       console.error("Error fetching personal records:", error);
       res.status(500).json({ error: "Failed to fetch personal records" });
+    }
+  },
+);
+
+// POST /auth/suggest-reps - Calculate suggested reps using ensemble 1RM estimation
+router.post(
+  "/suggest-reps",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const { lastWeight, lastReps, newWeight } = req.body;
+
+    // Validate inputs
+    if (
+      typeof lastWeight !== "number" ||
+      typeof lastReps !== "number" ||
+      typeof newWeight !== "number"
+    ) {
+      return res.status(400).json({
+        error: "lastWeight, lastReps, and newWeight must be numbers",
+      });
+    }
+
+    if (lastWeight <= 0 || lastReps <= 0 || newWeight <= 0) {
+      return res.status(400).json({
+        error: "All values must be positive numbers",
+      });
+    }
+
+    try {
+      const suggestedReps = getSuggestedReps(lastWeight, lastReps, newWeight);
+
+      res.json({
+        suggestedReps,
+        source: "ensemble-1rm-algorithm",
+      });
+    } catch (error) {
+      console.error("Error calculating suggested reps:", error);
+      res.status(500).json({
+        error: "Failed to calculate suggested reps",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   },
 );

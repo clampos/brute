@@ -535,7 +535,7 @@ export class ProgressiveOverloadService {
             let weeklySummary;
             if (isEndOfWeek) {
                 const exerciseIds = workoutData.map((ex) => ex.exerciseId);
-                weeklySummary = await this.getWeeklySummary(userId, weekNumber, exerciseIds);
+                weeklySummary = await this.getWeeklySummary(userId, weekNumber, exerciseIds, workout.id);
             }
             return {
                 workoutId: workout.id,
@@ -552,11 +552,13 @@ export class ProgressiveOverloadService {
      * Calculate weekly summary stats (strength gain %, new PRs, etc.)
      * Called at end of week to show post-workout completion message
      */
-    static async getWeeklySummary(userId, currentWeek, exerciseIds) {
+    static async getWeeklySummary(userId, currentWeek, exerciseIds, currentWorkoutId) {
         try {
             const summary = {
                 strengthGainVsLastWeek: null,
                 strengthGainVsProgramStart: null,
+                previousWorkoutComparison: null,
+                personalRecords: [],
                 newRepMaxes: [],
                 isEndOfWeek: true,
             };
@@ -571,6 +573,11 @@ export class ProgressiveOverloadService {
                 include: {
                     exercises: {
                         include: {
+                            exercise: {
+                                select: {
+                                    name: true,
+                                },
+                            },
                             sets: {
                                 where: { completed: true },
                                 orderBy: { setNumber: "asc" },
@@ -615,7 +622,8 @@ export class ProgressiveOverloadService {
                     totalLastVolume += getWeekVolume(currentWeek - 1, exId);
                 });
                 if (totalLastVolume > 0) {
-                    summary.strengthGainVsLastWeek = Math.round(((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100);
+                    summary.strengthGainVsLastWeek =
+                        ((totalCurrentVolume - totalLastVolume) / totalLastVolume) * 100;
                 }
             }
             // Strength gain vs programme start (week 1)
@@ -627,41 +635,163 @@ export class ProgressiveOverloadService {
                     totalWeek1Volume += getWeekVolume(1, exId);
                 });
                 if (totalWeek1Volume > 0) {
-                    summary.strengthGainVsProgramStart = Math.round(((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100);
+                    summary.strengthGainVsProgramStart =
+                        ((totalCurrentVolume - totalWeek1Volume) / totalWeek1Volume) * 100;
                 }
             }
-            // Detect new rep maxes
-            if (weeklyData[currentWeek]) {
-                for (const exId of exerciseIds) {
-                    const currentWorkouts = weeklyData[currentWeek] || [];
-                    const previousWorkouts = weeklyData[currentWeek - 1] || [];
-                    let currentMaxReps = 0;
-                    let previousMaxReps = 0;
-                    // Current week max
-                    currentWorkouts.forEach((workout) => {
-                        const ex = workout.exercises.find((e) => e.exerciseId === exId);
-                        if (ex && ex.sets.length > 0) {
-                            const maxSet = ex.sets.reduce((best, current) => (current.reps || 0) > (best.reps || 0) ? current : best);
-                            currentMaxReps = Math.max(currentMaxReps, maxSet.reps || 0);
-                        }
-                    });
-                    // Previous week max
-                    previousWorkouts.forEach((workout) => {
-                        const ex = workout.exercises.find((e) => e.exerciseId === exId);
-                        if (ex && ex.sets.length > 0) {
-                            const maxSet = ex.sets.reduce((best, current) => (current.reps || 0) > (best.reps || 0) ? current : best);
-                            previousMaxReps = Math.max(previousMaxReps, maxSet.reps || 0);
-                        }
-                    });
-                    // New rep max detected
-                    if (currentMaxReps > previousMaxReps) {
-                        const exercise = await prisma.exercise.findUnique({
-                            where: { id: exId },
+            // Compare this workout against the immediate previous workout
+            const recentWorkouts = await prisma.workout.findMany({
+                where: {
+                    userProgram: {
+                        userId,
+                    },
+                },
+                include: {
+                    exercises: {
+                        include: {
+                            exercise: {
+                                select: {
+                                    name: true,
+                                },
+                            },
+                            sets: {
+                                where: { completed: true },
+                            },
+                        },
+                    },
+                },
+                orderBy: { completedAt: "desc" },
+                take: 2,
+            });
+            const currentWorkout = recentWorkouts.find((workout) => workout.id === currentWorkoutId) ||
+                recentWorkouts[0];
+            const previousWorkout = recentWorkouts.find((workout) => workout.id !== currentWorkout?.id);
+            if (currentWorkout && previousWorkout) {
+                const getWorkoutVolumeByExercise = (workout) => {
+                    const map = new Map();
+                    workout.exercises.forEach((exercise) => {
+                        const volume = (exercise.sets || []).reduce((total, set) => total + (set.weight || 0) * (set.reps || 0), 0);
+                        map.set(exercise.exerciseId, {
+                            name: exercise.exercise?.name || "Unknown",
+                            volume,
                         });
+                    });
+                    return map;
+                };
+                const currentByExercise = getWorkoutVolumeByExercise(currentWorkout);
+                const previousByExercise = getWorkoutVolumeByExercise(previousWorkout);
+                const exerciseIdSet = new Set([
+                    ...currentByExercise.keys(),
+                    ...previousByExercise.keys(),
+                ]);
+                const exerciseDeltas = Array.from(exerciseIdSet).map((exerciseId) => {
+                    const current = currentByExercise.get(exerciseId);
+                    const previous = previousByExercise.get(exerciseId);
+                    const currentVolume = current?.volume ?? 0;
+                    const previousVolume = previous?.volume ?? 0;
+                    const changePct = previousVolume > 0
+                        ? ((currentVolume - previousVolume) / previousVolume) * 100
+                        : null;
+                    return {
+                        exerciseId,
+                        exerciseName: current?.name || previous?.name || "Unknown",
+                        currentVolume,
+                        previousVolume,
+                        changePct,
+                    };
+                });
+                const totalCurrentVolume = exerciseDeltas.reduce((sum, item) => sum + item.currentVolume, 0);
+                const totalPreviousVolume = exerciseDeltas.reduce((sum, item) => sum + item.previousVolume, 0);
+                summary.previousWorkoutComparison = {
+                    totalVolumeChangePct: totalPreviousVolume > 0
+                        ?
+                            ((totalCurrentVolume - totalPreviousVolume) /
+                                totalPreviousVolume) *
+                                100
+                        : null,
+                    totalCurrentVolume,
+                    totalPreviousVolume,
+                    exerciseDeltas,
+                };
+            }
+            // Detect true personal records from this workout (vs all prior workouts)
+            const currentWorkoutDetails = await prisma.workout.findUnique({
+                where: { id: currentWorkoutId },
+                include: {
+                    exercises: {
+                        include: {
+                            exercise: {
+                                select: {
+                                    name: true,
+                                },
+                            },
+                            sets: {
+                                where: { completed: true },
+                            },
+                        },
+                    },
+                },
+            });
+            if (currentWorkoutDetails) {
+                for (const exercise of currentWorkoutDetails.exercises) {
+                    const completedSets = exercise.sets || [];
+                    if (completedSets.length === 0)
+                        continue;
+                    const currentBestReps = completedSets.reduce((max, set) => Math.max(max, set.reps || 0), 0);
+                    const currentBestWeight = completedSets.reduce((max, set) => Math.max(max, set.weight || 0), 0);
+                    const currentBestVolume = completedSets.reduce((max, set) => Math.max(max, (set.weight || 0) * (set.reps || 0)), 0);
+                    const historicalSets = await prisma.workoutSet.findMany({
+                        where: {
+                            completed: true,
+                            workoutExercise: {
+                                exerciseId: exercise.exerciseId,
+                                workout: {
+                                    id: { not: currentWorkoutDetails.id },
+                                    userProgram: {
+                                        userId,
+                                    },
+                                },
+                            },
+                        },
+                        select: {
+                            reps: true,
+                            weight: true,
+                        },
+                    });
+                    const previousBestReps = historicalSets.reduce((max, set) => Math.max(max, set.reps || 0), 0);
+                    const previousBestWeight = historicalSets.reduce((max, set) => Math.max(max, set.weight || 0), 0);
+                    const previousBestVolume = historicalSets.reduce((max, set) => Math.max(max, (set.weight || 0) * (set.reps || 0)), 0);
+                    if (currentBestReps > previousBestReps) {
+                        summary.personalRecords.push({
+                            exerciseId: exercise.exerciseId,
+                            exerciseName: exercise.exercise?.name || "Unknown",
+                            metric: "reps",
+                            value: currentBestReps,
+                            previousBest: previousBestReps,
+                        });
+                        const repsBestSet = completedSets.reduce((best, current) => (current.reps || 0) > (best.reps || 0) ? current : best);
                         summary.newRepMaxes.push({
-                            exerciseName: exercise?.name || "Unknown",
-                            reps: currentMaxReps,
-                            weight: 0, // We could calculate this but keeping it simple
+                            exerciseName: exercise.exercise?.name || "Unknown",
+                            reps: currentBestReps,
+                            weight: repsBestSet?.weight || 0,
+                        });
+                    }
+                    if (currentBestWeight > previousBestWeight) {
+                        summary.personalRecords.push({
+                            exerciseId: exercise.exerciseId,
+                            exerciseName: exercise.exercise?.name || "Unknown",
+                            metric: "weight",
+                            value: currentBestWeight,
+                            previousBest: previousBestWeight,
+                        });
+                    }
+                    if (currentBestVolume > previousBestVolume) {
+                        summary.personalRecords.push({
+                            exerciseId: exercise.exerciseId,
+                            exerciseName: exercise.exercise?.name || "Unknown",
+                            metric: "volume",
+                            value: currentBestVolume,
+                            previousBest: previousBestVolume,
                         });
                     }
                 }
@@ -673,6 +803,8 @@ export class ProgressiveOverloadService {
             return {
                 strengthGainVsLastWeek: null,
                 strengthGainVsProgramStart: null,
+                previousWorkoutComparison: null,
+                personalRecords: [],
                 newRepMaxes: [],
                 isEndOfWeek: true,
             };

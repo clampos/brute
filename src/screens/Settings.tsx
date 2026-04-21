@@ -567,12 +567,7 @@ export default function Settings() {
   }
 
   return (
-    <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
-      style={{
-        backgroundColor: "#0A0E1A",
-      }}
-    >
+    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
       {/* Top Bar */}
       <TopBar
         title="Settings"
@@ -585,7 +580,7 @@ export default function Settings() {
         ]}
       />
 
-      <div className="mt-8 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
+      <div className="mt-4 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
         <h3
           className="text-lg font-semibold mb-2"
           style={{ fontFamily: "'Poppins', sans-serif" }}
@@ -609,7 +604,7 @@ export default function Settings() {
       </div>
 
       {referralStats && (
-        <div className="mt-6 space-y-4">
+        <div className="mt-4 space-y-4">
           <div className="bg-[#262A34] rounded-xl p-4">
             <h4 className="text-white font-semibold mb-3">Referral Stats</h4>
             <div className="grid grid-cols-2 gap-4 text-center">

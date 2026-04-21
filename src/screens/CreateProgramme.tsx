@@ -111,12 +111,7 @@ export default function CreateProgramme() {
   };
 
   return (
-    <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
-      style={{
-        backgroundColor: "#0A0E1A",
-      }}
-    >
+    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
       <TopBar
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
@@ -129,7 +124,7 @@ export default function CreateProgramme() {
         ]}
       />
 
-      <div className="w-full px-2 mt-6 max-w-2xl mx-auto">
+      <div className="w-full px-2 mt-3 max-w-2xl mx-auto">
         <h3 className="text-white font-medium mb-3 text-center">
           Create New Custom Programme
         </h3>

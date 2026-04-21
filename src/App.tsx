@@ -1,19 +1,19 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Onboarding from "./screens/Onboarding";
-import Login from "./screens/Login";
-import Signup from "./screens/Signup";
-import Dashboard from "./screens/Dashboard";
-import SubscriptionSuccess from "./screens/SubscriptionSuccess";
-import Settings from "./screens/Settings";
-import ResetPassword from "./components/ResetPassword";
-import ProgrammesScreen from "./screens/Programmes";
-import ProgrammeEditor from "./screens/ProgrammeEditor";
-import Workouts from "./screens/Workouts";
-import Metrics from "./screens/Metrics";
-import MuscleIcons from "./screens/MuscleIcons";
-import ExercisePRs from "./screens/ExercisePRs";
-import CreateProgramme from "./screens/CreateProgramme";
-import { ProtectedRoute } from "./components/ProtectedRoute";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import Onboarding from "./screens/Onboarding.tsx";
+import Login from "./screens/Login.tsx";
+import Signup from "./screens/Signup.tsx";
+import Dashboard from "./screens/Dashboard.tsx";
+import SubscriptionSuccess from "./screens/SubscriptionSuccess.tsx";
+import Settings from "./screens/Settings.tsx";
+import ResetPassword from "./components/ResetPassword.tsx";
+import ProgrammesScreen from "./screens/Programmes.tsx";
+import ProgrammeEditor from "./screens/ProgrammeEditor.tsx";
+import Workouts from "./screens/Workouts.tsx";
+import Metrics from "./screens/Metrics.tsx";
+import MuscleIcons from "./screens/MuscleIcons.tsx";
+import ExercisePRs from "./screens/ExercisePRs.tsx";
+import CreateProgramme from "./screens/CreateProgramme.tsx";
+import { ProtectedRoute } from "./components/ProtectedRoute.tsx";
 
 export default function App() {
   return (
@@ -103,6 +103,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

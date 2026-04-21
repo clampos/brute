@@ -31,18 +31,18 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
   }, []);
 
   return (
-    <div className="w-full max-w-[375px] px-4 mx-auto">
+    <div className="w-full max-w-[430px] px-2 mx-auto">
       {/* Logo row (centered) */}
-      <div className="w-full h-[44px] flex justify-center items-center">
+      <div className="w-full h-[30px] flex justify-center items-center">
         <img
           src={logo}
           alt="Logo"
-          className="w-[84.56px] h-[15px] object-contain"
+          className="w-[78px] h-[14px] object-contain"
         />
       </div>
 
       {/* Title row with left icon and right more button */}
-      <div className="flex justify-between items-center mt-2 px-2 h-10 relative">
+      <div className="flex justify-between items-center mt-1 px-1 h-9 relative">
         <div className="flex items-center">
           {pageIcon ? (
             <div className="text-white">{pageIcon}</div>
@@ -51,7 +51,7 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
           )}
         </div>
 
-        <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-xl">
+        <h2 className="absolute left-1/2 transform -translate-x-1/2 text-white font-semibold text-lg">
           {title}
         </h2>
 
@@ -67,14 +67,14 @@ export default function TopBar({ title, pageIcon, menuItems }: Props) {
           </button>
 
           {menuOpen && menuItems && menuItems.length > 0 && (
-            <div className="absolute right-0 mt-2 w-56 bg-[#1A1D23] border border-[#2F3544] rounded-lg shadow-lg z-50">
+            <div className="glass-menu absolute right-0 mt-2 w-56 rounded-lg shadow-lg z-50">
               <div className="px-3 py-2 text-xs text-[#9CA3AF] font-semibold">
                 SHORTCUTS TO
               </div>
               {menuItems.map((item, index) => (
                 <button
                   key={index}
-                  className="w-full text-left px-3 py-2 hover:bg-[#2A2E38] text-white text-sm"
+                  className="w-full text-left px-3 py-2 hover:bg-white/10 text-white text-sm"
                   onClick={() => {
                     item.onClick();
                     setMenuOpen(false);

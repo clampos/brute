@@ -45,6 +45,12 @@ interface PersonalRecord {
   exerciseName: string;
   muscleGroup: string;
   prs: Record<number, { weight: number; date: string } | null>;
+  predictedOneRepMax?: {
+    value: number;
+    weight: number;
+    reps: number;
+    date: string;
+  } | null;
 }
 
 export default function Metrics() {
@@ -137,9 +143,10 @@ export default function Metrics() {
         );
         if (prsRes.ok) {
           const data = await prsRes.json();
-          // Only keep exercises that have at least one PR entry (1,2,3,5,10)
+          // Keep exercises that have either an exact PR entry or a predicted 1RM.
           const filtered = data.filter((d: any) =>
-            Object.values(d.prs || {}).some((v) => v != null),
+            Object.values(d.prs || {}).some((v) => v != null) ||
+            d.predictedOneRepMax,
           );
           setPersonalRecords(filtered);
         }
@@ -721,12 +728,7 @@ export default function Metrics() {
 
   if (loading) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center text-white"
-        style={{
-          backgroundColor: "#0A0E1A",
-        }}
-      >
+      <div className="min-h-screen flex items-center justify-center text-white">
         <p>Loading metrics...</p>
       </div>
     );
@@ -738,12 +740,7 @@ export default function Metrics() {
   };
 
   return (
-    <div
-      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-16"
-      style={{
-        backgroundColor: "#0A0E1A",
-      }}
-    >
+    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
       <TopBar
         title="Track Metrics"
         pageIcon={<Award size={18} />}
@@ -756,7 +753,7 @@ export default function Metrics() {
       />
 
       {/* Tab Navigation */}
-      <div className="flex justify-around mt-6 mb-4">
+      <div className="flex justify-around mt-4 mb-4">
         <button
           onClick={() => setActiveTab("bodyweight")}
           className={`px-4 py-2 rounded-full font-medium text-sm ${
@@ -1215,8 +1212,14 @@ export default function Metrics() {
                 .map((p: any) => p.weight)
                 .sort((a: number, b: number) => b - a)[0];
 
+              const predictedOneRepMax = pr.predictedOneRepMax?.value;
+
               return (
-                <Link key={pr.exerciseId} to={`/metrics/pr/${pr.exerciseId}`}>
+                <Link
+                  key={pr.exerciseId}
+                  to={`/metrics/pr/${pr.exerciseId}`}
+                  className="block"
+                >
                   <div className="bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD] hover:opacity-90">
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-3">
@@ -1230,6 +1233,18 @@ export default function Metrics() {
                           {pr.muscleGroup}
                         </div>
                       </div>
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {typeof top === "number" && (
+                        <div className="text-sm text-[#9CA3AF]">
+                          Actual best PR: {top} kg
+                        </div>
+                      )}
+                      {typeof predictedOneRepMax === "number" && (
+                        <div className="text-sm text-[#60A5FA]">
+                          Predicted 1RM: {predictedOneRepMax.toFixed(1)} kg
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Link>

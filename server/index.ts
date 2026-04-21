@@ -6,6 +6,7 @@ import auth from './auth';
 import protectedRoutes from './protected';
 import webhook from './webhook';
 import path from 'path';
+import fs from 'fs';
 
 
 dotenv.config();
@@ -19,8 +20,28 @@ app.use(cors());
 app.use('/webhook', webhook);
 
 // Serve static files for profile photos
-// Serve static files for profile photos
-app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Serve built frontend from the API server so localhost:4242 always renders UI.
+const frontendDistPath = path.join(__dirname, '../dist');
+const frontendIndexPath = path.join(frontendDistPath, 'index.html');
+
+if (fs.existsSync(frontendIndexPath)) {
+  app.use(express.static(frontendDistPath));
+
+  // SPA fallback for client-side routes. Do not intercept API/static routes.
+  app.get(/^\/(?!auth|api|webhook|uploads).*/, (_req, res) => {
+    res.sendFile(frontendIndexPath);
+  });
+} else {
+  app.get('/', (_req, res) => {
+    res.json({
+      ok: true,
+      message:
+        'API server is running. Frontend build not found in /dist. Start Vite at http://localhost:5173',
+    });
+  });
+}
 
 
 

@@ -1,10 +1,5 @@
-const CACHE_NAME = "brute-v1";
-const urlsToCache = [
-  "/",
-  "/static/js/bundle.js",
-  "/static/css/main.css",
-  "/manifest.json",
-];
+const CACHE_NAME = "brute-v2";
+const urlsToCache = ["/", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -13,10 +8,13 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      // Return cached version or fetch from network
-      return response || fetch(event.request);
-    })
-  );
+  // For page navigations, prefer network to avoid stale HTML/asset references.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match("/"))
+    );
+    return;
+  }
+
+  event.respondWith(caches.match(event.request).then((response) => response || fetch(event.request)));
 });

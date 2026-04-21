@@ -2,9 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
-/* confirm CSS is loading */
+:root {
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --glass-bg-strong: linear-gradient(155deg, rgba(26, 34, 52, 0.86), rgba(14, 20, 32, 0.78));
+  --glass-bg-mid: linear-gradient(145deg, rgba(36, 44, 62, 0.72), rgba(20, 26, 40, 0.62));
+  --glass-bg-soft: linear-gradient(145deg, rgba(50, 62, 86, 0.44), rgba(30, 39, 58, 0.36));
+}
+
 body {
-  background: radial-gradient(#ef88ed, #7269e3, #8350db);
+  background:
+    radial-gradient(90% 90% at 12% 0%, rgba(86, 160, 255, 0.18), transparent 60%),
+    radial-gradient(80% 80% at 100% 100%, rgba(43, 89, 191, 0.18), transparent 60%),
+    linear-gradient(165deg, #0a0f1f 0%, #0c1730 45%, #102243 100%);
+  background-attachment: fixed;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Global glass utility classes */
+.glass-card,
+.glass-modal,
+.glass-subtile,
+.glass-menu,
+.glass-input,
+.glass-button,
+.glass-chip,
+.glass-pressable {
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-card {
+  background: var(--glass-bg-mid);
+}
+
+.glass-modal {
+  background: var(--glass-bg-strong);
+}
+
+.glass-subtile {
+  background: var(--glass-bg-soft);
+}
+
+.glass-menu {
+  background: linear-gradient(170deg, rgba(30, 38, 58, 0.9), rgba(18, 24, 38, 0.84));
+}
+
+.glass-input {
+  background: linear-gradient(145deg, rgba(36, 45, 64, 0.6), rgba(24, 31, 46, 0.45));
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: rgba(134, 255, 153, 0.7);
+  box-shadow: 0 0 0 2px rgba(134, 255, 153, 0.16);
+}
+
+.glass-button,
+.glass-chip,
+.glass-pressable {
+  background: linear-gradient(145deg, rgba(56, 66, 88, 0.45), rgba(30, 38, 56, 0.3));
+}
+
+.glass-button:hover,
+.glass-chip:hover,
+.glass-pressable:hover {
+  background: linear-gradient(145deg, rgba(70, 82, 110, 0.5), rgba(40, 50, 74, 0.36));
+}
+
+/* App-wide tile upgrades for existing Tailwind tiles */
+[class*="bg-[#1C1F26]"],
+[class*="bg-[#262A34]"],
+[class*="bg-[#2A2E38]"] {
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(16px) saturate(135%);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  box-shadow: var(--glass-shadow);
+}
+
+[class*="bg-[#1C1F26]"] {
+  background: var(--glass-bg-mid) !important;
+}
+
+[class*="bg-[#262A34]"],
+[class*="bg-[#2A2E38]"] {
+  background: var(--glass-bg-soft) !important;
 }
 
 input[type="number"]::-webkit-inner-spin-button,
