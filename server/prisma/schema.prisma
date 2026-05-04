@@ -48,9 +48,10 @@ model User {
   streak_freeze_available  Boolean  @default(true)
   last_workout_at          DateTime?
 
-  userPrograms UserProgram[]
-  bodyweightEntries BodyweightEntry[]
-  bodyfatEntries    BodyfatEntry[]
+  userPrograms         UserProgram[]
+  bodyweightEntries    BodyweightEntry[]
+  bodyfatEntries       BodyfatEntry[]
+  exerciseProgressions UserExerciseProgression[]
 }
 
 model Programme {
@@ -59,6 +60,7 @@ model Programme {
   daysPerWeek Int      @map("days_per_week")
   weeks       Int
   bodyPartFocus String @map("body_part_focus") // Full Body, Upper Body, Lower Body, etc.
+  progressionFocus ProgrammeProgressionFocus @default(MUSCLE_BUILDING) @map("progression_focus")
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -73,17 +75,23 @@ model Programme {
 model Exercise {
   id          String   @id @default(cuid())
   name        String
-  muscleGroup String   @map("muscle_group") // Primary muscle group
-  category    String   // Compound, Isolation, Cardio, etc.
-  equipment   String?  // Barbell, Dumbbell, Bodyweight, etc.
-  isSelected  Boolean  @default(false) // Selected as part of programme or not
-  instructions String? // How to perform the exercise
+  muscleGroup String   @map("muscle_group")
+  category    String
+  equipment   String?
+  isSelected  Boolean  @default(false)
+  instructions String?
+  movementPattern         String?  @map("movement_pattern")
+  defaultRepMin           Int?     @map("default_rep_min")
+  defaultRepMax           Int?     @map("default_rep_max")
+  complementaryExerciseIds String? @map("complementary_exercise_ids")
+  replacementExerciseIds   String? @map("replacement_exercise_ids")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relationships
-  programmeExercises ProgrammeExercise[]
-  workoutExercises   WorkoutExercise[]
+  programmeExercises   ProgrammeExercise[]
+  workoutExercises     WorkoutExercise[]
+  exerciseProgressions UserExerciseProgression[]
 
   @@map("exercises")
 }
@@ -96,6 +104,7 @@ model ProgrammeExercise {
   orderIndex  Int    @map("order_index") // Order of exercise within the day
   sets        Int    @default(3)
   reps        String @default("8-12") // Can be "8-12", "10", "AMRAP", etc.
+  strengthRole StrengthExerciseRole @default(ACCESSORY) @map("strength_role")
   restSeconds Int?   @map("rest_seconds") // Rest between sets in seconds
   isSelected  Boolean  @default(false) // Selected as part of programme or not
   notes       String?
@@ -120,9 +129,10 @@ model UserProgram {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relationships
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  programme Programme @relation(fields: [programmeId], references: [id])
-  workouts  Workout[]
+  user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  programme            Programme                 @relation(fields: [programmeId], references: [id])
+  workouts             Workout[]
+  exerciseProgressions UserExerciseProgression[]
 
   @@map("user_programs")
 }
@@ -135,6 +145,8 @@ model Workout {
   completedAt   DateTime @map("completed_at")
   duration      Int?     // Duration in minutes
   notes         String?
+  perceivedDifficulty Int? @map("perceived_difficulty")
+  startRecovery      String? @map("start_recovery")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -177,6 +189,27 @@ model WorkoutSet {
   @@index([workoutExerciseId])
 }
 
+model UserExerciseProgression {
+  id                         String    @id @default(cuid())
+  userId                     String    @map("user_id")
+  userProgramId              String    @map("user_program_id")
+  exerciseId                 String    @map("exercise_id")
+  progressionPhase           String    @default("rep_progression") @map("progression_phase")
+  consecutiveSessionsAtMaxReps Int     @default(0) @map("consecutive_sessions_at_max_reps")
+  weeksAtCurrentSetCount     Int       @default(0) @map("weeks_at_current_set_count")
+  lastWeightIncreaseAt       DateTime? @map("last_weight_increase_at")
+  lastSetIncreaseAt          DateTime? @map("last_set_increase_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userProgram UserProgram @relation(fields: [userProgramId], references: [id], onDelete: Cascade)
+  exercise    Exercise    @relation(fields: [exerciseId], references: [id])
+
+  @@unique([userProgramId, exerciseId])
+  @@map("user_exercise_progressions")
+}
+
 model BodyweightEntry {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")
@@ -206,4 +239,15 @@ enum UserProgramStatus {
   COMPLETED
   PAUSED
   CANCELLED
+}
+
+enum ProgrammeProgressionFocus {
+  MUSCLE_BUILDING
+  STRENGTH
+}
+
+enum StrengthExerciseRole {
+  MAIN_LIFT
+  SUPPLEMENTAL
+  ACCESSORY
 }

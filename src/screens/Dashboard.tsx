@@ -99,7 +99,23 @@ export default function Dashboard() {
           },
         );
 
-        if (!dashboardRes.ok) throw new Error("Unauthorized");
+        if (dashboardRes.status === 401) {
+          localStorage.removeItem("token");
+          navigate("/login");
+          return;
+        }
+
+        if (dashboardRes.status === 403) {
+          setMessage(
+            "Your account access is currently limited. Please check your subscription status."
+          );
+          setLoading(false);
+          return;
+        }
+
+        if (!dashboardRes.ok) {
+          throw new Error(`Failed to fetch dashboard: ${dashboardRes.status}`);
+        }
 
         const userData = await dashboardRes.json();
         const dashboardFirstName = (userData?.firstName ?? "").trim();
@@ -158,9 +174,9 @@ export default function Dashboard() {
 
         setLoading(false);
       } catch (err) {
-        console.error("Auth error:", err);
-        localStorage.removeItem("token");
-        navigate("/login");
+        console.error("Dashboard bootstrap error:", err);
+        setMessage("We could not load your dashboard right now. Please retry.");
+        setLoading(false);
       }
     };
 

@@ -35,6 +35,7 @@ type ProgrammeExercise = {
   reps: string;
   exerciseId: string;
   isSelected: boolean;
+  strengthRole: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
 };
 
 type ProgrammeDay = {
@@ -53,6 +54,7 @@ type ProgrammeExerciseResponse = {
   dayNumber: number;
   sets: number;
   reps: string;
+  strengthRole?: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
   exercise?: {
     id: string;
     name: string;
@@ -64,9 +66,18 @@ type ProgrammeResponse = {
   name: string;
   description?: string;
   bodyPartFocus?: string;
+  progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH";
   daysPerWeek?: number;
   exercises?: ProgrammeExerciseResponse[];
   error?: string;
+};
+
+const defaultStrengthRoleForIndex = (
+  index: number,
+): "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY" => {
+  if (index === 0) return "MAIN_LIFT";
+  if (index <= 2) return "SUPPLEMENTAL";
+  return "ACCESSORY";
 };
 
 export default function ProgrammeEditor() {
@@ -76,6 +87,9 @@ export default function ProgrammeEditor() {
   const [displayName, setDisplayName] = useState("Loading...");
   const [bodyFocus, setBodyFocus] = useState("Full Body");
   const [description, setDescription] = useState("");
+  const [progressionFocus, setProgressionFocus] = useState<
+    "MUSCLE_BUILDING" | "STRENGTH"
+  >("MUSCLE_BUILDING");
   const [days, setDays] = useState<ProgrammeDay[]>([]);
   const [openDays, setOpenDays] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -278,27 +292,56 @@ export default function ProgrammeEditor() {
     const exercise = allExercises.find((ex) => ex.id === exerciseId);
     if (!exercise) return;
 
-    // Create temporary programme exercise object
-    const tempProgrammeExercise = {
-      id: `temp-${Date.now()}-${exerciseId}`, // Temporary ID
-      name: exercise.name,
-      sets: 3,
-      reps: "8-12",
-      exerciseId: exercise.id,
-      isSelected: true,
-    };
-
     setDays((prevDays) =>
       prevDays.map((day) =>
         day.dayNumber === dayNumber
+          ? (() => {
+              const tempProgrammeExercise = {
+                id: `temp-${Date.now()}-${exerciseId}`,
+                name: exercise.name,
+                sets: 3,
+                reps: "8-12",
+                exerciseId: exercise.id,
+                isSelected: true,
+                strengthRole:
+                  progressionFocus === "STRENGTH"
+                    ? defaultStrengthRoleForIndex(day.exercises.length)
+                    : "ACCESSORY",
+              };
+
+              const nextExercises = [...day.exercises, tempProgrammeExercise];
+
+              return {
+                ...day,
+                exercises: nextExercises,
+                exerciseOptions: day.exerciseOptions.map((ex) =>
+                  ex.id === exerciseId ? { ...ex, isSelected: true } : ex,
+                ),
+                availableExercises: day.availableExercises.map((ex) =>
+                  ex.id === exerciseId ? { ...ex, isSelected: true } : ex,
+                ),
+                hasChanges: true,
+              };
+            })()
+          : day,
+      ),
+    );
+  };
+
+  const handleStrengthRoleChange = (
+    dayNumber: number,
+    programmeExerciseId: string,
+    strengthRole: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY",
+  ) => {
+    setDays((prev) =>
+      prev.map((day) =>
+        day.dayNumber === dayNumber
           ? {
               ...day,
-              exercises: [...day.exercises, tempProgrammeExercise],
-              exerciseOptions: day.exerciseOptions.map((ex) =>
-                ex.id === exerciseId ? { ...ex, isSelected: true } : ex,
-              ),
-              availableExercises: day.availableExercises.map((ex) =>
-                ex.id === exerciseId ? { ...ex, isSelected: true } : ex,
+              exercises: day.exercises.map((exercise) =>
+                exercise.id === programmeExerciseId
+                  ? { ...exercise, strengthRole }
+                  : exercise,
               ),
               hasChanges: true,
             }
@@ -384,6 +427,7 @@ export default function ProgrammeEditor() {
               dayNumber,
               sets: exercise.sets,
               reps: exercise.reps,
+              strengthRole: exercise.strengthRole,
             }),
           },
         );
@@ -402,6 +446,8 @@ export default function ProgrammeEditor() {
           reps: newProgrammeExercise.reps,
           exerciseId: exercise.exerciseId,
           isSelected: true,
+          strengthRole:
+            newProgrammeExercise.strengthRole || exercise.strengthRole,
         });
       }
 
@@ -469,48 +515,40 @@ export default function ProgrammeEditor() {
       case "full body":
         return [
           "Chest",
-          "Lats",
-          "Middle Back",
-          "Lower Back",
+          "Back",
           "Shoulders",
-          "Quadriceps",
+          "Quads",
           "Hamstrings",
           "Glutes",
           "Biceps",
           "Triceps",
           "Forearms",
           "Calves",
-          "Abdominals",
-          "Adductors",
-          "Abductors",
+          "Abs",
         ];
       case "upper body":
         return [
           "Chest",
-          "Lats",
-          "Middle Back",
+          "Back",
           "Shoulders",
           "Biceps",
           "Triceps",
           "Forearms",
-          "Traps",
         ];
       case "lower body":
         return [
-          "Quadriceps",
+          "Quads",
           "Hamstrings",
           "Glutes",
           "Calves",
-          "Adductors",
-          "Abductors",
-          "Lower Back",
+          "Abs",
         ];
       case "push":
         return ["Chest", "Shoulders", "Triceps"];
       case "pull":
-        return ["Lats", "Middle Back", "Lower Back", "Biceps"];
+        return ["Back", "Biceps", "Forearms"];
       case "legs":
-        return ["Quadriceps", "Hamstrings", "Glutes", "Calves"];
+        return ["Quads", "Hamstrings", "Glutes", "Calves"];
       default:
         return [focus];
     }
@@ -540,6 +578,9 @@ export default function ProgrammeEditor() {
         setDisplayName(data.name);
         setDescription(data.description || "");
         setBodyFocus(data.bodyPartFocus || "Full Body");
+        const programmeProgressionFocus =
+          data.progressionFocus || "MUSCLE_BUILDING";
+        setProgressionFocus(programmeProgressionFocus);
 
         // Group current programme exercises by day
         const grouped: Record<number, ProgrammeExercise[]> = {};
@@ -555,6 +596,9 @@ export default function ProgrammeEditor() {
             reps: item.reps ?? "8-12",
             exerciseId: item.exercise?.id || item.exerciseId,
             isSelected: true,
+            strengthRole:
+              item.strengthRole ||
+              defaultStrengthRoleForIndex((grouped[day] || []).length),
           };
 
           grouped[day].push(programmeExercise);
@@ -618,16 +662,22 @@ export default function ProgrammeEditor() {
           // For each day with no existing exercises, pick 3 random selected exercises
           const withInitialSelections = loadedDays.map((day) => {
             if (!day.exercises || day.exercises.length === 0) {
-              const selected = getRandomExercises(uniquePool, 3).map((ex) => ({
-                id: `temp-${Date.now()}-${ex.id}-${Math.floor(
-                  Math.random() * 1000,
-                )}`,
-                name: ex.name,
-                sets: 3,
-                reps: "8-12",
-                exerciseId: ex.id,
-                isSelected: true,
-              }));
+              const selected = getRandomExercises(uniquePool, 3).map(
+                (ex, idx) => ({
+                  id: `temp-${Date.now()}-${ex.id}-${Math.floor(
+                    Math.random() * 1000,
+                  )}`,
+                  name: ex.name,
+                  sets: 3,
+                  reps: "8-12",
+                  exerciseId: ex.id,
+                  isSelected: true,
+                  strengthRole:
+                    programmeProgressionFocus === "STRENGTH"
+                      ? defaultStrengthRoleForIndex(idx)
+                      : "ACCESSORY",
+                }),
+              );
 
               const selectedIds = new Set(selected.map((s) => s.exerciseId));
 
@@ -825,6 +875,33 @@ export default function ProgrammeEditor() {
                                     {ex.reps} reps
                                   </span>
                                 </div>
+                                {progressionFocus === "STRENGTH" && (
+                                  <div className="mt-2 flex items-center justify-center gap-2">
+                                    <span className="text-xs text-[#9CA3AF]">
+                                      Role
+                                    </span>
+                                    <select
+                                      value={ex.strengthRole}
+                                      onChange={(event) =>
+                                        handleStrengthRoleChange(
+                                          day.dayNumber,
+                                          ex.id,
+                                          event.target.value as
+                                            | "MAIN_LIFT"
+                                            | "SUPPLEMENTAL"
+                                            | "ACCESSORY",
+                                        )
+                                      }
+                                      className="bg-[#111318] border border-[#2F3544] text-white text-xs rounded px-2 py-1"
+                                    >
+                                      <option value="MAIN_LIFT">Main Lift</option>
+                                      <option value="SUPPLEMENTAL">
+                                        Supplemental
+                                      </option>
+                                      <option value="ACCESSORY">Accessory</option>
+                                    </select>
+                                  </div>
+                                )}
                               </div>
                             </div>
                             <XCircle

@@ -72,6 +72,662 @@ if (!JWT_SECRET) {
   throw new Error("JWT_SECRET environment variable is required");
 }
 
+const STRENGTH_ROLES = ["MAIN_LIFT", "SUPPLEMENTAL", "ACCESSORY"] as const;
+const WORKOUT_RECOVERY_OPTIONS = ["FRESH", "NORMAL", "STILL_TIRED"] as const;
+const HIGH_FATIGUE_STREAK_THRESHOLD = 5;
+const HIGH_FATIGUE_DIFFICULTY_THRESHOLD = 8;
+const LOW_EFFORT_STREAK_THRESHOLD = 3;
+const LOW_EFFORT_DIFFICULTY_THRESHOLD = 4;
+const MISSED_TARGET_REP_STREAK_THRESHOLD = 2;
+const RECOVERY_ADJUSTMENT_WEIGHT_MULTIPLIER = 0.9;
+const RECOVERY_ADJUSTMENT_SET_TARGET = 3;
+const EASY_PROGRESS_WEIGHT_MULTIPLIER = 1.05;
+const EXERCISE_OVERPERFORMANCE_STREAK_THRESHOLD = 2;
+const EXERCISE_OVERPERFORMANCE_WEIGHT_MULTIPLIER = 1.05;
+const MISSED_TARGET_ONE_TIME_WEIGHT_MULTIPLIER = 0.9;
+
+type StrengthRole = (typeof STRENGTH_ROLES)[number];
+type WorkoutRecoveryOption = (typeof WORKOUT_RECOVERY_OPTIONS)[number];
+
+type ExerciseOneTimeOverride = {
+  exerciseId: string;
+  exerciseName: string;
+  multiplier: number;
+  sessionsToAdjust: number;
+  appliedAt: string;
+  triggerWorkoutId: string;
+  dayNumber: number;
+  programmeId: string;
+  triggerType: "MISSED_TARGETS" | "EXERCISE_OVERPERFORMANCE";
+};
+
+type WorkoutNotesMeta = {
+  feedback?: {
+    perceivedDifficulty: number;
+    startRecovery: WorkoutRecoveryOption;
+  };
+  recoveryAdjustment?: {
+    triggerType?: "FATIGUE" | "MISSED_TARGETS" | "EASY_PROGRESS";
+    sessionsToAdjust: number;
+    setTarget?: number;
+    weightMultiplier: number;
+    appliedAt: string;
+    triggerWorkoutId: string;
+    targetExerciseId?: string;
+    targetExerciseName?: string;
+  };
+  exerciseOverperformanceAdjustments?: ExerciseOneTimeOverride[];
+};
+
+type WorkoutNotesEnvelope = {
+  text?: string;
+  meta?: WorkoutNotesMeta;
+};
+
+type ProgrammeExerciseNotes = {
+  setDefinitions?: unknown;
+  recoveryWeightMultiplier?: number;
+};
+
+const resolveStrengthRole = (
+  inputRole: unknown,
+  existingDayExerciseCount: number,
+): StrengthRole => {
+  if (
+    typeof inputRole === "string" &&
+    STRENGTH_ROLES.includes(inputRole as StrengthRole)
+  ) {
+    return inputRole as StrengthRole;
+  }
+
+  // Sensible defaults for quick strength-day setup when the client omits tags.
+  if (existingDayExerciseCount === 0) return "MAIN_LIFT";
+  if (existingDayExerciseCount <= 2) return "SUPPLEMENTAL";
+  return "ACCESSORY";
+};
+
+const parseWorkoutNotesEnvelope = (
+  rawNotes: string | null | undefined,
+): WorkoutNotesEnvelope => {
+  if (!rawNotes) {
+    return { text: "", meta: {} };
+  }
+
+  try {
+    const parsed = JSON.parse(rawNotes);
+    if (parsed && typeof parsed === "object") {
+      const maybeObject = parsed as Record<string, unknown>;
+      if ("meta" in maybeObject || "text" in maybeObject) {
+        return {
+          text: typeof maybeObject.text === "string" ? maybeObject.text : "",
+          meta:
+            maybeObject.meta && typeof maybeObject.meta === "object"
+              ? (maybeObject.meta as WorkoutNotesMeta)
+              : {},
+        };
+      }
+    }
+  } catch {
+    // Plain text notes from older flows are valid.
+  }
+
+  return {
+    text: rawNotes,
+    meta: {},
+  };
+};
+
+const serializeWorkoutNotesEnvelope = (
+  envelope: WorkoutNotesEnvelope,
+): string | null => {
+  const text = envelope.text || "";
+  const meta = envelope.meta || {};
+  const hasMeta = Object.keys(meta).length > 0;
+
+  if (!hasMeta) {
+    return text || null;
+  }
+
+  return JSON.stringify({
+    text,
+    meta,
+  });
+};
+
+const extractFeedbackFromWorkoutNotes = (
+  rawNotes: string | null | undefined,
+): {
+  perceivedDifficulty?: number;
+  startRecovery?: WorkoutRecoveryOption;
+} => {
+  const parsed = parseWorkoutNotesEnvelope(rawNotes);
+  const feedback = parsed.meta?.feedback;
+
+  if (!feedback) {
+    return {};
+  }
+
+  return {
+    perceivedDifficulty: feedback.perceivedDifficulty,
+    startRecovery: feedback.startRecovery,
+  };
+};
+
+const isHighFatigueFeedback = (
+  feedback: {
+    perceivedDifficulty?: number;
+    startRecovery?: WorkoutRecoveryOption;
+  },
+): boolean => {
+  return (
+    typeof feedback.perceivedDifficulty === "number" &&
+    feedback.perceivedDifficulty >= HIGH_FATIGUE_DIFFICULTY_THRESHOLD &&
+    feedback.startRecovery === "STILL_TIRED"
+  );
+};
+
+const countConsecutiveHighFatigueFeedback = (
+  workouts: Array<{ notes: string | null }>,
+): number => {
+  let count = 0;
+  for (const workout of workouts) {
+    const feedback = extractFeedbackFromWorkoutNotes(workout.notes);
+    if (!isHighFatigueFeedback(feedback)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+};
+
+const didWorkoutMeetOrExceedAllTargets = (
+  exercises: Array<{
+    sets: Array<{
+      reps: number | null;
+      targetReps: number | null;
+      completed: boolean;
+      notes: string | null;
+    }>;
+  }>,
+): boolean => {
+  let comparedSetCount = 0;
+
+  for (const exercise of exercises) {
+    for (const set of exercise.sets || []) {
+      if (!set.completed) {
+        continue;
+      }
+      if (typeof set.targetReps !== "number" || set.targetReps <= 0) {
+        continue;
+      }
+
+      comparedSetCount += 1;
+      if ((set.reps || 0) < set.targetReps) {
+        return false;
+      }
+    }
+  }
+
+  return comparedSetCount > 0;
+};
+
+const countConsecutiveEasyProgressWorkouts = (
+  workouts: Array<{
+    notes: string | null;
+    exercises: Array<{
+      sets: Array<{
+        reps: number | null;
+        targetReps: number | null;
+        completed: boolean;
+        notes: string | null;
+      }>;
+    }>;
+  }>,
+): number => {
+  let streak = 0;
+
+  for (const workout of workouts) {
+    const feedback = extractFeedbackFromWorkoutNotes(workout.notes);
+    const easyFeedback =
+      typeof feedback.perceivedDifficulty === "number" &&
+      feedback.perceivedDifficulty <= LOW_EFFORT_DIFFICULTY_THRESHOLD;
+    const metAllTargets = didWorkoutMeetOrExceedAllTargets(workout.exercises);
+
+    if (!easyFeedback || !metAllTargets) {
+      break;
+    }
+
+    streak += 1;
+  }
+
+  return streak;
+};
+
+const didWorkoutExerciseExceedTargets = (
+  sets: Array<{
+    reps: number | null;
+    targetReps: number | null;
+    completed: boolean;
+    notes: string | null;
+  }>,
+): boolean => {
+  const mainSets = sets.filter((set) => {
+    if (!set.notes) return true;
+    try {
+      const parsed = JSON.parse(set.notes);
+      return parsed?.type !== "drop";
+    } catch {
+      return true;
+    }
+  });
+  const candidateSets = mainSets.length > 0 ? mainSets : sets;
+  const comparedSets = candidateSets.filter(
+    (set) => set.completed && typeof set.targetReps === "number" && set.targetReps > 0,
+  );
+  if (comparedSets.length === 0) return false;
+  // All compared sets must exceed their target reps for the exercise to count.
+  return comparedSets.every((set) => (set.reps || 0) > (set.targetReps || 0));
+};
+
+const didWorkoutExerciseMissTargets = (
+  sets: Array<{
+    reps: number | null;
+    targetReps: number | null;
+    completed: boolean;
+    notes: string | null;
+  }>,
+): boolean => {
+  const mainSets = sets.filter((set) => {
+    if (!set.notes) {
+      return true;
+    }
+    try {
+      const parsed = JSON.parse(set.notes);
+      return parsed?.type !== "drop";
+    } catch {
+      return true;
+    }
+  });
+
+  const candidateSets = mainSets.length > 0 ? mainSets : sets;
+  const comparedSets = candidateSets.filter(
+    (set) => set.completed && typeof set.targetReps === "number" && set.targetReps > 0,
+  );
+
+  if (comparedSets.length === 0) {
+    return false;
+  }
+
+  return comparedSets.some((set) => (set.reps || 0) < (set.targetReps || 0));
+};
+
+const hasExerciseUnderperformanceStreak = async (
+  userId: string,
+  threshold: number,
+): Promise<{
+  hasStreak: boolean;
+  exerciseId?: string;
+  exerciseName?: string;
+  dayNumber?: number;
+}> => {
+  const latestWorkout = await prisma.workout.findFirst({
+    where: {
+      userProgram: {
+        userId,
+        status: "ACTIVE",
+      },
+    },
+    orderBy: {
+      completedAt: "desc",
+    },
+    select: {
+      id: true,
+      userProgramId: true,
+      dayNumber: true,
+      exercises: {
+        select: {
+          exerciseId: true,
+          exercise: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!latestWorkout || latestWorkout.exercises.length === 0) {
+    return { hasStreak: false };
+  }
+
+  for (const workoutExercise of latestWorkout.exercises) {
+    const recentExerciseSessions = await prisma.workoutExercise.findMany({
+      where: {
+        exerciseId: workoutExercise.exerciseId,
+        workout: {
+          userProgramId: latestWorkout.userProgramId,
+          dayNumber: latestWorkout.dayNumber,
+        },
+      },
+      orderBy: {
+        workout: {
+          completedAt: "desc",
+        },
+      },
+      take: threshold,
+      select: {
+        sets: {
+          select: {
+            reps: true,
+            targetReps: true,
+            completed: true,
+            notes: true,
+          },
+        },
+      },
+    });
+
+    if (recentExerciseSessions.length < threshold) {
+      continue;
+    }
+
+    const streakMatched = recentExerciseSessions.every((session) =>
+      didWorkoutExerciseMissTargets(session.sets),
+    );
+
+    if (streakMatched) {
+      return {
+        hasStreak: true,
+        exerciseId: workoutExercise.exerciseId,
+        exerciseName: workoutExercise.exercise?.name,
+        dayNumber: latestWorkout.dayNumber,
+      };
+    }
+  }
+
+  return { hasStreak: false };
+};
+
+const findExercisesWithOverperformanceStreak = async (
+  userId: string,
+  threshold: number,
+): Promise<Array<{ exerciseId: string; exerciseName: string; dayNumber: number }>> => {
+  const latestWorkout = await prisma.workout.findFirst({
+    where: { userProgram: { userId, status: "ACTIVE" } },
+    orderBy: { completedAt: "desc" },
+    select: {
+      id: true,
+      userProgramId: true,
+      dayNumber: true,
+      exercises: {
+        select: {
+          exerciseId: true,
+          exercise: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  if (!latestWorkout || latestWorkout.exercises.length === 0) return [];
+
+  const results: Array<{ exerciseId: string; exerciseName: string; dayNumber: number }> = [];
+
+  for (const workoutExercise of latestWorkout.exercises) {
+    const recentSessions = await prisma.workoutExercise.findMany({
+      where: {
+        exerciseId: workoutExercise.exerciseId,
+        workout: {
+          userProgramId: latestWorkout.userProgramId,
+          dayNumber: latestWorkout.dayNumber,
+        },
+      },
+      orderBy: { workout: { completedAt: "desc" } },
+      take: threshold,
+      select: {
+        sets: {
+          select: { reps: true, targetReps: true, completed: true, notes: true },
+        },
+      },
+    });
+
+    if (recentSessions.length < threshold) continue;
+
+    const allExceed = recentSessions.every((session) =>
+      didWorkoutExerciseExceedTargets(session.sets),
+    );
+
+    if (allExceed) {
+      results.push({
+        exerciseId: workoutExercise.exerciseId,
+        exerciseName: workoutExercise.exercise?.name ?? workoutExercise.exerciseId,
+        dayNumber: latestWorkout.dayNumber,
+      });
+    }
+  }
+
+  return results;
+};
+
+type RecoveryAdjustmentStatusResult = {
+  isActive: boolean;
+  sessionsRemaining: number;
+  setTarget?: number;
+  weightMultiplier: number;
+  triggerType?: "FATIGUE" | "MISSED_TARGETS" | "EASY_PROGRESS";
+  targetExerciseId?: string;
+  targetExerciseName?: string;
+  activeExerciseOverperformanceAdjustments: Array<{
+    exerciseId: string;
+    exerciseName: string;
+    multiplier: number;
+    sessionsRemaining: number;
+    dayNumber: number;
+  }>;
+};
+
+const getRecoveryAdjustmentStatus = async (
+  userId: string,
+): Promise<RecoveryAdjustmentStatusResult> => {
+  const activeProgram = await prisma.userProgram.findFirst({
+    where: {
+      userId,
+      status: "ACTIVE",
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!activeProgram) {
+    return {
+      isActive: false,
+      sessionsRemaining: 0,
+      setTarget: undefined,
+      weightMultiplier: 1,
+      activeExerciseOverperformanceAdjustments: [],
+    };
+  }
+
+  const workouts = await prisma.workout.findMany({
+    where: { userProgramId: activeProgram.id },
+    orderBy: { completedAt: "desc" },
+    take: 120,
+    select: {
+      id: true,
+      completedAt: true,
+      dayNumber: true,
+      notes: true,
+      exercises: {
+        select: { exerciseId: true },
+      },
+    },
+  });
+
+  // --- per-exercise overperformance adjustments (day-scoped) ---
+  const activeExerciseOverperformanceAdjustments: RecoveryAdjustmentStatusResult["activeExerciseOverperformanceAdjustments"] =
+    [];
+
+  for (const workout of workouts) {
+    const parsed = parseWorkoutNotesEnvelope(workout.notes);
+    const arr = parsed.meta?.exerciseOverperformanceAdjustments;
+    if (!Array.isArray(arr) || arr.length === 0) continue;
+
+    for (const adj of arr) {
+      // Only count workouts after this one on the SAME day that include this specific exercise
+      // (only if the original workout has a valid dayNumber)
+      const workoutsSinceWithExerciseOnSameDay =
+        typeof adj.dayNumber === "number"
+          ? workouts.filter(
+              (w) =>
+                w.completedAt > workout.completedAt &&
+                w.dayNumber === adj.dayNumber &&
+                w.exercises.some((ex) => ex.exerciseId === adj.exerciseId),
+            ).length
+          : 0;
+
+      const sessionsRemaining = Math.max(
+        adj.sessionsToAdjust - workoutsSinceWithExerciseOnSameDay,
+        0,
+      );
+      if (sessionsRemaining > 0) {
+        // Only add if not already tracked (first / most recent trigger wins)
+        // Track day number to scope the multiplier to the correct day only
+        const alreadyTracked = activeExerciseOverperformanceAdjustments.some(
+          (a) => a.exerciseId === adj.exerciseId && a.dayNumber === adj.dayNumber,
+        );
+        if (!alreadyTracked) {
+          activeExerciseOverperformanceAdjustments.push({
+            exerciseId: adj.exerciseId,
+            exerciseName: adj.exerciseName,
+            multiplier: adj.multiplier,
+            sessionsRemaining,
+            dayNumber: adj.dayNumber,
+          });
+        }
+      }
+    }
+  }
+
+  // --- programme-wide / FATIGUE / MISSED_TARGETS / EASY_PROGRESS adjustment ---
+  const triggerWorkout = workouts.find((workout) => {
+    const parsed = parseWorkoutNotesEnvelope(workout.notes);
+    return (
+      parsed.meta?.recoveryAdjustment &&
+      Number.isInteger(parsed.meta.recoveryAdjustment.sessionsToAdjust) &&
+      parsed.meta.recoveryAdjustment.sessionsToAdjust > 0
+    );
+  });
+
+  if (!triggerWorkout) {
+    return {
+      isActive: false,
+      sessionsRemaining: 0,
+      setTarget: undefined,
+      weightMultiplier: 1,
+      activeExerciseOverperformanceAdjustments,
+    };
+  }
+
+  const parsed = parseWorkoutNotesEnvelope(triggerWorkout.notes);
+  const adjustment = parsed.meta?.recoveryAdjustment;
+  if (!adjustment) {
+    return {
+      isActive: false,
+      sessionsRemaining: 0,
+      setTarget: undefined,
+      weightMultiplier: 1,
+      activeExerciseOverperformanceAdjustments,
+    };
+  }
+
+  const workoutsSinceTrigger = workouts.filter(
+    (workout) => workout.completedAt > triggerWorkout.completedAt,
+  ).length;
+
+  const sessionsRemaining = Math.max(
+    adjustment.sessionsToAdjust - workoutsSinceTrigger,
+    0,
+  );
+
+  return {
+    isActive: sessionsRemaining > 0,
+    sessionsRemaining,
+    setTarget:
+      Number.isInteger(adjustment.setTarget) && (adjustment.setTarget || 0) > 0
+        ? adjustment.setTarget
+        : undefined,
+    weightMultiplier:
+      typeof adjustment.weightMultiplier === "number" &&
+      adjustment.weightMultiplier > 0
+        ? adjustment.weightMultiplier
+        : 1,
+    triggerType:
+      adjustment.triggerType === "MISSED_TARGETS"
+        ? "MISSED_TARGETS"
+        : adjustment.triggerType === "EASY_PROGRESS"
+          ? "EASY_PROGRESS"
+          : "FATIGUE",
+    targetExerciseId:
+      typeof adjustment.targetExerciseId === "string"
+        ? adjustment.targetExerciseId
+        : undefined,
+    targetExerciseName:
+      typeof adjustment.targetExerciseName === "string"
+        ? adjustment.targetExerciseName
+        : undefined,
+    activeExerciseOverperformanceAdjustments,
+  };
+};
+
+const parseProgrammeExerciseNotes = (
+  rawNotes: string | null | undefined,
+): ProgrammeExerciseNotes => {
+  if (!rawNotes) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawNotes);
+    if (parsed && typeof parsed === "object") {
+      return parsed as ProgrammeExerciseNotes;
+    }
+  } catch {
+    // Ignore plain text notes.
+  }
+
+  return {};
+};
+
+const mergeProgrammeExerciseNotes = (
+  existingNotes: string | null | undefined,
+  incomingNotes: string | null | undefined,
+): string | null => {
+  const existing = parseProgrammeExerciseNotes(existingNotes);
+  const incoming = parseProgrammeExerciseNotes(incomingNotes);
+
+  const merged: ProgrammeExerciseNotes = {};
+  if (incoming.setDefinitions !== undefined) {
+    merged.setDefinitions = incoming.setDefinitions;
+  } else if (existing.setDefinitions !== undefined) {
+    merged.setDefinitions = existing.setDefinitions;
+  }
+
+  const multiplier =
+    typeof incoming.recoveryWeightMultiplier === "number"
+      ? incoming.recoveryWeightMultiplier
+      : existing.recoveryWeightMultiplier;
+
+  if (typeof multiplier === "number") {
+    merged.recoveryWeightMultiplier = multiplier;
+  }
+
+  return Object.keys(merged).length > 0 ? JSON.stringify(merged) : null;
+};
+
 // --- LOGIN ---
 router.post("/login", async (req: Request, res: Response): Promise<any> => {
   const email = req.body.email?.trim().toLowerCase();
@@ -950,11 +1606,30 @@ router.post(
   "/programmes",
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
-    const { name, daysPerWeek, weeks, bodyPartFocus, description } = req.body;
+    const {
+      name,
+      daysPerWeek,
+      weeks,
+      bodyPartFocus,
+      progressionFocus,
+      description,
+    } = req.body;
     const userId = (req as any).user?.userId;
 
     if (!name || !daysPerWeek || !weeks || !bodyPartFocus) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const resolvedProgressionFocus =
+      progressionFocus === "STRENGTH" ? "STRENGTH" : "MUSCLE_BUILDING";
+
+    if (
+      resolvedProgressionFocus === "STRENGTH" &&
+      Number(weeks) % 4 !== 0
+    ) {
+      return res.status(400).json({
+        error: "Strength programmes must use a week count that is a multiple of 4.",
+      });
     }
 
     try {
@@ -964,6 +1639,7 @@ router.post(
           daysPerWeek,
           weeks,
           bodyPartFocus,
+          progressionFocus: resolvedProgressionFocus,
           description,
          // isCustom: true, // Mark as custom
          // userId: userId, // Associate with the user
@@ -983,9 +1659,48 @@ router.put(
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     const { id } = req.params;
-    const { name, daysPerWeek, weeks, bodyPartFocus, description } = req.body;
+    const {
+      name,
+      daysPerWeek,
+      weeks,
+      bodyPartFocus,
+      progressionFocus,
+      description,
+    } = req.body;
+
+    const allowedProgressionFocuses = ["MUSCLE_BUILDING", "STRENGTH"];
+    if (
+      progressionFocus &&
+      !allowedProgressionFocuses.includes(progressionFocus)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Invalid progressionFocus value" });
+    }
 
     try {
+      const existingProgramme = await prisma.programme.findUnique({
+        where: { id },
+        select: { progressionFocus: true },
+      });
+
+      if (!existingProgramme) {
+        return res.status(404).json({ error: "Programme not found" });
+      }
+
+      const effectiveProgressionFocus =
+        progressionFocus || existingProgramme.progressionFocus;
+
+      if (
+        effectiveProgressionFocus === "STRENGTH" &&
+        weeks !== undefined &&
+        Number(weeks) % 4 !== 0
+      ) {
+        return res.status(400).json({
+          error: "Strength programmes must use a week count that is a multiple of 4.",
+        });
+      }
+
       const updated = await prisma.programme.update({
         where: { id },
         data: {
@@ -993,6 +1708,7 @@ router.put(
           daysPerWeek,
           weeks,
           bodyPartFocus,
+          progressionFocus,
           description,
         },
       });
@@ -1060,7 +1776,7 @@ router.post(
   authenticateToken,
   async (req, res): Promise<any> => {
     const { programmeId } = req.params;
-    const { exerciseId, dayNumber, sets, reps } = req.body;
+    const { exerciseId, dayNumber, sets, reps, strengthRole } = req.body;
 
     if (!exerciseId || !dayNumber) {
       return res
@@ -1069,14 +1785,41 @@ router.post(
     }
 
     try {
+      const programme = await prisma.programme.findUnique({
+        where: { id: programmeId },
+        select: { progressionFocus: true },
+      });
+
+      if (!programme) {
+        return res.status(404).json({ error: "Programme not found" });
+      }
+
+      if (
+        typeof strengthRole === "string" &&
+        !STRENGTH_ROLES.includes(strengthRole as StrengthRole)
+      ) {
+        return res.status(400).json({ error: "Invalid strengthRole value" });
+      }
+
+      const existingDayExerciseCount = await prisma.programmeExercise.count({
+        where: {
+          programmeId,
+          dayNumber: Number(dayNumber),
+        },
+      });
+
       const newProgrammeExercise = await prisma.programmeExercise.create({
         data: {
           programmeId,
           exerciseId,
-          dayNumber,
+          dayNumber: Number(dayNumber),
           sets: sets ?? 3,
           reps: reps ?? "10",
-          orderIndex: 0, // could be dynamically calculated later
+          orderIndex: existingDayExerciseCount,
+          strengthRole:
+            programme.progressionFocus === "STRENGTH"
+              ? resolveStrengthRole(strengthRole, existingDayExerciseCount)
+              : "ACCESSORY",
         },
       });
 
@@ -1372,7 +2115,15 @@ router.post(
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     const userId = (req as any).user.userId;
-    const { exercises, duration, notes, programmeUpdates } = req.body;
+    const {
+      exercises,
+      duration,
+      notes,
+      programmeUpdates,
+      perceivedDifficulty,
+      startRecovery,
+      temporaryRecoveryAdjustmentActive,
+    } = req.body;
 
     if (!exercises || !Array.isArray(exercises)) {
       return res.status(400).json({ error: "Exercises data is required" });
@@ -1384,6 +2135,7 @@ router.post(
       reps: string;
       orderIndex: number;
       notes?: string;
+      strengthRole?: StrengthRole;
     }> = Array.isArray(programmeUpdates) ? programmeUpdates : [];
 
     try {
@@ -1404,6 +2156,10 @@ router.post(
           sets: exercise.sets.map((set: any) => ({
             weight: parseFloat(set.weight) || 0,
             reps: parseInt(set.reps) || 0,
+            targetReps:
+              set.targetReps !== undefined && set.targetReps !== null
+                ? parseInt(set.targetReps, 10) || undefined
+                : undefined,
             rpe: set.rpe ? parseInt(set.rpe) : undefined,
             completed: set.completed !== false, // default to true if not specified
             isDropSet: Boolean(set.isDropSet),
@@ -1414,6 +2170,7 @@ router.post(
 
       // Persist programme changes from today's workout so future weeks follow the current layout
       if (programmeExerciseUpdates.length > 0) {
+        const recoveryAdjustmentStatus = await getRecoveryAdjustmentStatus(userId);
         const userProgram = await prisma.userProgram.findFirst({
           where: { userId, status: "ACTIVE" },
           orderBy: { createdAt: "desc" },
@@ -1421,6 +2178,18 @@ router.post(
 
         if (userProgram) {
           const currentDay = userProgram.currentDay;
+          const parentProgramme = await prisma.programme.findUnique({
+            where: { id: userProgram.programmeId },
+            select: { progressionFocus: true },
+          });
+
+          if (!parentProgramme) {
+            throw new Error("Active programme not found");
+          }
+
+          const isStrengthProgramme =
+            parentProgramme.progressionFocus === "STRENGTH";
+
           const existingProgrammeExercises = await prisma.programmeExercise.findMany({
             where: {
               programmeId: userProgram.programmeId,
@@ -1449,6 +2218,13 @@ router.post(
               continue;
             }
 
+            if (
+              update.strengthRole &&
+              !STRENGTH_ROLES.includes(update.strengthRole)
+            ) {
+              throw new Error(`Invalid strengthRole for exercise ${update.exerciseId}`);
+            }
+
             const existing = existingProgrammeExercises.find(
               (exercise) => exercise.exerciseId === update.exerciseId,
             );
@@ -1457,10 +2233,21 @@ router.post(
               await prisma.programmeExercise.update({
                 where: { id: existing.id },
                 data: {
-                  sets: update.sets,
+                  sets:
+                    temporaryRecoveryAdjustmentActive ||
+                    recoveryAdjustmentStatus.isActive
+                      ? Math.max(update.sets, existing.sets)
+                      : update.sets,
                   reps: update.reps,
                   orderIndex: update.orderIndex,
-                  notes: update.notes || null,
+                  notes: mergeProgrammeExerciseNotes(
+                    existing.notes,
+                    update.notes || null,
+                  ),
+                  strengthRole:
+                    isStrengthProgramme && update.strengthRole
+                      ? update.strengthRole
+                      : existing.strengthRole,
                 },
               });
             } else {
@@ -1472,8 +2259,18 @@ router.post(
                   orderIndex: update.orderIndex,
                   sets: update.sets,
                   reps: update.reps,
-                  notes: update.notes || null,
+                  notes: mergeProgrammeExerciseNotes(
+                    null,
+                    update.notes || null,
+                  ),
                   isSelected: true,
+                  strengthRole:
+                    isStrengthProgramme
+                      ? resolveStrengthRole(
+                          update.strengthRole,
+                          update.orderIndex,
+                        )
+                      : "ACCESSORY",
                 },
               });
             }
@@ -1490,15 +2287,78 @@ router.post(
 
       const streak = await RollingWindowStreakService.onWorkoutLogged(userId);
 
-      // Update workout with duration if provided
-      if (duration) {
-        await prisma.workout.update({
-          where: { id: result.workoutId },
-          data: {
-            duration: parseInt(duration),
-            notes: notes || null,
-          },
-        });
+      let normalizedPerceivedDifficulty: number | null = null;
+      if (perceivedDifficulty !== undefined && perceivedDifficulty !== null) {
+        const parsedDifficulty = parseInt(perceivedDifficulty, 10);
+        if (
+          !Number.isInteger(parsedDifficulty) ||
+          parsedDifficulty < 1 ||
+          parsedDifficulty > 10
+        ) {
+          return res.status(400).json({
+            error: "perceivedDifficulty must be an integer between 1 and 10",
+          });
+        }
+        normalizedPerceivedDifficulty = parsedDifficulty;
+      }
+
+      let normalizedStartRecovery: WorkoutRecoveryOption | null = null;
+      if (typeof startRecovery === "string") {
+        const candidate = startRecovery.toUpperCase() as WorkoutRecoveryOption;
+        if (!WORKOUT_RECOVERY_OPTIONS.includes(candidate)) {
+          return res.status(400).json({
+            error: "startRecovery must be one of FRESH, NORMAL, STILL_TIRED",
+          });
+        }
+        normalizedStartRecovery = candidate;
+      }
+
+      // Update workout with duration/notes and optional readiness feedback.
+      // Keep this resilient if a local DB hasn't yet applied the feedback migration.
+      const workoutUpdateData: any = {};
+      if (duration !== undefined && duration !== null) {
+        workoutUpdateData.duration = parseInt(duration, 10);
+      }
+      if (notes !== undefined) {
+        workoutUpdateData.notes = notes || null;
+      }
+      if (normalizedPerceivedDifficulty !== null) {
+        workoutUpdateData.perceivedDifficulty = normalizedPerceivedDifficulty;
+      }
+      if (normalizedStartRecovery !== null) {
+        workoutUpdateData.startRecovery = normalizedStartRecovery;
+      }
+
+      if (Object.keys(workoutUpdateData).length > 0) {
+        try {
+          await prisma.workout.update({
+            where: { id: result.workoutId },
+            data: workoutUpdateData,
+            select: { id: true },
+          });
+        } catch (updateError: any) {
+          const message = String(updateError?.message || "").toLowerCase();
+          const feedbackFieldFailure =
+            message.includes("perceived_difficulty") ||
+            message.includes("start_recovery") ||
+            message.includes("perceiveddifficulty") ||
+            message.includes("startrecovery");
+
+          if (!feedbackFieldFailure) {
+            throw updateError;
+          }
+
+          delete workoutUpdateData.perceivedDifficulty;
+          delete workoutUpdateData.startRecovery;
+
+          if (Object.keys(workoutUpdateData).length > 0) {
+            await prisma.workout.update({
+              where: { id: result.workoutId },
+              data: workoutUpdateData,
+              select: { id: true },
+            });
+          }
+        }
       }
 
       console.log(
@@ -1516,6 +2376,442 @@ router.post(
       console.error("❌ Error saving workout:", error);
       res.status(500).json({
         error: "Failed to save workout",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/workouts/:workoutId/feedback",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const { workoutId } = req.params;
+    const { perceivedDifficulty, startRecovery } = req.body;
+
+    const parsedDifficulty = parseInt(perceivedDifficulty, 10);
+    if (
+      !Number.isInteger(parsedDifficulty) ||
+      parsedDifficulty < 1 ||
+      parsedDifficulty > 10
+    ) {
+      return res.status(400).json({
+        error: "perceivedDifficulty must be an integer between 1 and 10",
+      });
+    }
+
+    if (typeof startRecovery !== "string") {
+      return res.status(400).json({
+        error: "startRecovery must be one of FRESH, NORMAL, STILL_TIRED",
+      });
+    }
+
+    const normalizedStartRecovery =
+      startRecovery.toUpperCase() as WorkoutRecoveryOption;
+    if (!WORKOUT_RECOVERY_OPTIONS.includes(normalizedStartRecovery)) {
+      return res.status(400).json({
+        error: "startRecovery must be one of FRESH, NORMAL, STILL_TIRED",
+      });
+    }
+
+    try {
+      const workout = await prisma.workout.findFirst({
+        where: {
+          id: workoutId,
+          userProgram: {
+            userId,
+          },
+        },
+        select: { id: true, notes: true },
+      });
+
+      if (!workout) {
+        return res.status(404).json({ error: "Workout not found" });
+      }
+
+      const currentNotes = parseWorkoutNotesEnvelope(workout.notes);
+      const mergedNotes: WorkoutNotesEnvelope = {
+        text: currentNotes.text,
+        meta: {
+          ...currentNotes.meta,
+          feedback: {
+            perceivedDifficulty: parsedDifficulty,
+            startRecovery: normalizedStartRecovery,
+          },
+        },
+      };
+      const serializedNotes = serializeWorkoutNotesEnvelope(mergedNotes);
+
+      try {
+        await prisma.workout.update({
+          where: { id: workout.id },
+          data: {
+            perceivedDifficulty: parsedDifficulty,
+            startRecovery: normalizedStartRecovery,
+            notes: serializedNotes,
+          } as any,
+          select: { id: true },
+        });
+      } catch (updateError: any) {
+        const message = String(updateError?.message || "").toLowerCase();
+        const feedbackFieldFailure =
+          message.includes("perceived_difficulty") ||
+          message.includes("start_recovery") ||
+          message.includes("perceiveddifficulty") ||
+          message.includes("startrecovery");
+
+        if (!feedbackFieldFailure) {
+          throw updateError;
+        }
+
+        await prisma.workout.update({
+          where: { id: workout.id },
+          data: {
+            notes: serializedNotes,
+          },
+          select: { id: true },
+        });
+      }
+
+      const recentWorkouts = await prisma.workout.findMany({
+        where: {
+          userProgram: {
+            userId,
+          },
+        },
+        orderBy: {
+          completedAt: "desc",
+        },
+        take: Math.max(HIGH_FATIGUE_STREAK_THRESHOLD, LOW_EFFORT_STREAK_THRESHOLD),
+        select: {
+          notes: true,
+          exercises: {
+            select: {
+              sets: {
+                select: {
+                  reps: true,
+                  targetReps: true,
+                  completed: true,
+                  notes: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const recoveryStreakCount = countConsecutiveHighFatigueFeedback(
+        recentWorkouts,
+      );
+      const easyProgressStreakCount = countConsecutiveEasyProgressWorkouts(
+        recentWorkouts,
+      );
+      const performanceStreak = await hasExerciseUnderperformanceStreak(
+        userId,
+        MISSED_TARGET_REP_STREAK_THRESHOLD,
+      );
+      const overperformingExercises = await findExercisesWithOverperformanceStreak(
+        userId,
+        EXERCISE_OVERPERFORMANCE_STREAK_THRESHOLD,
+      );
+      const recoveryAdjustmentStatus = await getRecoveryAdjustmentStatus(userId);
+      const activeExerciseOverrides =
+        recoveryAdjustmentStatus.activeExerciseOverperformanceAdjustments || [];
+      const hasActiveMissedTargetOverride =
+        Boolean(performanceStreak.exerciseId) &&
+        typeof performanceStreak.dayNumber === "number" &&
+        activeExerciseOverrides.some(
+          (override) =>
+            override.exerciseId === performanceStreak.exerciseId &&
+            override.dayNumber === performanceStreak.dayNumber &&
+            override.multiplier < 1,
+        );
+      const filteredOverperformingExercises = overperformingExercises.filter(
+        (exercise) =>
+          !activeExerciseOverrides.some(
+            (override) =>
+              override.exerciseId === exercise.exerciseId &&
+              override.dayNumber === exercise.dayNumber &&
+              override.multiplier > 1,
+          ),
+      );
+      const adjustmentTriggerType =
+        performanceStreak.hasStreak
+          ? "MISSED_TARGETS"
+          : recoveryStreakCount >= HIGH_FATIGUE_STREAK_THRESHOLD
+            ? "FATIGUE"
+            : easyProgressStreakCount >= LOW_EFFORT_STREAK_THRESHOLD
+              ? "EASY_PROGRESS"
+              : null;
+      const shouldSuggestAdjustments =
+        adjustmentTriggerType !== null &&
+        (adjustmentTriggerType === "MISSED_TARGETS"
+          ? !hasActiveMissedTargetOverride
+          : !recoveryAdjustmentStatus.isActive);
+
+      // Exercise overperformance suggestions are independent of programme-wide triggers.
+      // They can appear alongside or instead of programme-wide adjustments.
+      const shouldSuggestExerciseIncrease =
+        filteredOverperformingExercises.length > 0;
+
+      return res.json({
+        message: "Workout feedback saved",
+        recoveryStreakCount,
+        easyProgressStreakCount,
+        missedTargetRepStreak: performanceStreak.hasStreak,
+        underperformingExerciseId: performanceStreak.exerciseId,
+        underperformingExerciseName: performanceStreak.exerciseName,
+        adjustmentTriggerType,
+        shouldSuggestAdjustments,
+        shouldSuggestExerciseIncrease,
+        overperformingExercises: filteredOverperformingExercises,
+      });
+    } catch (error) {
+      console.error("❌ Error saving workout feedback:", error);
+      return res.status(500).json({
+        error: "Failed to save workout feedback",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
+
+router.post(
+  "/workouts/recovery-adjustments/apply",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const {
+      workoutId,
+      triggerType,
+      targetExerciseId,
+      targetExerciseName,
+      // Array of exercise objects for EXERCISE_OVERPERFORMANCE
+      exerciseAdjustments,
+    } = req.body || {};
+
+    try {
+      const activeProgram = await prisma.userProgram.findFirst({
+        where: {
+          userId,
+          status: "ACTIVE",
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          id: true,
+          programmeId: true,
+          programme: {
+            select: {
+              daysPerWeek: true,
+            },
+          },
+        },
+      });
+
+      if (!activeProgram) {
+        return res.status(404).json({ error: "No active programme found" });
+      }
+
+      const resolvedWorkout =
+        typeof workoutId === "string"
+          ? await prisma.workout.findFirst({
+              where: {
+                id: workoutId,
+                userProgram: {
+                  userId,
+                },
+              },
+              select: {
+                id: true,
+                notes: true,
+                dayNumber: true,
+              },
+            })
+          : await prisma.workout.findFirst({
+              where: {
+                userProgram: {
+                  userId,
+                },
+              },
+              orderBy: {
+                completedAt: "desc",
+              },
+              select: {
+                id: true,
+                notes: true,
+                dayNumber: true,
+              },
+            });
+
+      if (!resolvedWorkout) {
+        return res.status(404).json({ error: "No completed workout found" });
+      }
+
+      const normalizedTriggerType =
+        triggerType === "MISSED_TARGETS"
+          ? "MISSED_TARGETS"
+          : triggerType === "EASY_PROGRESS"
+            ? "EASY_PROGRESS"
+            : triggerType === "EXERCISE_OVERPERFORMANCE"
+              ? "EXERCISE_OVERPERFORMANCE"
+              : "FATIGUE";
+
+      // Handle one-time exercise overrides (missed targets / overperformance).
+      if (
+        normalizedTriggerType === "EXERCISE_OVERPERFORMANCE" ||
+        normalizedTriggerType === "MISSED_TARGETS"
+      ) {
+        const validExercises: Array<{ exerciseId: string; exerciseName: string }> =
+          normalizedTriggerType === "MISSED_TARGETS"
+            ? typeof targetExerciseId === "string" &&
+              typeof targetExerciseName === "string"
+              ? [
+                  {
+                    exerciseId: targetExerciseId,
+                    exerciseName: targetExerciseName,
+                  },
+                ]
+              : []
+            : Array.isArray(exerciseAdjustments)
+              ? exerciseAdjustments.filter(
+                  (e: any) =>
+                    typeof e?.exerciseId === "string" &&
+                    typeof e?.exerciseName === "string",
+                )
+              : [];
+
+        if (validExercises.length === 0) {
+          return res.status(400).json({ error: "No valid exercise adjustments provided" });
+        }
+
+        const multiplier =
+          normalizedTriggerType === "MISSED_TARGETS"
+            ? MISSED_TARGET_ONE_TIME_WEIGHT_MULTIPLIER
+            : EXERCISE_OVERPERFORMANCE_WEIGHT_MULTIPLIER;
+
+        const now = new Date().toISOString();
+        const newAdjustments: ExerciseOneTimeOverride[] = validExercises.map((e) => ({
+          exerciseId: e.exerciseId,
+          exerciseName: e.exerciseName,
+          multiplier,
+          sessionsToAdjust: 1,
+          appliedAt: now,
+          triggerWorkoutId: resolvedWorkout.id,
+          dayNumber: resolvedWorkout.dayNumber,
+          programmeId: activeProgram.programmeId,
+          triggerType: normalizedTriggerType,
+        }));
+
+        const parsedNotes = parseWorkoutNotesEnvelope(resolvedWorkout.notes);
+        const nextNotes: WorkoutNotesEnvelope = {
+          text: parsedNotes.text,
+          meta: {
+            ...parsedNotes.meta,
+            exerciseOverperformanceAdjustments: [
+              ...(parsedNotes.meta?.exerciseOverperformanceAdjustments ?? []),
+              ...newAdjustments,
+            ],
+          },
+        };
+
+        await prisma.workout.update({
+          where: { id: resolvedWorkout.id },
+          data: { notes: serializeWorkoutNotesEnvelope(nextNotes) },
+          select: { id: true },
+        });
+
+        return res.json({
+          message:
+            normalizedTriggerType === "MISSED_TARGETS"
+              ? "One-time reduction override applied"
+              : "Exercise overperformance adjustments applied",
+          triggerType: normalizedTriggerType,
+          exerciseAdjustments: newAdjustments.map((a) => ({
+            exerciseId: a.exerciseId,
+            exerciseName: a.exerciseName,
+            multiplier: a.multiplier,
+            sessionsRemaining: 1,
+            dayNumber: a.dayNumber,
+          })),
+        });
+      }
+
+      const sessionsToAdjust =
+        normalizedTriggerType === "EASY_PROGRESS"
+          ? Math.max(activeProgram.programme.daysPerWeek || 3, 1)
+          : Math.max(activeProgram.programme.daysPerWeek || 3, 1);
+
+      const weightMultiplier =
+        normalizedTriggerType === "EASY_PROGRESS"
+          ? EASY_PROGRESS_WEIGHT_MULTIPLIER
+          : RECOVERY_ADJUSTMENT_WEIGHT_MULTIPLIER;
+
+      const setTarget =
+        normalizedTriggerType === "EASY_PROGRESS"
+          ? undefined
+          : RECOVERY_ADJUSTMENT_SET_TARGET;
+
+      const parsedNotes = parseWorkoutNotesEnvelope(resolvedWorkout.notes);
+      const nextNotes: WorkoutNotesEnvelope = {
+        text: parsedNotes.text,
+        meta: {
+          ...parsedNotes.meta,
+          recoveryAdjustment: {
+            triggerType: normalizedTriggerType,
+            sessionsToAdjust,
+            setTarget,
+            weightMultiplier,
+            appliedAt: new Date().toISOString(),
+            triggerWorkoutId: resolvedWorkout.id,
+            targetExerciseId: undefined,
+            targetExerciseName: undefined,
+          },
+        },
+      };
+
+      await prisma.workout.update({
+        where: { id: resolvedWorkout.id },
+        data: {
+          notes: serializeWorkoutNotesEnvelope(nextNotes),
+        },
+        select: { id: true },
+      });
+
+      return res.json({
+        message: "Recovery adjustments applied",
+        sessionsToAdjust,
+        sessionsRemaining: sessionsToAdjust,
+        setTarget,
+        weightMultiplier,
+        triggerType: normalizedTriggerType,
+        targetExerciseId: undefined,
+        targetExerciseName: undefined,
+      });
+    } catch (error) {
+      console.error("❌ Error applying recovery adjustments:", error);
+      return res.status(500).json({
+        error: "Failed to apply recovery adjustments",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
+
+router.get(
+  "/workouts/recovery-adjustments/status",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    try {
+      const status = await getRecoveryAdjustmentStatus(userId);
+      return res.json(status);
+    } catch (error) {
+      console.error("❌ Error getting recovery adjustment status:", error);
+      return res.status(500).json({
+        error: "Failed to get recovery adjustment status",
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -1614,6 +2910,8 @@ router.get(
       const setLayouts = setLayoutsParam
         ? JSON.parse(setLayoutsParam)
         : [];
+      const dayNumberParam = req.query.dayNumber as string | undefined;
+      const dayNumber = dayNumberParam ? parseInt(dayNumberParam, 10) : undefined;
 
       const recommendations =
         await ProgressiveOverloadService.getProgressionRecommendations(
@@ -1623,11 +2921,211 @@ router.get(
           setLayouts,
         );
 
-      res.json({ recommendations });
+      const recoveryAdjustmentStatus = await getRecoveryAdjustmentStatus(userId);
+
+      // Apply per-exercise overperformance multipliers (only if on the correct day)
+      let processedRecommendations = recommendations;
+      if (recoveryAdjustmentStatus.activeExerciseOverperformanceAdjustments.length > 0) {
+        processedRecommendations = recommendations.map((rec) => {
+          const adj = recoveryAdjustmentStatus.activeExerciseOverperformanceAdjustments.find(
+            (a) => a.exerciseId === rec.exerciseId && a.dayNumber === dayNumber,
+          );
+          if (!adj || adj.multiplier === 1) return rec;
+
+          const changePct = Math.abs((adj.multiplier - 1) * 100);
+          const changeDirection = adj.multiplier >= 1 ? "increase" : "reduction";
+          return {
+            ...rec,
+            recommendedWeight: Math.round(rec.recommendedWeight * adj.multiplier * 10) / 10,
+            setRecommendations: (rec.setRecommendations || []).map((s) => ({
+              ...s,
+              recommendedWeight: Math.round(s.recommendedWeight * adj.multiplier * 10) / 10,
+            })),
+            reasoning: `${rec.reasoning} One-time exercise override applied (${changePct.toFixed(0)}% load ${changeDirection} for the next matching workout).`,
+          };
+        });
+      }
+
+      if (!recoveryAdjustmentStatus.isActive) {
+        return res.json({ recommendations: processedRecommendations });
+      }
+
+      const adjustedRecommendations = processedRecommendations.map((recommendation) => {
+        const matchesScope =
+          !recoveryAdjustmentStatus.targetExerciseId ||
+          recoveryAdjustmentStatus.targetExerciseId === recommendation.exerciseId;
+        const multiplier = recoveryAdjustmentStatus.weightMultiplier;
+        if (multiplier === 1 || !matchesScope) {
+          return recommendation;
+        }
+
+        const adjustedSetRecommendations = (recommendation.setRecommendations || []).map(
+          (setRecommendation) => ({
+            ...setRecommendation,
+            recommendedWeight:
+              Math.round(setRecommendation.recommendedWeight * multiplier * 10) /
+              10,
+          }),
+        );
+
+        const changePct = Math.abs((multiplier - 1) * 100);
+        const changeDirection = multiplier >= 1 ? "increase" : "reduction";
+
+        return {
+          ...recommendation,
+          recommendedWeight:
+            Math.round(recommendation.recommendedWeight * multiplier * 10) / 10,
+          setRecommendations: adjustedSetRecommendations,
+          reasoning: `${recommendation.reasoning} Recovery adjustment applied (${changePct.toFixed(0)}% load ${changeDirection} for ${recoveryAdjustmentStatus.sessionsRemaining} remaining session(s)).`,
+        };
+      });
+
+      res.json({ recommendations: adjustedRecommendations });
     } catch (error) {
       console.error("❌ Error getting recommendations:", error);
       res.status(500).json({
         error: "Failed to get recommendations",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
+
+// GET /auth/workouts/history/:exerciseId - Get workout history for specific exercise
+router.get(
+  "/workouts/by-day",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const weekNumber = parseInt(req.query.weekNumber as string, 10);
+    const dayNumber = parseInt(req.query.dayNumber as string, 10);
+
+    if (!Number.isInteger(weekNumber) || weekNumber < 1) {
+      return res.status(400).json({ error: "weekNumber must be a positive integer" });
+    }
+
+    if (!Number.isInteger(dayNumber) || dayNumber < 1) {
+      return res.status(400).json({ error: "dayNumber must be a positive integer" });
+    }
+
+    try {
+      const activeProgram = await prisma.userProgram.findFirst({
+        where: {
+          userId,
+          status: "ACTIVE",
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          id: true,
+          programmeId: true,
+        },
+      });
+
+      if (!activeProgram) {
+        return res.status(404).json({ error: "No active programme found" });
+      }
+
+      const workout = await prisma.workout.findFirst({
+        where: {
+          userProgramId: activeProgram.id,
+          weekNumber,
+          dayNumber,
+        },
+        orderBy: {
+          completedAt: "desc",
+        },
+        select: {
+          id: true,
+          weekNumber: true,
+          dayNumber: true,
+          completedAt: true,
+          duration: true,
+          notes: true,
+          exercises: {
+            orderBy: {
+              orderIndex: "asc",
+            },
+            select: {
+              id: true,
+              orderIndex: true,
+              exerciseId: true,
+              exercise: {
+                select: {
+                  name: true,
+                  muscleGroup: true,
+                },
+              },
+              sets: {
+                orderBy: {
+                  setNumber: "asc",
+                },
+                select: {
+                  setNumber: true,
+                  weight: true,
+                  reps: true,
+                  targetReps: true,
+                  completed: true,
+                  notes: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!workout) {
+        return res.status(404).json({ error: "No saved workout found for that day" });
+      }
+
+      const exercises = workout.exercises.map((exercise) => ({
+        id: exercise.id,
+        orderIndex: exercise.orderIndex,
+        exerciseId: exercise.exerciseId,
+        name: exercise.exercise.name,
+        muscleGroup: exercise.exercise.muscleGroup,
+        sets: exercise.sets.map((set) => {
+          let setType: "main" | "drop" = "main";
+          let dropSetGroupId: string | undefined;
+
+          if (set.notes) {
+            try {
+              const parsed = JSON.parse(set.notes);
+              setType = parsed?.type === "drop" ? "drop" : "main";
+              dropSetGroupId = parsed?.groupId;
+            } catch {
+              setType = "main";
+            }
+          }
+
+          return {
+            setNumber: set.setNumber,
+            weight: set.weight,
+            reps: set.reps,
+            targetReps: set.targetReps,
+            completed: set.completed,
+            setType,
+            dropSetGroupId,
+          };
+        }),
+      }));
+
+      return res.json({
+        workout: {
+          id: workout.id,
+          weekNumber: workout.weekNumber,
+          dayNumber: workout.dayNumber,
+          completedAt: workout.completedAt,
+          duration: workout.duration,
+          notes: workout.notes,
+          exercises,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error getting workout by day:", error);
+      return res.status(500).json({
+        error: "Failed to fetch workout by day",
         details: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -1641,7 +3139,14 @@ router.get(
   async (req: Request, res: Response): Promise<any> => {
     const userId = (req as any).user.userId;
     const { exerciseId } = req.params;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const parsedLimit = parseInt(req.query.limit as string, 10);
+    const limit = Number.isInteger(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 50)
+      : 10;
+
+    if (!exerciseId) {
+      return res.status(400).json({ error: "exerciseId is required" });
+    }
 
     try {
       const workoutHistory = await prisma.workoutSet.findMany({
@@ -1675,11 +3180,7 @@ router.get(
           },
         },
         orderBy: {
-          workoutExercise: {
-            workout: {
-              completedAt: "desc",
-            },
-          },
+          createdAt: "desc",
         },
         take: limit * 5, // Approximate sets per workout
       });

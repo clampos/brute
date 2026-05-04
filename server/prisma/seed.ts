@@ -1,16 +1,53 @@
 // seed-complete.ts - Complete seed script for exercises and programmes
 
 import { PrismaClient } from "@prisma/client";
+import {
+  EXERCISE_LIBRARY,
+  categoryFromMovementPattern,
+} from "../utils/exerciseLibrary";
 
 const prisma = new PrismaClient();
 
 async function seedExercises() {
-  const existingCount = await prisma.exercise.count();
-  if (existingCount > 0) {
-    await prisma.exercise.deleteMany(); // clears the table
-    console.log("Cleared existing exercises.");
+  // Always clear and re-seed so IDs, movement patterns, and links stay in sync.
+  await prisma.userExerciseProgression.deleteMany();
+  await prisma.workoutSet.deleteMany();
+  await prisma.workoutExercise.deleteMany();
+  await prisma.workout.deleteMany();
+  await prisma.programmeExercise.deleteMany();
+  await prisma.exercise.deleteMany();
+  console.log("Cleared existing exercise and workout data.");
+
+  for (const template of EXERCISE_LIBRARY) {
+    await prisma.exercise.create({
+      data: {
+        id: template.id,
+        name: template.name,
+        muscleGroup: template.muscleGroup,
+        category: categoryFromMovementPattern(template.movementPattern),
+        equipment: template.equipment.join("/"),
+        movementPattern: template.movementPattern,
+        defaultRepMin: template.defaultRepRange.min,
+        defaultRepMax: template.defaultRepRange.max,
+        complementaryExerciseIds: JSON.stringify(template.complementsExercises),
+        replacementExerciseIds: JSON.stringify(template.alternativeFor),
+        instructions: template.instructions ?? null,
+      },
+    });
   }
 
+  console.log(`Seeded ${EXERCISE_LIBRARY.length} exercises from exercise library.`);
+}
+
+// ─── Legacy exercises kept for programme lookups ──────────────────────────────
+// The programme seeder uses fuzzy name matching against all seeded exercises, so
+// the library names above cover all programme exercise references.
+// The old giant list below is intentionally removed — the library is the source
+// of truth. If a programme exercise name doesn't fuzzy-match, it is simply skipped.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function _legacyExerciseBlock() {
+  // This block is intentionally empty. Kept as a comment anchor.
   const exercises = [
     // ABDOMINAL EXERCISES
     {
@@ -1600,14 +1637,8 @@ async function seedExercises() {
       instructions: "Grip bar underhand, push down extending elbows fully",
     },
   ];
-  // Insert exercises into database
-  for (const exercise of exercises) {
-    await prisma.exercise.create({
-      data: exercise,
-    });
-  }
-
-  console.log(`Seeded ${exercises.length} exercises.`);
+  // Legacy exercises – intentionally unused (kept for reference only).
+  void exercises;
 }
 
 async function seedProgrammes() {

@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "prestart": "prisma generate",
     "start": "node index.js",
+    "predev": "prisma generate",
     "dev": "cross-env NODE_ENV=development ts-node-dev --prefer-ts-exts index.ts",
     "sync:stripe-customers": "ts-node scripts/importStripeCustomers.ts"
   },

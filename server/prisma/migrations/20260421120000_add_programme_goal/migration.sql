@@ -1,0 +1,1 @@
+-- Placeholder: migration was applied directly and SQL file was missing

@@ -55,6 +55,14 @@ function getSelectedStreakFields() {
   } as const;
 }
 
+function normalizeStreakGoal(daysPerWeek: number | null | undefined): number {
+  if (!Number.isInteger(daysPerWeek) || !daysPerWeek) {
+    return 3;
+  }
+
+  return Math.max(1, Math.min(14, daysPerWeek));
+}
+
 function serializeStatus(
   state: StreakState,
   now: Date,
@@ -199,6 +207,22 @@ async function updateState(
   return prisma.$transaction(async (tx) => {
     const selected = getSelectedStreakFields();
     const user = await tx.user.findUnique({ where: { id: userId }, select: selected });
+    const activeProgram = await tx.userProgram.findFirst({
+      where: {
+        userId,
+        status: "ACTIVE",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        programme: {
+          select: {
+            daysPerWeek: true,
+          },
+        },
+      },
+    });
 
     if (!user) {
       throw new Error("User not found");
@@ -212,6 +236,15 @@ async function updateState(
       streak_freeze_available: user.streak_freeze_available,
       last_workout_at: user.last_workout_at,
     };
+
+    const syncedGoal = normalizeStreakGoal(activeProgram?.programme?.daysPerWeek);
+    if (state.streak_goal !== syncedGoal) {
+      state.streak_goal = syncedGoal;
+      state.current_window_workouts = Math.min(
+        state.current_window_workouts,
+        state.streak_goal,
+      );
+    }
 
     const flags = {
       milestoneWindows: [] as number[],

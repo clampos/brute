@@ -4,6 +4,7 @@ import { prisma } from "../prisma.js";
 export interface WorkoutSetData {
   weight: number;
   reps: number;
+  targetReps?: number;
   completed: boolean;
   isDropSet?: boolean;
   dropSetGroupId?: string;
@@ -44,6 +45,9 @@ export interface ProgressionRecommendation {
   recommendedRPE: number;
   progressionType:
     | "NORMAL"
+    | "AT_REP_CAP"
+    | "WEIGHT_INCREASE"
+    | "INTENSITY_FOCUS"
     | "REP_CAP"
     | "FAILURE"
     | "MANUAL_JUMP"
@@ -53,6 +57,7 @@ export interface ProgressionRecommendation {
     | "INITIAL";
   reasoning: string;
   setRecommendations: SetProgressionRecommendation[];
+  volumeSuggestion?: "add_set" | "add_exercise" | null;
 }
 
 interface PerformanceHistory {
@@ -60,6 +65,22 @@ interface PerformanceHistory {
   actualReps: number;
   targetReps: number;
   weight: number;
+}
+
+type StrengthExerciseRole = "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
+
+interface StrengthExerciseMeta {
+  role: StrengthExerciseRole;
+  name: string;
+  muscleGroup: string;
+}
+
+interface StrengthCycleTemplate {
+  sets: number;
+  reps: number;
+  percent: number;
+  rpe: number;
+  progressionType: ProgressionRecommendation["progressionType"];
 }
 
 export interface WeeklySummary {
@@ -94,6 +115,7 @@ export interface WeeklySummary {
     weight: number;
   }>;
   isEndOfWeek: boolean;
+  weeklySetsByMuscleGroup?: Record<string, number>;
 }
 
 export class ProgressiveOverloadService {
@@ -180,7 +202,8 @@ export class ProgressiveOverloadService {
           },
         },
       },
-      include: {
+      select: {
+        weekNumber: true,
         exercises: {
           where: {
             exerciseId,
@@ -253,7 +276,7 @@ export class ProgressiveOverloadService {
           },
         },
       },
-      include: {
+      select: {
         exercises: {
           where: {
             exerciseId,
@@ -296,7 +319,9 @@ export class ProgressiveOverloadService {
     progressionType: ProgressionRecommendation["progressionType"],
   ): SetProgressionRecommendation {
     let recommendedWeight = previousSet.weight;
-    let recommendedReps = previousSet.targetReps || previousSet.reps;
+    // Drive per-set progression from what the user actually achieved last session.
+    // Using stale target reps can over-prescribe after misses (e.g. 5,5,5 -> 10,7,7).
+    let recommendedReps = previousSet.reps;
 
     if (progressionType === "MANUAL_JUMP") {
       recommendedWeight = previousSet.weight;
@@ -305,7 +330,7 @@ export class ProgressiveOverloadService {
       recommendedWeight = previousSet.weight * (1 - this.WEIGHT_DECREASE_PERCENT);
       recommendedReps = Math.max(
         1,
-        Math.floor((previousSet.targetReps || previousSet.reps) * 0.9),
+        Math.floor(previousSet.reps * 0.9),
       );
     } else if (progressionType === "OVERPERFORMANCE") {
       recommendedWeight = previousSet.weight * (1 + this.WEIGHT_INCREASE_PERCENT);
@@ -328,16 +353,13 @@ export class ProgressiveOverloadService {
       );
     } else if (progressionType === "DELOAD") {
       recommendedWeight = previousSet.weight * 0.55;
-      recommendedReps = previousSet.targetReps || previousSet.reps;
+      recommendedReps = previousSet.reps;
     } else if (progressionType === "NORMAL") {
       recommendedWeight = previousSet.weight;
-      recommendedReps = Math.min(
-        (previousSet.targetReps || previousSet.reps) + 1,
-        this.REP_CAP,
-      );
+      recommendedReps = Math.min(previousSet.reps + 1, this.REP_CAP);
     }
 
-    recommendedWeight = Math.round(recommendedWeight * 2) / 2;
+    recommendedWeight = this.roundToNearestIncrement(recommendedWeight, 2.5);
 
     return {
       setNumber: previousSet.setNumber,
@@ -427,6 +449,523 @@ export class ProgressiveOverloadService {
     return Math.max(8, Math.min(12, newReps));
   }
 
+  private static getStrengthCycleWeek(currentWeek: number): number {
+    return ((Math.max(currentWeek, 1) - 1) % 4) + 1;
+  }
+
+  private static getStrengthCycleTemplate(cycleWeek: number): StrengthCycleTemplate {
+    switch (cycleWeek) {
+      case 1:
+        return { sets: 3, reps: 5, percent: 0.7, rpe: 7, progressionType: "NORMAL" };
+      case 2:
+        return { sets: 3, reps: 3, percent: 0.8, rpe: 8, progressionType: "NORMAL" };
+      case 3:
+        return { sets: 3, reps: 1, percent: 0.9, rpe: 9, progressionType: "NORMAL" };
+      default:
+        return { sets: 3, reps: 5, percent: 0.6, rpe: 5, progressionType: "DELOAD" };
+    }
+  }
+
+  private static estimateOneRepMax(weight: number, reps: number): number {
+    if (weight <= 0 || reps <= 0) return 0;
+    return weight * (1 + reps / 30);
+  }
+
+  private static roundToNearestIncrement(value: number, increment: number = 2.5): number {
+    if (value <= 0) return 0;
+    return Math.max(increment, Math.round(value / increment) * increment);
+  }
+
+  private static getMainLiftIncrementKg(
+    exerciseName: string,
+    muscleGroup: string,
+  ): number {
+    const normalizedName = exerciseName.toLowerCase();
+    const normalizedGroup = muscleGroup.toLowerCase();
+
+    if (
+      normalizedName.includes("deadlift") ||
+      normalizedName.includes("squat") ||
+      normalizedGroup.includes("quadriceps") ||
+      normalizedGroup.includes("hamstrings") ||
+      normalizedGroup.includes("glutes")
+    ) {
+      return 5;
+    }
+
+    return 2.5;
+  }
+
+  private static parseRepRange(repsString: string): { min: number; max: number } {
+    const rangeMatch = repsString.match(/^(\d+)-(\d+)$/);
+    if (rangeMatch) {
+      return { min: parseInt(rangeMatch[1], 10), max: parseInt(rangeMatch[2], 10) };
+    }
+    const singleMatch = repsString.match(/^(\d+)$/);
+    if (singleMatch) {
+      const val = parseInt(singleMatch[1], 10);
+      return { min: val, max: val };
+    }
+    return { min: 8, max: 12 };
+  }
+
+  private static async getOrCreateExerciseProgression(
+    userId: string,
+    userProgramId: string,
+    exerciseId: string,
+  ) {
+    const existing = await prisma.userExerciseProgression.findUnique({
+      where: { userProgramId_exerciseId: { userProgramId, exerciseId } },
+    });
+    if (existing) return existing;
+
+    return prisma.userExerciseProgression.create({
+      data: {
+        userId,
+        userProgramId,
+        exerciseId,
+        progressionPhase: "rep_progression",
+        consecutiveSessionsAtMaxReps: 0,
+        weeksAtCurrentSetCount: 0,
+      },
+    });
+  }
+
+  /**
+   * Muscle building progression logic (MUSCLE_BUILDING programmes only).
+   *
+   * Phase flow:
+   *   rep_progression  → add 1 rep/session within target range (e.g. 8–12)
+   *   AT_REP_CAP       → hit max reps; accumulate consecutive sessions (default 3 needed)
+   *   WEIGHT_INCREASE  → after N consecutive sessions at max reps: +5% weight, reset to min reps
+   *   set_progression  → after 6 weeks at current set count: suggest adding a set (up to 5)
+   *   exercise_addition→ at 5 sets: suggest adding a complementary exercise instead
+   *   intensity_focus  → volume caps reached (5 sets/exercise + 20 sets/muscle group or 25 sets/workout)
+   *
+   * Volume caps:
+   *   5 sets per exercise | 20 sets per muscle group | 25 sets per workout
+   */
+  private static async calculateMuscleBuildingRecommendation(
+    userId: string,
+    userProgramId: string,
+    exerciseId: string,
+    currentWeek: number,
+    programLength: number,
+    lastWorkoutSets: WorkoutSetHistory[],
+    history: PerformanceHistory[],
+    setCount: number,
+    currentSetDefinitions: SetDefinition[],
+    programmeReps: string,
+    muscleGroupTotalSets: number,
+    totalWorkoutSets: number,
+    muscleGroup: string = "",
+  ): Promise<ProgressionRecommendation> {
+    const rpeTable = this.generateRPETable(programLength);
+    const currentRPE = rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
+    const isDeloadWeek = currentWeek === programLength + 1;
+
+    const repRange = this.parseRepRange(programmeReps);
+
+    const MAX_SETS_PER_EXERCISE = 5;
+    const MAX_MUSCLE_GROUP_SETS = 20;
+    const MAX_WORKOUT_SETS = 25;
+    const SESSIONS_NEEDED_FOR_WEIGHT_INCREASE = 3;
+    const WEEKS_BEFORE_SET_INCREASE = 6;
+
+    const lowerBodyGroups = ["Quads", "Hamstrings", "Glutes", "Back", "quads", "hamstrings", "glutes", "back"];
+    const weightIncrement = lowerBodyGroups.includes(muscleGroup) ? 5 : 2.5;
+
+    const buildSets = (
+      weight: number,
+      reps: number,
+      type: ProgressionRecommendation["progressionType"],
+    ): SetProgressionRecommendation[] => {
+      if (lastWorkoutSets.length === 0) return [];
+
+      const previousMainSets = lastWorkoutSets.filter((s) => s.setType !== "drop");
+      const previousDropSets = lastWorkoutSets.filter((s) => s.setType === "drop");
+      let mainIndex = 0;
+      let dropIndex = 0;
+
+      const defs =
+        type === "DELOAD"
+          ? (() => {
+              const mains = currentSetDefinitions.filter((d) => d.type !== "drop");
+              const keep = Math.max(1, Math.ceil(mains.length * 0.5));
+              return mains.slice(0, keep);
+            })()
+          : currentSetDefinitions;
+
+      return defs.map((def, i) => {
+        if (def.type === "drop") {
+          const prev = previousDropSets[dropIndex++];
+          return {
+            setNumber: i + 1,
+            recommendedWeight: prev?.weight ?? this.roundToNearestIncrement(weight * 0.8, weightIncrement),
+            recommendedReps: prev?.reps ?? reps,
+          };
+        }
+        const prev = previousMainSets[mainIndex++];
+        // For rep-progression types, progress each set individually from its own last reps.
+        // If no previous set exists (new set just added), default to the bottom of the rep range.
+        const setReps =
+          (type === "NORMAL" || type === "AT_REP_CAP") && prev
+            ? Math.min(prev.reps + 1, repRange.max)
+            : prev
+              ? reps
+              : repRange.min;
+        return { setNumber: i + 1, recommendedWeight: weight, recommendedReps: setReps };
+      });
+    };
+
+    if (history.length === 0 || lastWorkoutSets.length === 0) {
+      return {
+        exerciseId,
+        recommendedWeight: 0,
+        recommendedReps: repRange.min,
+        recommendedRPE: currentRPE,
+        progressionType: "INITIAL",
+        reasoning: `First session: pick a weight you can hit ${repRange.min}–${repRange.max} reps with good form.`,
+        setRecommendations: [],
+        volumeSuggestion: null,
+      };
+    }
+
+    const lastSession = history[history.length - 1];
+    const currentWeight = lastSession.weight;
+    const lastReps = lastSession.actualReps;
+
+    if (isDeloadWeek) {
+      const weight = this.roundToNearestIncrement(currentWeight * 0.55, weightIncrement);
+      const reps = repRange.min;
+      return {
+        exerciseId,
+        recommendedWeight: weight,
+        recommendedReps: reps,
+        recommendedRPE: 5,
+        progressionType: "DELOAD",
+        reasoning: `Deload week: ~55% load, ${reps} reps, cut sets by ~50%.`,
+        setRecommendations: buildSets(weight, reps, "DELOAD"),
+        volumeSuggestion: null,
+      };
+    }
+
+    // Manual jump: user increased weight by >10% vs prior session
+    // Only consolidate if performance dropped significantly — otherwise progress normally
+    if (history.length >= 2) {
+      const previousWeight = history[history.length - 2].weight;
+      if (previousWeight > 0 && currentWeight / previousWeight > this.MANUAL_INCREASE_THRESHOLD) {
+        const preJumpReps = history[history.length - 2].actualReps;
+        if (preJumpReps > 0 && lastReps < preJumpReps * 0.85) {
+          return {
+            exerciseId,
+            recommendedWeight: currentWeight,
+            recommendedReps: lastReps,
+            recommendedRPE: currentRPE,
+            progressionType: "MANUAL_JUMP",
+            reasoning: `Manual weight jump detected. Consolidate at ${currentWeight}kg before the next increase.`,
+            setRecommendations: buildSets(currentWeight, lastReps, "MANUAL_JUMP"),
+            volumeSuggestion: null,
+          };
+        }
+        // Performance held up — fall through to normal progression
+      }
+    }
+
+    const progression = await this.getOrCreateExerciseProgression(userId, userProgramId, exerciseId);
+    const consecutiveSessions = progression.consecutiveSessionsAtMaxReps;
+    const weeksAtCurrentSets = progression.weeksAtCurrentSetCount;
+
+    const atExerciseCap = setCount >= MAX_SETS_PER_EXERCISE;
+    const atMuscleGroupCap = muscleGroupTotalSets >= MAX_MUSCLE_GROUP_SETS;
+    const atWorkoutCap = totalWorkoutSets >= MAX_WORKOUT_SETS;
+    const atVolumeCap = (atExerciseCap && atMuscleGroupCap) || atWorkoutCap;
+
+    // Volume suggestion (independent of rep/weight logic)
+    let volumeSuggestion: ProgressionRecommendation["volumeSuggestion"] = null;
+    if (!atExerciseCap && weeksAtCurrentSets >= WEEKS_BEFORE_SET_INCREASE) {
+      volumeSuggestion = "add_set";
+    } else if (atExerciseCap && !atMuscleGroupCap && !atWorkoutCap) {
+      volumeSuggestion = "add_exercise";
+    }
+
+    let recommendedWeight: number;
+    let recommendedReps: number;
+    let progressionType: ProgressionRecommendation["progressionType"];
+    let reasoning: string;
+
+    if (atVolumeCap) {
+      // Intensity focus: keep adding reps to max, then increase weight
+      if (lastReps >= repRange.max) {
+        recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT), weightIncrement);
+        recommendedReps = repRange.min;
+        reasoning = `Volume cap reached — focusing on weight. Increase to ${recommendedWeight}kg and target ${repRange.min} reps.`;
+      } else {
+        recommendedWeight = currentWeight;
+        recommendedReps = Math.min(lastReps + 1, repRange.max);
+        reasoning = `Volume cap reached. Building to ${repRange.max} reps before next weight increase.`;
+      }
+      progressionType = "INTENSITY_FOCUS";
+    } else if (lastReps < repRange.min - 2) {
+      // Too many missed reps: reduce weight
+      recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT), weightIncrement);
+      recommendedReps = repRange.min;
+      progressionType = "FAILURE";
+      reasoning = `Rep count (${lastReps}) dropped below range. Reducing weight by 10% and targeting ${repRange.min} reps.`;
+    } else if (lastReps >= repRange.max) {
+      if (consecutiveSessions + 1 >= SESSIONS_NEEDED_FOR_WEIGHT_INCREASE) {
+        recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT), weightIncrement);
+        recommendedReps = repRange.min;
+        progressionType = "WEIGHT_INCREASE";
+        reasoning = `Hit ${repRange.max} reps for ${SESSIONS_NEEDED_FOR_WEIGHT_INCREASE} sessions in a row. Increasing weight to ${recommendedWeight}kg — target ${repRange.min} reps.`;
+      } else {
+        recommendedWeight = currentWeight;
+        recommendedReps = repRange.max;
+        progressionType = "AT_REP_CAP";
+        const sessionsLeft = SESSIONS_NEEDED_FOR_WEIGHT_INCREASE - (consecutiveSessions + 1);
+        reasoning = `Hit ${repRange.max} reps (${consecutiveSessions + 1}/${SESSIONS_NEEDED_FOR_WEIGHT_INCREASE} sessions). ${sessionsLeft} more before weight increases — target ${repRange.max} reps again.`;
+      }
+    } else {
+      recommendedWeight = currentWeight;
+      recommendedReps = Math.min(lastReps + 1, repRange.max);
+      progressionType = "NORMAL";
+      reasoning = `Add 1 rep — target ${recommendedReps} reps at ${currentWeight}kg.`;
+    }
+
+    if (volumeSuggestion === "add_set") {
+      reasoning += ` (${weeksAtCurrentSets} weeks at ${setCount} sets — consider adding a set)`;
+    } else if (volumeSuggestion === "add_exercise") {
+      reasoning += ` (at 5-set cap — consider adding a complementary exercise)`;
+    }
+
+    return {
+      exerciseId,
+      recommendedWeight,
+      recommendedReps,
+      recommendedRPE: currentRPE,
+      progressionType,
+      reasoning,
+      setRecommendations: buildSets(recommendedWeight, recommendedReps, progressionType),
+      volumeSuggestion,
+    };
+  }
+
+  /**
+   * Update UserExerciseProgression state after a muscle building workout is saved.
+   * Called for each exercise in saveWorkoutAndCalculateProgression.
+   */
+  private static async updateMuscleBuildingProgressionState(
+    userId: string,
+    userProgramId: string,
+    exerciseId: string,
+    actualSets: WorkoutSetData[],
+    programmeReps: string,
+  ): Promise<void> {
+    const repRange = this.parseRepRange(programmeReps);
+    const mainSets = actualSets.filter((s) => !s.isDropSet && s.completed);
+    if (mainSets.length === 0) return;
+
+    const allHitMax = mainSets.every((s) => s.reps >= repRange.max);
+
+    const progression = await this.getOrCreateExerciseProgression(userId, userProgramId, exerciseId);
+
+    const updateData: Record<string, unknown> = {};
+
+    if (allHitMax) {
+      updateData.consecutiveSessionsAtMaxReps = progression.consecutiveSessionsAtMaxReps + 1;
+      updateData.progressionPhase =
+        progression.consecutiveSessionsAtMaxReps + 1 >= 3
+          ? "weight_increase"
+          : "rep_progression";
+    } else {
+      updateData.consecutiveSessionsAtMaxReps = 0;
+      updateData.progressionPhase = "rep_progression";
+      if (progression.progressionPhase === "weight_increase") {
+        updateData.lastWeightIncreaseAt = new Date();
+      }
+    }
+
+    await prisma.userExerciseProgression.update({
+      where: { id: progression.id },
+      data: updateData,
+    });
+  }
+
+  private static async evaluateStrengthCycleOutcome(
+    userProgramId: string,
+    exerciseId: string,
+    cycleStartWeek: number,
+  ): Promise<{ week1Hit: boolean; week2Hit: boolean; week3Hit: boolean }> {
+    const cycleEndWeek = cycleStartWeek + 3;
+    const history = await prisma.workoutExercise.findMany({
+      where: {
+        exerciseId,
+        workout: {
+          userProgramId,
+          weekNumber: {
+            gte: cycleStartWeek,
+            lte: cycleEndWeek,
+          },
+        },
+      },
+      include: {
+        workout: {
+          select: {
+            weekNumber: true,
+          },
+        },
+        sets: {
+          orderBy: {
+            setNumber: "asc",
+          },
+        },
+      },
+      orderBy: {
+        workout: {
+          completedAt: "desc",
+        },
+      },
+    });
+
+    const repsTargetByWeek: Record<number, number> = {
+      1: 5,
+      2: 3,
+      3: 1,
+    };
+
+    const requiredSetsByWeek: Record<number, number> = {
+      1: 3,
+      2: 3,
+      3: 1,
+    };
+
+    const bestSetHitsByCycleWeek: Record<number, number> = {
+      1: 0,
+      2: 0,
+      3: 0,
+    };
+
+    history.forEach((workoutExercise) => {
+      const cycleWeek = workoutExercise.workout.weekNumber - cycleStartWeek + 1;
+      if (cycleWeek < 1 || cycleWeek > 3) return;
+
+      const targetReps = repsTargetByWeek[cycleWeek];
+      const mainSets = workoutExercise.sets.filter(
+        (set) => this.parseWorkoutSetDefinition(set.notes).type === "main",
+      );
+      const candidateSets = mainSets.length > 0 ? mainSets : workoutExercise.sets;
+
+      const hitCount = candidateSets.filter(
+        (set) => set.completed && (set.reps || 0) >= targetReps,
+      ).length;
+
+      bestSetHitsByCycleWeek[cycleWeek] = Math.max(
+        bestSetHitsByCycleWeek[cycleWeek],
+        hitCount,
+      );
+    });
+
+    return {
+      week1Hit: bestSetHitsByCycleWeek[1] >= requiredSetsByWeek[1],
+      week2Hit: bestSetHitsByCycleWeek[2] >= requiredSetsByWeek[2],
+      week3Hit: bestSetHitsByCycleWeek[3] >= requiredSetsByWeek[3],
+    };
+  }
+
+  private static async calculateStrengthMainLiftRecommendation(
+    userProgramId: string,
+    exerciseId: string,
+    currentWeek: number,
+    exerciseName: string,
+    muscleGroup: string,
+    lastWorkoutSets: WorkoutSetHistory[],
+  ): Promise<ProgressionRecommendation> {
+    const cycleWeek = this.getStrengthCycleWeek(currentWeek);
+    const cycleTemplate = this.getStrengthCycleTemplate(cycleWeek);
+
+    const mainSets = lastWorkoutSets.filter((set) => set.setType === "main");
+    const candidateSets = mainSets.length > 0 ? mainSets : lastWorkoutSets;
+
+    const estimated1RM = candidateSets.reduce((best, set) => {
+      const estimate = this.estimateOneRepMax(set.weight, set.reps);
+      return Math.max(best, estimate);
+    }, 0);
+
+    if (estimated1RM <= 0) {
+      return {
+        exerciseId,
+        recommendedWeight: 0,
+        recommendedReps: 0,
+        recommendedRPE: cycleTemplate.rpe,
+        progressionType: "INITIAL",
+        reasoning:
+          "Strength setup: complete your first logged session to establish a reliable 1RM baseline.",
+        setRecommendations: [],
+      };
+    }
+
+    let adjusted1RM = estimated1RM;
+    let incrementReasoning = "";
+
+    if (cycleWeek === 1 && currentWeek > 1) {
+      const previousCycleStartWeek = currentWeek - 4;
+      const outcome = await this.evaluateStrengthCycleOutcome(
+        userProgramId,
+        exerciseId,
+        previousCycleStartWeek,
+      );
+
+      const fullIncrement = this.getMainLiftIncrementKg(exerciseName, muscleGroup);
+
+      if (outcome.week3Hit) {
+        adjusted1RM += fullIncrement;
+        incrementReasoning = `Previous cycle completed successfully. Applying +${fullIncrement}kg to working 1RM.`;
+      } else if (outcome.week1Hit && outcome.week2Hit) {
+        const halfIncrement = fullIncrement / 2;
+        adjusted1RM += halfIncrement;
+        incrementReasoning = `Previous cycle missed heavy singles but early weeks were hit. Applying +${halfIncrement}kg to working 1RM.`;
+      } else {
+        incrementReasoning =
+          "Previous cycle did not meet progression criteria. Repeating cycle at the same working 1RM.";
+      }
+    }
+
+    const prescribedWeight = this.roundToNearestIncrement(
+      adjusted1RM * cycleTemplate.percent,
+      2.5,
+    );
+
+    const setRecommendations: SetProgressionRecommendation[] = Array.from(
+      { length: cycleTemplate.sets },
+      (_, index) => ({
+        setNumber: index + 1,
+        recommendedWeight: prescribedWeight,
+        recommendedReps: cycleTemplate.reps,
+      }),
+    );
+
+    const baseReasoning =
+      cycleWeek === 1
+        ? "Strength cycle week 1: 3x5 @ 70% of working 1RM."
+        : cycleWeek === 2
+          ? "Strength cycle week 2: 3x3 @ 80% of working 1RM."
+          : cycleWeek === 3
+            ? "Strength cycle week 3: 3x1 @ 90% of working 1RM. Optional back-off work can be added manually."
+            : "Strength cycle week 4 deload: 3x5 @ 60% of working 1RM.";
+
+    return {
+      exerciseId,
+      recommendedWeight: prescribedWeight,
+      recommendedReps: cycleTemplate.reps,
+      recommendedRPE: cycleTemplate.rpe,
+      progressionType: cycleTemplate.progressionType,
+      reasoning: incrementReasoning
+        ? `${baseReasoning} ${incrementReasoning}`
+        : baseReasoning,
+      setRecommendations,
+    };
+  }
+
   /**
    * Get current program details for a user
    */
@@ -457,6 +996,7 @@ export class ProgressiveOverloadService {
       currentWeek,
       programLength: userProgram.programme.weeks,
       currentDay,
+      progressionFocus: userProgram.programme.progressionFocus,
     };
   }
 
@@ -474,33 +1014,153 @@ export class ProgressiveOverloadService {
 
     try {
       // Get user's current program details
-      const { currentWeek, programLength } =
+      const { userProgram, currentWeek, currentDay, programLength, progressionFocus } =
         await this.getUserProgramDetails(userId);
 
-      // Generate RPE table for the program
+      const isStrengthFocus = progressionFocus === "STRENGTH";
+
+      const strengthExerciseMetaMap = new Map<string, StrengthExerciseMeta>();
+      if (isStrengthFocus) {
+        const strengthDayExercises = await prisma.programmeExercise.findMany({
+          where: {
+            programmeId: userProgram.programmeId,
+            dayNumber: currentDay,
+            exerciseId: {
+              in: exerciseIds,
+            },
+          },
+          include: {
+            exercise: {
+              select: {
+                name: true,
+                muscleGroup: true,
+              },
+            },
+          },
+        });
+
+        strengthDayExercises.forEach((exercise) => {
+          strengthExerciseMetaMap.set(exercise.exerciseId, {
+            role: exercise.strengthRole as StrengthExerciseRole,
+            name: exercise.exercise.name,
+            muscleGroup: exercise.exercise.muscleGroup,
+          });
+        });
+      }
+
+      // For muscle building: fetch programme exercise rep ranges and compute volume context
+      const programmeExerciseMap = new Map<string, { reps: string; sets: number }>();
+      const exerciseMuscleGroupMap = new Map<string, string>();
+
+      if (!isStrengthFocus) {
+        const [programmeExercises, exerciseDetails] = await Promise.all([
+          prisma.programmeExercise.findMany({
+            where: {
+              programmeId: userProgram.programmeId,
+              dayNumber: currentDay,
+              exerciseId: { in: exerciseIds },
+            },
+            select: { exerciseId: true, reps: true, sets: true },
+          }),
+          prisma.exercise.findMany({
+            where: { id: { in: exerciseIds } },
+            select: { id: true, muscleGroup: true },
+          }),
+        ]);
+
+        programmeExercises.forEach((pe) => {
+          programmeExerciseMap.set(pe.exerciseId, { reps: pe.reps, sets: pe.sets });
+        });
+        exerciseDetails.forEach((e) => {
+          exerciseMuscleGroupMap.set(e.id, e.muscleGroup);
+        });
+      }
+
+      // Compute volume context once (before the loop)
+      const totalWorkoutSets = setCounts.reduce((sum, count) => sum + (count || 3), 0);
+
+      const muscleGroupSetsMap = new Map<string, number>();
+      exerciseIds.forEach((id, i) => {
+        const group = exerciseMuscleGroupMap.get(id) ?? "unknown";
+        muscleGroupSetsMap.set(group, (muscleGroupSetsMap.get(group) ?? 0) + (setCounts[i] || 3));
+      });
+
+      // Generate RPE table for the program (used by strength path)
       const rpeTable = this.generateRPETable(programLength);
-      const currentRPE =
-        rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
+      const currentRPE = rpeTable[Math.min(currentWeek - 1, rpeTable.length - 1)];
       const isDeloadWeek = currentWeek === programLength + 1;
 
       for (let index = 0; index < exerciseIds.length; index += 1) {
         const exerciseId = exerciseIds[index];
-        const setCount =
-          setCounts[index] && setCounts[index] > 0 ? setCounts[index] : 3;
+        const setCount = setCounts[index] && setCounts[index] > 0 ? setCounts[index] : 3;
         const currentSetDefinitions = this.normalizeCurrentSetDefinitions(
-          setLayouts.find((layout) => layout.exerciseId === exerciseId)
-            ?.setDefinitions,
+          setLayouts.find((layout) => layout.exerciseId === exerciseId)?.setDefinitions,
           setCount,
         );
 
-        // Get performance history (last 3 weeks for consistency checks)
         const history = await this.getPerformanceHistory(userId, exerciseId, 3);
-        const lastWorkoutSets = await this.getLastWorkoutSetsForExercise(
-          userId,
-          exerciseId,
-        );
+        const lastWorkoutSets = await this.getLastWorkoutSetsForExercise(userId, exerciseId);
 
-        // If no history, provide initial recommendations (Week 1 Setup)
+        const strengthMeta = isStrengthFocus
+          ? strengthExerciseMetaMap.get(exerciseId)
+          : undefined;
+
+        // ── Strength main lift path (unchanged) ──────────────────────────────
+        if (isStrengthFocus && strengthMeta?.role === "MAIN_LIFT") {
+          if (history.length === 0 || lastWorkoutSets.length === 0) {
+            recommendations.push({
+              exerciseId,
+              recommendedWeight: 0,
+              recommendedReps: 0,
+              recommendedRPE: currentRPE,
+              progressionType: "INITIAL",
+              reasoning: `Week ${currentWeek} setup: choose a load that lands around RPE ${currentRPE}.`,
+              setRecommendations: [],
+            });
+            continue;
+          }
+          recommendations.push(
+            await this.calculateStrengthMainLiftRecommendation(
+              userProgram.id,
+              exerciseId,
+              currentWeek,
+              strengthMeta.name,
+              strengthMeta.muscleGroup,
+              lastWorkoutSets,
+            ),
+          );
+          continue;
+        }
+
+        // ── Muscle building path ──────────────────────────────────────────────
+        const muscleGroup = exerciseMuscleGroupMap.get(exerciseId) ?? "unknown";
+        if (!isStrengthFocus) {
+          const pe = programmeExerciseMap.get(exerciseId);
+          const muscleGroupTotalSets = muscleGroupSetsMap.get(muscleGroup) ?? setCount;
+
+          recommendations.push(
+            await this.calculateMuscleBuildingRecommendation(
+              userId,
+              userProgram.id,
+              exerciseId,
+              currentWeek,
+              programLength,
+              lastWorkoutSets,
+              history,
+              setCount,
+              currentSetDefinitions,
+              pe?.reps ?? "8-12",
+              muscleGroupTotalSets,
+              totalWorkoutSets,
+              muscleGroup,
+            ),
+          );
+          continue;
+        }
+
+        // ── Strength supplemental / accessory path (generic) ─────────────────
+        const lowerBodyGroupsStr = ["Quads", "Hamstrings", "Glutes", "Back", "quads", "hamstrings", "glutes", "back"];
+        const strengthWeightIncrement = lowerBodyGroupsStr.includes(muscleGroup) ? 5 : 2.5;
         if (history.length === 0 || lastWorkoutSets.length === 0) {
           recommendations.push({
             exerciseId,
@@ -514,7 +1174,6 @@ export class ProgressiveOverloadService {
           continue;
         }
 
-        // Get last session data
         const lastSession = history[history.length - 1];
         const currentWeight = lastSession.weight;
         const lastReps = lastSession.actualReps;
@@ -522,121 +1181,77 @@ export class ProgressiveOverloadService {
 
         let recommendedWeight = currentWeight;
         let recommendedReps = lastTargetReps;
-        let progressionType: ProgressionRecommendation["progressionType"] =
-          "NORMAL";
+        let progressionType: ProgressionRecommendation["progressionType"] = "NORMAL";
         let reasoning = "";
 
         if (isDeloadWeek) {
           recommendedWeight = currentWeight * 0.55;
           recommendedReps = Math.max(1, Math.floor(lastTargetReps));
           progressionType = "DELOAD";
-          reasoning = `Deload week: reduce load to ~50-60% of 1RM (using 55%) and cut total sets by about 50%.`; 
+          reasoning = `Deload week: reduce load to ~55% and cut sets by ~50%.`;
         }
 
-        // STEP 1: Manual Weight Jump Rule
-        // If user manually increases weight >10%, default to RPE schedule
         let manualIncrease = false;
         if (history.length >= 2) {
           const previousWeight = history[history.length - 2].weight;
           manualIncrease =
-            previousWeight > 0 &&
-            currentWeight / previousWeight > this.MANUAL_INCREASE_THRESHOLD;
+            previousWeight > 0 && currentWeight / previousWeight > this.MANUAL_INCREASE_THRESHOLD;
         }
 
         if (!isDeloadWeek && manualIncrease) {
-          recommendedWeight = currentWeight;
-          recommendedReps = lastReps; // Keep same reps
-          progressionType = "MANUAL_JUMP";
-          reasoning = `Manual weight increase detected. The app cannot calculate a rep target. Focus on RPE ${currentRPE} for this week.`;
-        }
-
-        // STEP 2: Consistency-Based Adjustment - Underperformance
-        // If user performs below target reps for 2 consecutive weeks
-        else if (!isDeloadWeek && history.length >= 2) {
+          const preJumpHistory = history[history.length - 2];
+          const preJumpReps = preJumpHistory?.actualReps ?? 0;
+          if (preJumpReps > 0 && lastReps < preJumpReps * 0.85) {
+            recommendedWeight = currentWeight;
+            recommendedReps = lastReps;
+            progressionType = "MANUAL_JUMP";
+            reasoning = `Manual weight increase detected. Focus on RPE ${currentRPE} this week.`;
+          }
+          // else: performance held — fall through to normal progression
+        } else if (!isDeloadWeek && history.length >= 2) {
           const last2Weeks = history.slice(-2);
-          const underperformed = last2Weeks.every(
-            (week) => week.targetReps > 0 && week.actualReps < week.targetReps,
+          const overperformed = last2Weeks.every(
+            (week) =>
+              week.targetReps > 0 && week.actualReps > week.targetReps * this.OVERPERFORMANCE_THRESHOLD,
           );
-
-          if (underperformed) {
-            // Reduce weight by 10%
-            recommendedWeight =
-              currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT);
-            // Reduce target reps by 10%, rounded down, minimum 1
-            recommendedReps = Math.max(1, Math.floor(lastTargetReps * 0.9));
-            progressionType = "UNDERPERFORMANCE";
-            reasoning = `Consistent underperformance detected for 2 weeks. Reducing weight by 10% and target reps by 10% for the 3rd week.`;
-          }
-
-          // STEP 3: Consistency-Based Adjustment - Overperformance
-          // If user performs >10% above target reps for 2 consecutive weeks
-          else {
-            const overperformed = last2Weeks.every(
-              (week) =>
-                week.targetReps > 0 &&
-                week.actualReps >
-                  week.targetReps * this.OVERPERFORMANCE_THRESHOLD,
+          if (overperformed) {
+            recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT), strengthWeightIncrement);
+            recommendedReps = this.calculateVolumePreservingReps(
+              currentWeight, lastReps, recommendedWeight, setCount,
             );
-
-            if (overperformed) {
-              recommendedWeight =
-                currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
-              recommendedReps = this.calculateVolumePreservingReps(
-                currentWeight,
-                lastReps,
-                recommendedWeight,
-                setCount,
-              );
-              progressionType = "OVERPERFORMANCE";
-              reasoning = `Consistently exceeding targets by >10% for 2 weeks! Increasing weight by 5% with volume-preserving reps for the 3rd week.`;
-            }
+            progressionType = "OVERPERFORMANCE";
+            reasoning = `Consistently exceeding targets by >10% for 2 weeks. Increasing weight by 5%.`;
           }
         }
 
-        // STEP 4: Low Rep Rule
-        // If reps <5, reduce weight 10% and reset target reps to 5
         if (progressionType === "NORMAL" && lastReps < this.REP_FAIL) {
-          recommendedWeight =
-            currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT);
+          recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 - this.WEIGHT_DECREASE_PERCENT), strengthWeightIncrement);
           recommendedReps = this.REP_FAIL;
           progressionType = "FAILURE";
-          reasoning = `Rep count too low (<${this.REP_FAIL}). Reducing weight by 10% and resetting to ${this.REP_FAIL} reps.`;
-        }
-
-        // STEP 5: Rep Cap Rule
-        // If reps >=15, increase weight 5% and recalculate reps
-        else if (progressionType === "NORMAL" && lastReps >= this.REP_CAP) {
-          recommendedWeight =
-            currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT);
+          reasoning = `Rep count too low (<${this.REP_FAIL}). Reducing weight 10%, resetting to ${this.REP_FAIL} reps.`;
+        } else if (progressionType === "NORMAL" && lastReps >= this.REP_CAP) {
+          recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT), strengthWeightIncrement);
           recommendedReps = this.calculateVolumePreservingReps(
-            currentWeight,
-            lastReps,
-            recommendedWeight,
-            setCount,
+            currentWeight, lastReps, recommendedWeight, setCount,
           );
           progressionType = "REP_CAP";
-          reasoning = `Rep cap reached (≥${this.REP_CAP})! Increasing weight by 5% with volume-preserving reps.`;
-        }
-
-        // STEP 6: Normal Weekly Progression
-        // Add +1 rep per set until rep cap
-        else if (progressionType === "NORMAL") {
+          reasoning = `Rep cap reached (≥${this.REP_CAP}). Increasing weight 5%.`;
+        } else if (progressionType === "NORMAL") {
           recommendedWeight = currentWeight;
           recommendedReps = Math.min(lastReps + 1, this.REP_CAP);
-          reasoning = `Normal progression: Add +1 rep per set. Target RPE ${currentRPE}.`;
+          reasoning = `[Strength ${strengthMeta?.role?.toLowerCase() ?? "accessory"}] Add +1 rep. Target RPE ${currentRPE}.`;
+        }
+
+        if (progressionType !== "NORMAL") {
+          const roleSuffix = strengthMeta?.role ? ` (${strengthMeta.role.toLowerCase()})` : "";
+          reasoning = `[Strength${roleSuffix}] ${reasoning}`;
         }
 
         const setRecommendations = this.buildSetRecommendations(
-          lastWorkoutSets,
-          currentSetDefinitions,
-          currentRPE,
-          progressionType,
+          lastWorkoutSets, currentSetDefinitions, currentRPE, progressionType,
         );
-
         const topRecommendation = setRecommendations[0] || {
-          setNumber: 1,
-          recommendedWeight,
-          recommendedReps,
+          setNumber: 1, recommendedWeight, recommendedReps,
         };
 
         recommendations.push({
@@ -654,6 +1269,59 @@ export class ProgressiveOverloadService {
     } catch (error) {
       console.error("Error calculating progression recommendations:", error);
       return recommendations;
+    }
+  }
+
+  /**
+   * Auto-add a complementary exercise to the programme when an exercise hits the 5-set cap.
+   * Picks the first complementary exercise not already in the programme on the same day.
+   */
+  private static async autoAddComplementaryExercise(
+    programmeId: string,
+    exerciseId: string,
+  ): Promise<void> {
+    const sourceProgrammeExercises = await prisma.programmeExercise.findMany({
+      where: { programmeId, exerciseId },
+      select: { dayNumber: true, orderIndex: true, reps: true },
+    });
+    if (sourceProgrammeExercises.length === 0) return;
+
+    // Find exercises that list this exercise in their complementaryExerciseIds (reverse lookup)
+    const candidates = await prisma.exercise.findMany({
+      where: { complementaryExerciseIds: { contains: exerciseId } },
+      select: { id: true },
+    });
+    if (candidates.length === 0) return;
+
+    for (const sourcePe of sourceProgrammeExercises) {
+      const existingOnDay = await prisma.programmeExercise.findMany({
+        where: { programmeId, dayNumber: sourcePe.dayNumber },
+        select: { exerciseId: true, orderIndex: true },
+      });
+      const existingIds = new Set(existingOnDay.map((e) => e.exerciseId));
+      const maxOrderIndex = existingOnDay.reduce((m, e) => Math.max(m, e.orderIndex), 0);
+
+      const newExerciseId = candidates.find((c) => !existingIds.has(c.id))?.id;
+      if (!newExerciseId) continue;
+
+      await prisma.programmeExercise.create({
+        data: {
+          programmeId,
+          exerciseId: newExerciseId,
+          dayNumber: sourcePe.dayNumber,
+          orderIndex: maxOrderIndex + 1,
+          sets: 3,
+          reps: sourcePe.reps,
+          strengthRole: "ACCESSORY",
+          isSelected: true,
+        },
+      });
+
+      // Reset the original exercise back to 3 sets now that volume is split
+      await prisma.programmeExercise.updateMany({
+        where: { programmeId, exerciseId, dayNumber: sourcePe.dayNumber },
+        data: { sets: 3 },
+      });
     }
   }
 
@@ -685,6 +1353,9 @@ export class ProgressiveOverloadService {
           dayNumber,
           completedAt: new Date(),
         },
+        select: {
+          id: true,
+        },
       });
 
       // Save workout exercises and sets
@@ -707,7 +1378,7 @@ export class ProgressiveOverloadService {
               setNumber: i + 1,
               weight: set.weight,
               reps: set.reps,
-              targetReps: set.reps, // Store actual reps as target for next session comparison
+              targetReps: set.targetReps ?? set.reps,
               rpe: null, // RPE is no longer user-recorded
               notes: JSON.stringify({
                 type: set.isDropSet ? "drop" : "main",
@@ -728,9 +1399,56 @@ export class ProgressiveOverloadService {
           groupId: set.dropSetGroupId,
         })),
       }));
-      
+
       // Check if this workout completes the current week
       const isEndOfWeek = dayNumber >= (userProgram.programme.daysPerWeek || 3);
+
+      // Update muscle building progression state for each exercise
+      if (userProgram.programme.progressionFocus !== "STRENGTH") {
+        const programmeExercisesForDay = await prisma.programmeExercise.findMany({
+          where: {
+            programmeId: userProgram.programmeId,
+            dayNumber,
+            exerciseId: { in: exerciseIds },
+          },
+          select: { exerciseId: true, reps: true },
+        });
+        const programmeRepsMap = new Map(programmeExercisesForDay.map((pe) => [pe.exerciseId, pe.reps]));
+
+        await Promise.all(
+          workoutData.map((exercise) =>
+            this.updateMuscleBuildingProgressionState(
+              userId,
+              userProgram.id,
+              exercise.exerciseId,
+              exercise.sets,
+              programmeRepsMap.get(exercise.exerciseId) ?? "8-12",
+            ),
+          ),
+        );
+
+        // At end of week, increment weeksAtCurrentSetCount for ALL exercises in the programme
+        // (not just today's) so every exercise accumulates the counter regardless of which day it's on.
+        if (isEndOfWeek) {
+          const allProgrammeExerciseIds = await prisma.programmeExercise.findMany({
+            where: { programmeId: userProgram.programmeId },
+            select: { exerciseId: true },
+          });
+          const uniqueExerciseIds = [...new Set(allProgrammeExerciseIds.map((pe) => pe.exerciseId))];
+
+          // Upsert progression records for any exercises that haven't been tracked yet
+          await Promise.all(
+            uniqueExerciseIds.map((exId) =>
+              this.getOrCreateExerciseProgression(userId, userProgram.id, exId),
+            ),
+          );
+
+          await prisma.userExerciseProgression.updateMany({
+            where: { userProgramId: userProgram.id, exerciseId: { in: uniqueExerciseIds } },
+            data: { weeksAtCurrentSetCount: { increment: 1 } },
+          });
+        }
+      }
 
       // Update user program progress
       const nextDay = dayNumber >= (userProgram.programme.daysPerWeek || 3) 
@@ -761,6 +1479,64 @@ export class ProgressiveOverloadService {
           workoutData.map((exercise) => exercise.sets.length),
           setLayouts,
         );
+
+        // Auto-apply add_set for today's exercises (already have recommendations)
+        for (const rec of recommendations) {
+          if (rec.volumeSuggestion === "add_set") {
+            const programmeExercises = await prisma.programmeExercise.findMany({
+              where: { programmeId: userProgram.programmeId, exerciseId: rec.exerciseId },
+            });
+            for (const pe of programmeExercises) {
+              if (pe.sets < 5) {
+                await prisma.programmeExercise.update({
+                  where: { id: pe.id },
+                  data: { sets: pe.sets + 1 },
+                });
+              }
+            }
+            await prisma.userExerciseProgression.updateMany({
+              where: { userProgramId: userProgram.id, exerciseId: rec.exerciseId },
+              data: { weeksAtCurrentSetCount: 0 },
+            });
+          }
+
+          if (rec.volumeSuggestion === "add_exercise") {
+            await this.autoAddComplementaryExercise(userProgram.programmeId, rec.exerciseId);
+            await prisma.userExerciseProgression.updateMany({
+              where: { userProgramId: userProgram.id, exerciseId: rec.exerciseId },
+              data: { weeksAtCurrentSetCount: 0 },
+            });
+          }
+        }
+
+        // Also apply add_set / add_exercise for exercises on other days that hit the threshold
+        const otherProgressions = await prisma.userExerciseProgression.findMany({
+          where: {
+            userProgramId: userProgram.id,
+            weeksAtCurrentSetCount: { gte: 6 },
+            exerciseId: { notIn: exerciseIds },
+          },
+        });
+        for (const progression of otherProgressions) {
+          const programmeExercises = await prisma.programmeExercise.findMany({
+            where: { programmeId: userProgram.programmeId, exerciseId: progression.exerciseId },
+          });
+          for (const pe of programmeExercises) {
+            if (pe.sets < 5) {
+              await prisma.programmeExercise.update({
+                where: { id: pe.id },
+                data: { sets: pe.sets + 1 },
+              });
+            } else {
+              // Already at 5-set cap — add a complementary exercise instead
+              await this.autoAddComplementaryExercise(userProgram.programmeId, progression.exerciseId);
+            }
+          }
+          await prisma.userExerciseProgression.update({
+            where: { id: progression.id },
+            data: { weeksAtCurrentSetCount: 0 },
+          });
+        }
       } else {
         // Not end of week yet: return empty recommendations and do not perform progression logic
         recommendations = [];
@@ -801,7 +1577,10 @@ export class ProgressiveOverloadService {
     try {
       const currentWorkout = await prisma.workout.findUnique({
         where: { id: currentWorkoutId },
-        include: {
+        select: {
+          id: true,
+          userProgramId: true,
+          dayNumber: true,
           exercises: {
             include: {
               exercise: {
@@ -848,7 +1627,10 @@ export class ProgressiveOverloadService {
             in: weeksToFetch,
           },
         },
-        include: {
+        select: {
+          weekNumber: true,
+          dayNumber: true,
+          completedAt: true,
           exercises: {
             include: {
               exercise: {
@@ -874,15 +1656,32 @@ export class ProgressiveOverloadService {
         weeklyData[week].push(workout);
       });
 
-      // Calculate week-to-date volume at the same day index as the current workout.
-      const getWeekToDateVolume = (week: number, dayNumber: number | null): number => {
+      // Calculate volume for the matching workout day only.
+      // Users interpret 'Vs week 1' as today's session vs the same session in week 1,
+      // not cumulative volume across the week up to this point.
+      const getDayVolume = (week: number, dayNumber: number | null): number => {
         const workouts = (weeklyData[week] || []).filter((workout) => {
           if (!dayNumber || !workout.dayNumber) return true;
-          return workout.dayNumber <= dayNumber;
+          return workout.dayNumber === dayNumber;
+        });
+
+        // Keep only the latest logged workout for each day in the week.
+        // Test/retry sessions can otherwise double count a day and invert comparisons.
+        const latestWorkoutByDay = new Map<number, any>();
+        workouts.forEach((workout) => {
+          const workoutDay = workout.dayNumber || 0;
+          const existing = latestWorkoutByDay.get(workoutDay);
+          if (
+            !existing ||
+            new Date(workout.completedAt).getTime() >
+              new Date(existing.completedAt).getTime()
+          ) {
+            latestWorkoutByDay.set(workoutDay, workout);
+          }
         });
 
         let totalVolume = 0;
-        workouts.forEach((workout) => {
+        Array.from(latestWorkoutByDay.values()).forEach((workout) => {
           workout.exercises.forEach((ex: any) => {
             (ex.sets || []).forEach((set: any) => {
               totalVolume += (set.weight || 0) * (set.reps || 0);
@@ -898,11 +1697,11 @@ export class ProgressiveOverloadService {
         weeklyData[currentWeek] &&
         weeklyData[currentWeek - 1]
       ) {
-        const totalCurrentVolume = getWeekToDateVolume(
+        const totalCurrentVolume = getDayVolume(
           currentWeek,
           comparisonDayNumber,
         );
-        const totalLastVolume = getWeekToDateVolume(
+        const totalLastVolume = getDayVolume(
           currentWeek - 1,
           comparisonDayNumber,
         );
@@ -915,11 +1714,11 @@ export class ProgressiveOverloadService {
 
       // Strength gain vs programme start (week 1), only when not currently in week 1
       if (hasComparisonBaseline && weeklyData[currentWeek] && weeklyData[1]) {
-        const totalCurrentVolume = getWeekToDateVolume(
+        const totalCurrentVolume = getDayVolume(
           currentWeek,
           comparisonDayNumber,
         );
-        const totalWeek1Volume = getWeekToDateVolume(1, comparisonDayNumber);
+        const totalWeek1Volume = getDayVolume(1, comparisonDayNumber);
 
         if (totalWeek1Volume > 0) {
           summary.strengthGainVsProgramStart =
@@ -936,7 +1735,7 @@ export class ProgressiveOverloadService {
             id: { not: currentWorkoutId },
             userProgramId: currentWorkout.userProgramId,
           },
-          include: {
+          select: {
             exercises: {
               include: {
                 exercise: {
@@ -1052,7 +1851,8 @@ export class ProgressiveOverloadService {
       // Detect true personal records from this workout (vs all prior workouts)
       const currentWorkoutDetails = await prisma.workout.findUnique({
         where: { id: currentWorkoutId },
-        include: {
+        select: {
+          id: true,
           exercises: {
             include: {
               exercise: {
@@ -1207,6 +2007,33 @@ export class ProgressiveOverloadService {
             });
           });
         }
+      }
+
+      if (isEndOfWeek) {
+        // Count working sets per muscle group across all workouts this week
+        const weekWorkouts = await prisma.workout.findMany({
+          where: {
+            userProgramId: currentWorkout.userProgramId,
+            weekNumber: currentWeek,
+          },
+          select: {
+            exercises: {
+              select: {
+                exercise: { select: { muscleGroup: true } },
+                sets: { where: { completed: true } },
+              },
+            },
+          },
+        });
+
+        const setsByMuscle: Record<string, number> = {};
+        for (const workout of weekWorkouts) {
+          for (const ex of workout.exercises) {
+            const mg = ex.exercise?.muscleGroup || "Unknown";
+            setsByMuscle[mg] = (setsByMuscle[mg] ?? 0) + ex.sets.length;
+          }
+        }
+        summary.weeklySetsByMuscleGroup = setsByMuscle;
       }
 
       return summary;

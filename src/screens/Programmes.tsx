@@ -25,6 +25,9 @@ export default function Programmes() {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
   const [filterTab, setFilterTab] = useState<"all" | "previous">("all");
+  const [progressionFocusTab, setProgressionFocusTab] = useState<
+    "MUSCLE_BUILDING" | "STRENGTH"
+  >("MUSCLE_BUILDING");
   const [previousPrograms, setPreviousPrograms] = useState<any[]>([]);
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [selectedProgrammeId, setSelectedProgrammeId] = useState<string | null>(
@@ -49,7 +52,15 @@ export default function Programmes() {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (!userRes.ok) throw new Error("Unauthorized");
+        if (userRes.status === 401) {
+          localStorage.removeItem("token");
+          navigate("/login");
+          return;
+        }
+
+        if (!userRes.ok) {
+          throw new Error(`Failed to fetch user: ${userRes.status}`);
+        }
 
         const userData = await userRes.json();
         setFirstName(userData.firstName);
@@ -100,9 +111,7 @@ export default function Programmes() {
         });
         setOpenSections(initialOpen);
       } catch (err) {
-        console.error("Error:", err);
-        localStorage.removeItem("token");
-        navigate("/login");
+        console.error("Programmes bootstrap error:", err);
       } finally {
         setLoading(false);
       }
@@ -146,6 +155,16 @@ export default function Programmes() {
   const handleEditProgramme = (programmeId: string) => {
     navigate(`/editor/${programmeId}`);
   };
+
+  const filteredProgrammeSections = Object.entries(programmesData)
+    .map(([section, programmes]) => {
+      const filteredProgrammes = (programmes as any[]).filter((prog: any) => {
+        const focus = prog.progressionFocus || "MUSCLE_BUILDING";
+        return focus === progressionFocusTab;
+      });
+      return [section, filteredProgrammes] as [string, any[]];
+    })
+    .filter(([, programmes]) => programmes.length > 0);
 
   const handleStartProgramme = async (programmeId: string) => {
     // Check if there's an active programme that's different from the one being selected
@@ -348,6 +367,31 @@ export default function Programmes() {
             +
           </div>
         </div>
+
+        {filterTab === "all" && (
+          <div className="flex gap-3 mt-3 w-full">
+            <button
+              onClick={() => setProgressionFocusTab("MUSCLE_BUILDING")}
+              className={`flex-1 glass-pressable border rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+                progressionFocusTab === "MUSCLE_BUILDING"
+                  ? "bg-[#246BFD]/20 border-[#246BFD]/60 text-white"
+                  : "text-[#9CA3AF] border-[#2F3544]"
+              }`}
+            >
+              Muscle Building
+            </button>
+            <button
+              onClick={() => setProgressionFocusTab("STRENGTH")}
+              className={`flex-1 glass-pressable border rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+                progressionFocusTab === "STRENGTH"
+                  ? "bg-[#246BFD]/20 border-[#246BFD]/60 text-white"
+                  : "text-[#9CA3AF] border-[#2F3544]"
+              }`}
+            >
+              Strength
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Programme Sections */}
@@ -396,8 +440,8 @@ export default function Programmes() {
             </div>
           )
         ) : // All Programmes View
-        Object.keys(programmesData).length > 0 ? (
-          Object.entries(programmesData).map(([section, programmes], idx) => {
+        filteredProgrammeSections.length > 0 ? (
+          filteredProgrammeSections.map(([section, programmes], idx) => {
             const isOpen = openSections[section];
 
             return (
@@ -484,7 +528,9 @@ export default function Programmes() {
         ) : (
           <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
             <p className="text-[#5E6272] font-semibold text-lg">
-              No programmes yet
+              {progressionFocusTab === "STRENGTH"
+                ? "No strength programmes yet"
+                : "No muscle-building programmes yet"}
             </p>
           </div>
         )}

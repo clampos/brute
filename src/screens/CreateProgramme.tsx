@@ -25,6 +25,9 @@ export default function CreateProgramme() {
   const [name, setName] = useState("");
   const [days, setDays] = useState(4);
   const [weeks, setWeeks] = useState(4);
+  const [progressionFocus, setProgressionFocus] = useState<
+    "MUSCLE_BUILDING" | "STRENGTH"
+  >("MUSCLE_BUILDING");
   const [mode, setMode] = useState<"focus" | "pull">("focus");
   const [focus, setFocus] = useState(bodyFocusOptions[0]);
   const [programmes, setProgrammes] = useState<any[]>([]);
@@ -80,6 +83,7 @@ export default function CreateProgramme() {
         daysPerWeek: days,
         weeks,
         bodyPartFocus: bodyPartFocusValue,
+        progressionFocus,
       };
 
       const res = await fetch("http://localhost:4242/auth/programmes", {
@@ -166,12 +170,44 @@ export default function CreateProgramme() {
           </label>
           <div className="pt-1">
             <CustomSelect
-              options={[3, 4, 5, 6].map((n) => ({
-                value: n,
-                label: `${n} weeks`,
-              }))}
-              value={weeks}
+              options={
+                progressionFocus === "STRENGTH"
+                  ? [4, 8, 12, 16].map((n) => ({
+                      value: n,
+                      label: `${n} weeks`,
+                    }))
+                  : [3, 4, 5, 6].map((n) => ({
+                      value: n,
+                      label: `${n} weeks`,
+                    }))
+              }
+              value={
+                progressionFocus === "STRENGTH" && weeks % 4 !== 0 ? 4 : weeks
+              }
               onChange={(v) => setWeeks(Number(v))}
+            />
+          </div>
+        </div>
+
+        {/* Progression focus row */}
+        <div className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 mb-3 overflow-visible">
+          <label className="block text-sm text-[#9CA3AF] mb-1">
+            Progression Focus
+          </label>
+          <div className="pt-1">
+            <CustomSelect
+              options={[
+                { value: "MUSCLE_BUILDING", label: "Muscle Building" },
+                { value: "STRENGTH", label: "Strength" },
+              ]}
+              value={progressionFocus}
+              onChange={(v) => {
+                const nextFocus = String(v) as "MUSCLE_BUILDING" | "STRENGTH";
+                setProgressionFocus(nextFocus);
+                if (nextFocus === "STRENGTH" && weeks % 4 !== 0) {
+                  setWeeks(4);
+                }
+              }}
             />
           </div>
         </div>

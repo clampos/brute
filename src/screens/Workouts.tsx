@@ -40,6 +40,7 @@ type WorkoutExercise = {
   sets: number;
   reps: string;
   exerciseId: string;
+  strengthRole?: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
   workoutSets: WorkoutSet[];
   notes?: string | null;
   recommendation?: {
@@ -48,6 +49,7 @@ type WorkoutExercise = {
     recommendedRPE: number;
     progressionType: string;
     reasoning: string;
+    volumeSuggestion?: "add_set" | "add_exercise" | null;
     setRecommendations?: {
       setNumber: number;
       recommendedWeight: number;
@@ -63,6 +65,7 @@ type UserProgram = {
     name: string;
     description?: string;
     bodyPartFocus: string;
+    progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH";
     daysPerWeek: number;
     weeks: number;
     exercises: ProgrammeExercise[];
@@ -76,6 +79,7 @@ type ProgrammeExercise = {
   dayNumber: number;
   sets: number;
   reps: string;
+  strengthRole?: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
   notes?: string | null;
   exercise: {
     id: string;
@@ -100,9 +104,60 @@ type ExerciseHistoryEntry = {
   sets: ExerciseHistorySet[];
 };
 
+type ReadOnlyWorkoutSet = {
+  setNumber: number;
+  weight: number | null;
+  reps: number | null;
+  targetReps: number | null;
+  completed: boolean;
+  setType?: "main" | "drop";
+  dropSetGroupId?: string;
+};
+
+type ReadOnlyWorkoutExercise = {
+  id: string;
+  orderIndex: number;
+  exerciseId: string;
+  name: string;
+  muscleGroup: string;
+  sets: ReadOnlyWorkoutSet[];
+};
+
+type ReadOnlyWorkout = {
+  id: string;
+  weekNumber: number;
+  dayNumber: number;
+  completedAt: string;
+  duration: number | null;
+  notes: string | null;
+  exercises: ReadOnlyWorkoutExercise[];
+};
+
 type SetDefinition = {
   type: "main" | "drop";
   groupId?: string;
+};
+
+type RecoveryAdjustmentStatus = {
+  isActive: boolean;
+  sessionsRemaining: number;
+  setTarget?: number;
+  weightMultiplier: number;
+  triggerType?: "FATIGUE" | "MISSED_TARGETS" | "EASY_PROGRESS";
+  targetExerciseId?: string;
+  targetExerciseName?: string;
+  activeExerciseOverperformanceAdjustments?: Array<{
+    exerciseId: string;
+    exerciseName: string;
+    multiplier: number;
+    sessionsRemaining: number;
+    dayNumber: number;
+  }>;
+};
+
+type OverperformingExercise = {
+  exerciseId: string;
+  exerciseName: string;
 };
 
 const WORKOUT_LAYOUT_CACHE_KEY = "workoutLayoutCache";
@@ -110,10 +165,12 @@ const WORKOUT_HISTORY_LAYOUT_CACHE_KEY = "workoutHistoryLayoutCache";
 const EXERCISE_HISTORY_PAGE_SIZE = 8;
 
 export default function Workouts() {
+  type WorkoutRecoveryState = "FRESH" | "NORMAL" | "STILL_TIRED";
+
   // Timer state
   const [timerRunning, setTimerRunning] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Programme state
@@ -144,6 +201,13 @@ export default function Workouts() {
   const [showEndProgrammeModal, setShowEndProgrammeModal] = useState(false);
   const [endingProgramme, setEndingProgramme] = useState(false);
   const [showDeloadWeekModal, setShowDeloadWeekModal] = useState(false);
+  const [showReadOnlyWorkoutModal, setShowReadOnlyWorkoutModal] =
+    useState(false);
+  const [readOnlyWorkout, setReadOnlyWorkout] = useState<ReadOnlyWorkout | null>(
+    null,
+  );
+  const [readOnlyWorkoutLoading, setReadOnlyWorkoutLoading] = useState(false);
+  const [readOnlyWorkoutError, setReadOnlyWorkoutError] = useState("");
   const [showProgrammeCalendarDropdown, setShowProgrammeCalendarDropdown] =
     useState(false);
   const [updatingProgrammeWeeks, setUpdatingProgrammeWeeks] = useState(false);
@@ -154,8 +218,48 @@ export default function Workouts() {
   const [sharePreviewUrl, setSharePreviewUrl] = useState("");
   const [sharePreviewFileName, setSharePreviewFileName] = useState("");
   const [sharePreviewBlob, setSharePreviewBlob] = useState<Blob | null>(null);
+  const [completedWorkoutId, setCompletedWorkoutId] = useState<string | null>(null);
+  const [showWorkoutFeedbackModal, setShowWorkoutFeedbackModal] = useState(false);
+  const [workoutDifficultyScore, setWorkoutDifficultyScore] = useState(7);
+  const [startingRecoveryState, setStartingRecoveryState] =
+    useState<WorkoutRecoveryState>("NORMAL");
+  const [submittingWorkoutFeedback, setSubmittingWorkoutFeedback] =
+    useState(false);
+  const [workoutFeedbackError, setWorkoutFeedbackError] = useState("");
+  const [showRecoveryAdjustmentModal, setShowRecoveryAdjustmentModal] =
+    useState(false);
+  const [recoveryStreakCount, setRecoveryStreakCount] = useState(0);
+  const [underperformingExerciseName, setUnderperformingExerciseName] =
+    useState("");
+  const [underperformingExerciseId, setUnderperformingExerciseId] =
+    useState("");
+  const [adjustmentTriggerType, setAdjustmentTriggerType] = useState<
+    "FATIGUE" | "MISSED_TARGETS" | "EASY_PROGRESS" | "EXERCISE_OVERPERFORMANCE" | null
+  >(null);
+  const [overperformingExercises, setOverperformingExercises] = useState<
+    OverperformingExercise[]
+  >([]);
+  const [showExerciseOverperformanceModal, setShowExerciseOverperformanceModal] =
+    useState(false);
+  const [applyingExerciseIncrease, setApplyingExerciseIncrease] = useState(false);
+  const [exerciseIncreaseError, setExerciseIncreaseError] = useState("");
+  const [applyingRecoveryAdjustments, setApplyingRecoveryAdjustments] =
+    useState(false);
+  const [recoveryAdjustmentError, setRecoveryAdjustmentError] = useState("");
+  const [recoveryAdjustmentStatus, setRecoveryAdjustmentStatus] =
+    useState<RecoveryAdjustmentStatus>({
+      isActive: false,
+      sessionsRemaining: 0,
+      setTarget: undefined,
+      weightMultiplier: 1,
+      triggerType: undefined,
+      targetExerciseId: undefined,
+      targetExerciseName: undefined,
+    });
   const summaryShareRef = useRef<HTMLDivElement>(null);
   const summaryShareCaptureRef = useRef<HTMLDivElement>(null);
+  const isMuscleBuildingProgramme =
+    userProgram?.programme?.progressionFocus !== "STRENGTH";
 
   const getProgrammeRPEByWeek = (programWeeks: number): number[] => {
     const baseRPEs: number[] = [];
@@ -174,11 +278,152 @@ export default function Workouts() {
     return [...baseRPEs, 5];
   };
 
+  const getAdjustedSetCount = (
+    baseSetCount: number,
+    exerciseId?: string,
+    status?: RecoveryAdjustmentStatus,
+  ) => {
+    const effectiveStatus = status || recoveryAdjustmentStatus;
+    if (!effectiveStatus.isActive) {
+      return baseSetCount;
+    }
+
+    if (
+      effectiveStatus.targetExerciseId &&
+      exerciseId &&
+      effectiveStatus.targetExerciseId !== exerciseId
+    ) {
+      return baseSetCount;
+    }
+
+    if (
+      effectiveStatus.weightMultiplier >= 1 ||
+      !effectiveStatus.setTarget ||
+      effectiveStatus.setTarget <= 0
+    ) {
+      return baseSetCount;
+    }
+
+    return Math.min(baseSetCount, effectiveStatus.setTarget || 3);
+  };
+
+  const fetchRecoveryAdjustmentStatus = async (
+    fallbackStatus?: RecoveryAdjustmentStatus,
+  ): Promise<RecoveryAdjustmentStatus> => {
+    try {
+      const response = await fetch(
+        "http://localhost:4242/auth/workouts/recovery-adjustments/status",
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch recovery adjustment status");
+      }
+
+      const payload = await response.json();
+      const normalized: RecoveryAdjustmentStatus = {
+        isActive: Boolean(payload?.isActive),
+        sessionsRemaining: Number(payload?.sessionsRemaining || 0),
+        setTarget:
+          typeof payload?.setTarget === "number" && payload.setTarget > 0
+            ? Number(payload.setTarget)
+            : undefined,
+        weightMultiplier: Number(payload?.weightMultiplier || 1),
+        triggerType:
+          payload?.triggerType === "MISSED_TARGETS"
+            ? "MISSED_TARGETS"
+            : payload?.triggerType === "EASY_PROGRESS"
+              ? "EASY_PROGRESS"
+            : payload?.triggerType === "FATIGUE"
+              ? "FATIGUE"
+              : undefined,
+        targetExerciseId:
+          typeof payload?.targetExerciseId === "string"
+            ? payload.targetExerciseId
+            : undefined,
+        targetExerciseName:
+          typeof payload?.targetExerciseName === "string"
+            ? payload.targetExerciseName
+            : undefined,
+        activeExerciseOverperformanceAdjustments: Array.isArray(
+          payload?.activeExerciseOverperformanceAdjustments,
+        )
+          ? payload.activeExerciseOverperformanceAdjustments
+          : [],
+      };
+
+      setRecoveryAdjustmentStatus(normalized);
+      setAdjustmentTriggerType(normalized.triggerType || null);
+      return normalized;
+    } catch (error) {
+      console.warn("Failed to fetch recovery adjustment status:", error);
+      // Preserve the current in-memory status so a confirmed adjustment from the
+      // previous modal flow is not silently discarded.
+      return fallbackStatus || recoveryAdjustmentStatus;
+    }
+  };
+
   const isWorkoutDayCompleted = (weekNumber: number, dayNumber: number) => {
     if (!userProgram) return false;
     if (weekNumber < userProgram.currentWeek) return true;
     if (weekNumber > userProgram.currentWeek) return false;
     return dayNumber < userProgram.currentDay;
+  };
+
+  const openReadOnlyWorkoutForDay = async (
+    weekNumber: number,
+    dayNumber: number,
+  ) => {
+    if (!userProgram) return;
+
+    try {
+      setReadOnlyWorkoutLoading(true);
+      setReadOnlyWorkoutError("");
+      setShowReadOnlyWorkoutModal(true);
+      setReadOnlyWorkout(null);
+
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:4242/auth/workouts/by-day?weekNumber=${weekNumber}&dayNumber=${dayNumber}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        let backendMessage = "";
+        try {
+          const errorPayload = await response.json();
+          backendMessage = errorPayload?.details || errorPayload?.error || "";
+        } catch {
+          // ignore
+        }
+        throw new Error(
+          backendMessage ||
+            `Failed to load completed workout (${response.status})`,
+        );
+      }
+
+      const payload = await response.json();
+      const workout = payload?.workout as ReadOnlyWorkout | undefined;
+      if (!workout) {
+        throw new Error("No workout data returned for this completed day");
+      }
+
+      setReadOnlyWorkout(workout);
+    } catch (err: any) {
+      setReadOnlyWorkoutError(
+        err?.message || "Failed to load completed workout",
+      );
+    } finally {
+      setReadOnlyWorkoutLoading(false);
+    }
   };
 
   const normalizeSetDefinitions = (
@@ -692,7 +937,27 @@ export default function Workouts() {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to load exercise history");
+        let backendError = "";
+        try {
+          const errorPayload = await response.json();
+          backendError = errorPayload?.error || "";
+        } catch {
+          // ignore non-JSON response
+        }
+
+        if (response.status === 401) {
+          throw new Error("Please log in again to load exercise history.");
+        }
+
+        if (response.status === 403) {
+          throw new Error(
+            backendError || "You do not currently have access to exercise history.",
+          );
+        }
+
+        throw new Error(
+          backendError || `Failed to load exercise history (${response.status})`,
+        );
       }
 
       const result = await response.json();
@@ -703,7 +968,11 @@ export default function Workouts() {
       setHasMoreHistory(history.length >= limit);
     } catch (err) {
       console.error("Error loading exercise history:", err);
-      setHistoryError("Could not load exercise history right now.");
+      setHistoryError(
+        err instanceof Error
+          ? err.message
+          : "Could not load exercise history right now.",
+      );
     } finally {
       if (mode === "more") {
         setHistoryLoadingMore(false);
@@ -940,6 +1209,10 @@ export default function Workouts() {
       sets: 3,
       reps: "8-12",
       exerciseId: exercise.id,
+      strengthRole:
+        userProgram?.programme?.progressionFocus === "STRENGTH"
+          ? "ACCESSORY"
+          : undefined,
       workoutSets: [
         { weight: "", reps: "", completed: false, isDropSet: false },
         { weight: "", reps: "", completed: false, isDropSet: false },
@@ -1372,135 +1645,133 @@ export default function Workouts() {
 
   const renderWorkoutSummaryCore = () => (
     <>
-      <h2 className="text-white text-3xl font-extrabold tracking-tight text-center mb-5">
+      <h2 className="text-white text-2xl font-extrabold tracking-tight text-center mb-4">
         Workout Complete
       </h2>
 
-      <div className="space-y-4 mb-6">
+      <div className="space-y-3 mb-6">
+        {/* Volume vs last workout + vs week 1 */}
         {(weeklySummary.previousWorkoutComparison ||
           (weeklySummary.strengthGainVsProgramStart !== null &&
             !isNaN(weeklySummary.strengthGainVsProgramStart))) && (
           <div className="grid grid-cols-2 gap-3">
             {weeklySummary.previousWorkoutComparison && (
-              <div className="glass-subtile p-4 rounded-lg border border-[#86FF99]/30">
-                <p className="text-[#A0AEC0] text-[11px] uppercase tracking-wide">Vs last workout</p>
-                <p className="text-white font-bold text-base mt-1 leading-tight">
-                  {weeklySummary.previousWorkoutComparison.totalVolumeChangePct ===
-                  null
+              <div className="glass-subtile p-3 rounded-lg border border-[#86FF99]/30">
+                <p className="text-[#A0AEC0] text-[10px] uppercase tracking-wide">Vs last session</p>
+                <p className="text-white font-bold text-sm mt-1">
+                  {weeklySummary.previousWorkoutComparison.totalVolumeChangePct === null
                     ? "No baseline"
                     : `${weeklySummary.previousWorkoutComparison.totalVolumeChangePct > 0 ? "+" : ""}${weeklySummary.previousWorkoutComparison.totalVolumeChangePct.toFixed(1)}% volume`}
                 </p>
-                <p className="text-[#86FF99] text-sm font-semibold mt-1 leading-tight">
+                <p className="text-[#86FF99] text-xs font-semibold mt-0.5">
                   {weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg > 0
-                    ? `+${weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg.toFixed(1)}kg extra load`
+                    ? `+${weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg.toFixed(1)}kg load`
                     : weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg < 0
-                      ? `${Math.abs(weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg).toFixed(1)}kg less load`
-                      : "0.0kg same load"}
+                      ? `${Math.abs(weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg).toFixed(1)}kg less`
+                      : "Same load"}
                 </p>
               </div>
             )}
-
             {weeklySummary.strengthGainVsProgramStart !== null &&
               !isNaN(weeklySummary.strengthGainVsProgramStart) && (
-                <div className="glass-subtile p-4 rounded-lg border border-[#246BFD]/30">
-                  <p className="text-[#A0AEC0] text-[11px] uppercase tracking-wide">Vs week 1</p>
-                  <p className="text-white font-bold text-lg mt-1 leading-tight">
+                <div className="glass-subtile p-3 rounded-lg border border-[#246BFD]/30">
+                  <p className="text-[#A0AEC0] text-[10px] uppercase tracking-wide">Vs week 1</p>
+                  <p className="text-white font-bold text-sm mt-1">
                     {weeklySummary.strengthGainVsProgramStart > 0
-                      ? `${weeklySummary.strengthGainVsProgramStart.toFixed(1)}% Stronger`
+                      ? `+${weeklySummary.strengthGainVsProgramStart.toFixed(1)}% stronger`
                       : weeklySummary.strengthGainVsProgramStart < 0
-                        ? `${Math.abs(weeklySummary.strengthGainVsProgramStart).toFixed(1)}% Weaker`
-                        : "0.0% Same"}
+                        ? `-${Math.abs(weeklySummary.strengthGainVsProgramStart).toFixed(1)}% weaker`
+                        : "No change"}
                   </p>
                 </div>
               )}
           </div>
         )}
 
-        {weeklySummary.personalRecords &&
-          weeklySummary.personalRecords.length > 0 && (
-            <div className="glass-subtile p-4 rounded-lg border border-[#FBA3FF]/30">
-              <p className="text-[#FBA3FF] text-base font-bold mb-2 tracking-tight">
-                🏆 New Personal Records
-              </p>
-              <p className="text-[#C7CAD1] text-xs mb-2">
-                Your best lifts from this workout:
-              </p>
-              {(() => {
-                const groupedByExercise: Record<string, any[]> = {};
-                weeklySummary.personalRecords.forEach((pr: any) => {
-                  if (pr.metric !== "volume") {
-                    if (!groupedByExercise[pr.exerciseName]) {
-                      groupedByExercise[pr.exerciseName] = [];
-                    }
-                    groupedByExercise[pr.exerciseName].push(pr);
-                  }
-                });
+        {/* Personal records */}
+        {weeklySummary.personalRecords && weeklySummary.personalRecords.length > 0 && (
+          <div className="glass-subtile p-3 rounded-lg border border-[#FBA3FF]/30">
+            <p className="text-[#FBA3FF] text-sm font-bold mb-2">🏆 Personal Records</p>
+            {(() => {
+              const grouped: Record<string, any[]> = {};
+              weeklySummary.personalRecords.forEach((pr: any) => {
+                if (pr.metric !== "volume") {
+                  if (!grouped[pr.exerciseName]) grouped[pr.exerciseName] = [];
+                  grouped[pr.exerciseName].push(pr);
+                }
+              });
+              return Object.entries(grouped).slice(0, 4).map(([name, records]) => {
+                const w = records.find((r) => r.metric === "weight");
+                const r = records.find((r) => r.metric === "repsAtWeight");
+                if (!w && !r) return null;
+                return (
+                  <div key={name} className="mb-1 last:mb-0">
+                    {w && <p className="text-white text-sm">{name}: {w.value}kg — new best</p>}
+                    {r && <p className="text-white text-sm">{name}: {r.value} reps @ {r.contextWeightKg}kg — new best</p>}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        )}
 
-                return Object.entries(groupedByExercise)
-                  .slice(0, 4)
-                  .map(([exerciseName, records]) => {
-                    const weightRecord = records.find(
-                      (r) => r.metric === "weight",
-                    );
-                    const repsAtWeightRecord = records.find(
-                      (r) => r.metric === "repsAtWeight",
-                    );
+        {/* Volume updates (set added / exercise added) */}
+        {weeklySummary.recommendations?.some((rec: any) => rec.volumeSuggestion) && (
+          <div className="glass-subtile p-3 rounded-lg border border-[#FFC857]/30">
+            <p className="text-[#FFC857] text-sm font-semibold mb-1.5">Volume updates</p>
+            {weeklySummary.recommendations
+              .filter((rec: any) => rec.volumeSuggestion)
+              .map((rec: any, idx: number) => (
+                <p key={idx} className="text-[#D1D5DB] text-sm mb-1 last:mb-0">
+                  <span className="font-medium text-white">{getExerciseName(rec.exerciseId)}</span>
+                  {rec.volumeSuggestion === "add_set"
+                    ? " — set added for next session"
+                    : " — complementary exercise added to programme"}
+                </p>
+              ))}
+          </div>
+        )}
 
-                    if (!weightRecord && !repsAtWeightRecord) return null;
-
-                    return (
-                      <div key={exerciseName} className="mb-2 last:mb-0">
-                        {weightRecord && (
-                          <p className="text-white text-[15px] leading-snug">
-                            Most weight lifted on {exerciseName}: {weightRecord.value}kg (new best).
-                          </p>
-                        )}
-                        {repsAtWeightRecord && (
-                          <p className="text-white text-[15px] leading-snug">
-                            Most reps at {repsAtWeightRecord.contextWeightKg}kg on {exerciseName}: {repsAtWeightRecord.value} reps (new best).
-                          </p>
-                        )}
-                      </div>
-                    );
-                  });
-              })()}
-            </div>
-          )}
-
-        {weeklySummary.recommendations &&
-          weeklySummary.recommendations.length > 0 && (
-            <div className="glass-subtile p-4 rounded-lg border border-[#246BFD]/30">
-              <p className="text-[#246BFD] font-semibold mb-2">
-                Next Session
-              </p>
-              {weeklySummary.recommendations.map(
-                (rec: any, idx: number) => (
-                  idx < 3 && (
-                  <p key={idx} className="text-white text-sm mb-1 last:mb-0">
-                    <span className="font-medium">
-                      {getExerciseName(rec.exerciseId)}
-                    </span>
-                    : {rec.recommendedWeight}kg x {rec.recommendedReps} (RPE {rec.recommendedRPE})
-                  </p>
-                  )
-                ),
-              )}
-            </div>
-          )}
-
+        {/* Streak */}
         {weeklySummary.streak && (
-          <div className="glass-subtile p-4 rounded-lg border border-[#FF8C42]/30">
-            <p className="text-[#FFC857] font-semibold text-sm">
-              {weeklySummary.streak.streakCount}-week streak
+          <div className="glass-subtile p-3 rounded-lg border border-[#FF8C42]/30">
+            <p className="text-[#FFC857] text-sm font-semibold">
+              {weeklySummary.streak.streakCount > 0
+                ? `${weeklySummary.streak.streakCount} window streak 🔥`
+                : "Start your streak"}
             </p>
-            <p className="text-white text-sm mt-1">
-              {weeklySummary.streak.currentWindowWorkouts} / {weeklySummary.streak.streakGoal} workouts this window
+            <div className="w-full h-1.5 rounded-full bg-white/10 mt-2 overflow-hidden">
+              <div
+                className="h-full bg-[#FFC857]"
+                style={{
+                  width: `${Math.min(100, Math.round((weeklySummary.streak.currentWindowWorkouts / Math.max(weeklySummary.streak.streakGoal, 1)) * 100))}%`,
+                }}
+              />
+            </div>
+            <p className="text-[#A0AEC0] text-xs mt-1.5">
+              {weeklySummary.streak.currentWindowWorkouts}/{weeklySummary.streak.streakGoal} workouts this window
+              {weeklySummary.streak.milestoneReached && weeklySummary.streak.milestoneWindowCount
+                ? ` · ${weeklySummary.streak.milestoneWindowCount} windows milestone!`
+                : ""}
             </p>
-            {weeklySummary.streak.milestoneReached && weeklySummary.streak.milestoneWindowCount && (
-              <p className="text-[#86FF99] text-xs mt-1">
-                Milestone: {weeklySummary.streak.milestoneWindowCount} windows
-              </p>
-            )}
+          </div>
+        )}
+
+        {/* End-of-week: sets per muscle group */}
+        {weeklySummary.isEndOfWeek && weeklySummary.weeklySetsByMuscleGroup &&
+          Object.keys(weeklySummary.weeklySetsByMuscleGroup).length > 0 && (
+          <div className="glass-subtile p-3 rounded-lg border border-[#86FF99]/20">
+            <p className="text-[#86FF99] text-sm font-semibold mb-2">Weekly volume</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              {(Object.entries(weeklySummary.weeklySetsByMuscleGroup as Record<string, number>))
+                .sort((a, b) => b[1] - a[1])
+                .map(([muscle, sets]) => (
+                  <p key={muscle} className="text-sm">
+                    <span className="text-[#A0AEC0]">{muscle}</span>
+                    <span className="text-white font-semibold"> {sets} sets</span>
+                  </p>
+                ))}
+            </div>
           </div>
         )}
       </div>
@@ -1759,6 +2030,7 @@ export default function Workouts() {
           .map((set) => ({
             weight: parseFloat(set.weight),
             reps: parseInt(set.reps),
+            targetReps: set.completedTargetReps ?? parseInt(set.reps),
             completed: set.completed,
             isDropSet: set.isDropSet,
             dropSetGroupId: set.dropSetGroupId,
@@ -1770,6 +2042,7 @@ export default function Workouts() {
         sets: exercise.workoutSets.length,
         reps: exercise.reps,
         orderIndex: index,
+        strengthRole: exercise.strengthRole,
         notes: serializeSetDefinitions(exercise.workoutSets),
       }));
 
@@ -1788,11 +2061,22 @@ export default function Workouts() {
           duration: duration,
           notes: "",
           programmeUpdates,
+          temporaryRecoveryAdjustmentActive: recoveryAdjustmentStatus.isActive,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save workout");
+        let backendMessage = "";
+        try {
+          const errorPayload = await response.json();
+          backendMessage =
+            errorPayload?.details || errorPayload?.error || "";
+        } catch {
+          // ignore non-JSON error payloads
+        }
+        throw new Error(
+          backendMessage || `Failed to save workout (${response.status})`,
+        );
       }
 
       const result = await response.json();
@@ -1807,8 +2091,10 @@ export default function Workouts() {
         localStorage.removeItem("workoutSession");
         setWeeklySummary({
           ...result.weeklySummary,
+          recommendations: result.recommendations,
           streak: result.streak,
         });
+        setCompletedWorkoutId(result.workoutId || null);
         setWorkoutCompleted(true);
       } else {
         // Show completion screen with recommendations
@@ -1822,6 +2108,7 @@ export default function Workouts() {
           recommendations: result.recommendations,
           streak: result.streak,
         });
+        setCompletedWorkoutId(result.workoutId || null);
         setWorkoutCompleted(true);
       }
     } catch (err: any) {
@@ -1832,7 +2119,7 @@ export default function Workouts() {
     }
   };
 
-  const advanceToNextDay = async () => {
+  const advanceToNextDay = async (statusOverride?: RecoveryAdjustmentStatus) => {
     try {
       localStorage.removeItem("workoutSession");
       const response = await fetch(
@@ -1869,6 +2156,20 @@ export default function Workouts() {
       setWorkoutStartTime(null);
       setWeeklySummary(null);
       setWorkoutCompleted(false);
+      setCompletedWorkoutId(null);
+      setShowWorkoutFeedbackModal(false);
+      setWorkoutDifficultyScore(7);
+      setStartingRecoveryState("NORMAL");
+      setWorkoutFeedbackError("");
+      setShowRecoveryAdjustmentModal(false);
+      setRecoveryStreakCount(0);
+      setUnderperformingExerciseName("");
+      setUnderperformingExerciseId("");
+      setAdjustmentTriggerType(null);
+      setRecoveryAdjustmentError("");
+      setOverperformingExercises([]);
+      setShowExerciseOverperformanceModal(false);
+      setExerciseIncreaseError("");
 
       // Fetch the next day's exercises
       const programmeResponse = await fetch(
@@ -1885,6 +2186,9 @@ export default function Workouts() {
       }
 
       const programmeData = await programmeResponse.json();
+      const adjustmentStatus =
+        statusOverride ||
+        (await fetchRecoveryAdjustmentStatus(recoveryAdjustmentStatus));
       const nextDayExercises = programmeData.exercises.filter(
         (exercise: ProgrammeExercise) =>
           exercise.dayNumber === result.currentDay,
@@ -1892,22 +2196,27 @@ export default function Workouts() {
 
       const workoutExercises: WorkoutExercise[] = nextDayExercises.map(
         (exercise: ProgrammeExercise) => {
+          const adjustedSetCount = getAdjustedSetCount(
+            exercise.sets,
+            exercise.exercise.id,
+            adjustmentStatus,
+          );
           const cachedDefinitions = getCachedSetDefinitions(
             userProgram?.programme?.id,
             result.currentDay,
             exercise.exercise.id,
           );
           const initialSets = createWorkoutSetsFromDefinitions(
-            exercise.sets,
+            adjustedSetCount,
             exercise.notes,
             cachedDefinitions,
-          );
+          ).slice(0, adjustedSetCount);
 
           return {
             id: exercise.id,
             name: exercise.exercise.name,
             muscleGroup: exercise.exercise.muscleGroup,
-            sets: exercise.sets,
+            sets: adjustedSetCount,
             reps: exercise.reps,
             notes: exercise.notes,
             exerciseId: exercise.exercise.id,
@@ -1917,7 +2226,10 @@ export default function Workouts() {
       );
 
       setTodayExercises(workoutExercises);
-      await loadProgressionRecommendationsForExercises(workoutExercises);
+      await loadProgressionRecommendationsForExercises(
+        workoutExercises,
+        result.currentDay,
+      );
     } catch (err: any) {
       console.error("Error advancing to next day:", err);
       setError(err.message || "Failed to advance to next day");
@@ -1927,6 +2239,245 @@ export default function Workouts() {
   const getExerciseName = (exerciseId: string): string => {
     const exercise = todayExercises.find((ex) => ex.exerciseId === exerciseId);
     return exercise ? exercise.name : "Unknown Exercise";
+  };
+
+  const openWorkoutFeedbackModal = () => {
+    setShowWorkoutFeedbackModal(true);
+    setWorkoutFeedbackError("");
+  };
+
+  const submitWorkoutFeedbackAndContinue = async () => {
+    if (!completedWorkoutId) {
+      setWorkoutFeedbackError("Unable to save feedback for this workout.");
+      return;
+    }
+
+    try {
+      setSubmittingWorkoutFeedback(true);
+      setWorkoutFeedbackError("");
+
+      const response = await fetch(
+        `http://localhost:4242/auth/workouts/${completedWorkoutId}/feedback`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            perceivedDifficulty: workoutDifficultyScore,
+            startRecovery: startingRecoveryState,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        let backendMessage = "";
+        try {
+          const errorPayload = await response.json();
+          backendMessage =
+            errorPayload?.details || errorPayload?.error || "";
+        } catch {
+          // ignore non-JSON error payloads
+        }
+        throw new Error(
+          backendMessage || `Failed to save workout feedback (${response.status})`,
+        );
+      }
+
+      const payload = await response.json();
+
+      const shouldSuggestAdjustments = Boolean(payload?.shouldSuggestAdjustments);
+      const shouldSuggestExerciseIncrease = Boolean(payload?.shouldSuggestExerciseIncrease);
+      const incomingOverperformingExercises: OverperformingExercise[] = Array.isArray(
+        payload?.overperformingExercises,
+      )
+        ? payload.overperformingExercises
+        : [];
+      const streakCount = Number(payload?.recoveryStreakCount || 0);
+      const triggerType =
+        payload?.adjustmentTriggerType === "MISSED_TARGETS"
+          ? "MISSED_TARGETS"
+          : payload?.adjustmentTriggerType === "EASY_PROGRESS"
+            ? "EASY_PROGRESS"
+            : payload?.adjustmentTriggerType === "FATIGUE"
+              ? "FATIGUE"
+              : null;
+      const missedTargetRepStreak = Boolean(payload?.missedTargetRepStreak);
+      const missedTargetExerciseId =
+        typeof payload?.underperformingExerciseId === "string"
+          ? payload.underperformingExerciseId
+          : "";
+      const missedTargetExerciseName =
+        typeof payload?.underperformingExerciseName === "string"
+          ? payload.underperformingExerciseName
+          : "";
+
+      setShowWorkoutFeedbackModal(false);
+
+      if (shouldSuggestAdjustments) {
+        setAdjustmentTriggerType(triggerType);
+        setRecoveryStreakCount(streakCount);
+        setUnderperformingExerciseId(
+          missedTargetRepStreak ? missedTargetExerciseId : "",
+        );
+        setUnderperformingExerciseName(
+          missedTargetRepStreak ? missedTargetExerciseName : "",
+        );
+        setRecoveryAdjustmentError("");
+        setShowRecoveryAdjustmentModal(true);
+        return;
+      }
+
+      if (shouldSuggestExerciseIncrease && incomingOverperformingExercises.length > 0) {
+        setOverperformingExercises(incomingOverperformingExercises);
+        setExerciseIncreaseError("");
+        setShowExerciseOverperformanceModal(true);
+        return;
+      }
+
+      await advanceToNextDay();
+    } catch (error: any) {
+      setWorkoutFeedbackError(
+        error?.message || "Failed to save workout feedback",
+      );
+    } finally {
+      setSubmittingWorkoutFeedback(false);
+    }
+  };
+
+  const applyRecoveryAdjustmentsAndContinue = async () => {
+    try {
+      setApplyingRecoveryAdjustments(true);
+      setRecoveryAdjustmentError("");
+
+      const response = await fetch(
+        "http://localhost:4242/auth/workouts/recovery-adjustments/apply",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            workoutId: completedWorkoutId,
+            triggerType:
+              adjustmentTriggerType ||
+              (underperformingExerciseId ? "MISSED_TARGETS" : "FATIGUE"),
+            targetExerciseId: underperformingExerciseId || undefined,
+            targetExerciseName: underperformingExerciseName || undefined,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        let backendMessage = "";
+        try {
+          const errorPayload = await response.json();
+          backendMessage =
+            errorPayload?.details || errorPayload?.error || "";
+        } catch {
+          // ignore non-JSON error payloads
+        }
+        throw new Error(
+          backendMessage || `Failed to apply adjustments (${response.status})`,
+        );
+      }
+
+      const payload = await response.json();
+      if (payload?.triggerType === "MISSED_TARGETS") {
+        setShowRecoveryAdjustmentModal(false);
+        await advanceToNextDay();
+        return;
+      }
+
+      const acceptedStatus: RecoveryAdjustmentStatus = {
+        isActive: true,
+        sessionsRemaining: Number(payload?.sessionsRemaining || 0),
+        setTarget:
+          typeof payload?.setTarget === "number" && payload.setTarget > 0
+            ? Number(payload.setTarget)
+            : undefined,
+        weightMultiplier: Number(payload?.weightMultiplier || 1),
+        triggerType:
+          payload?.triggerType === "MISSED_TARGETS"
+            ? "MISSED_TARGETS"
+            : payload?.triggerType === "EASY_PROGRESS"
+              ? "EASY_PROGRESS"
+            : payload?.triggerType === "FATIGUE"
+              ? "FATIGUE"
+              : undefined,
+        targetExerciseId:
+          typeof payload?.targetExerciseId === "string"
+            ? payload.targetExerciseId
+            : undefined,
+        targetExerciseName:
+          typeof payload?.targetExerciseName === "string"
+            ? payload.targetExerciseName
+            : undefined,
+      };
+      setRecoveryAdjustmentStatus(acceptedStatus);
+      setAdjustmentTriggerType(acceptedStatus.triggerType || null);
+
+      setShowRecoveryAdjustmentModal(false);
+      await advanceToNextDay(acceptedStatus);
+    } catch (error: any) {
+      setRecoveryAdjustmentError(
+        error?.message || "Failed to apply recovery adjustments",
+      );
+    } finally {
+      setApplyingRecoveryAdjustments(false);
+    }
+  };
+
+  const applyExerciseIncreaseAndContinue = async () => {
+    if (overperformingExercises.length === 0) {
+      await advanceToNextDay();
+      return;
+    }
+
+    try {
+      setApplyingExerciseIncrease(true);
+      setExerciseIncreaseError("");
+
+      const response = await fetch(
+        "http://localhost:4242/auth/workouts/recovery-adjustments/apply",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+          body: JSON.stringify({
+            workoutId: completedWorkoutId,
+            triggerType: "EXERCISE_OVERPERFORMANCE",
+            exerciseAdjustments: overperformingExercises,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        let backendMessage = "";
+        try {
+          const errorPayload = await response.json();
+          backendMessage = errorPayload?.details || errorPayload?.error || "";
+        } catch {
+          // ignore
+        }
+        throw new Error(
+          backendMessage || `Failed to apply exercise adjustments (${response.status})`,
+        );
+      }
+
+      setShowExerciseOverperformanceModal(false);
+      await advanceToNextDay();
+    } catch (error: any) {
+      setExerciseIncreaseError(
+        error?.message || "Failed to apply exercise increase",
+      );
+    } finally {
+      setApplyingExerciseIncrease(false);
+    }
   };
 
   const applyRecommendationToExercise = (
@@ -1967,16 +2518,23 @@ export default function Workouts() {
       ? baseWorkoutSets.slice(0, targetSetCount)
       : baseWorkoutSets;
 
+    // The backend recommendations endpoint applies any active recovery/progression
+    // adjustment multiplier authoritatively (server-side expiry computed from DB).
+    // Do NOT re-apply locally from client state — that causes the multiplier to
+    // persist past expiry when client state lags behind the server.
+    const effectiveRecommendation = recommendation;
+
     let recommendationIndex = 0;
 
     return {
       ...exercise,
-      recommendation,
+      recommendation: effectiveRecommendation,
       workoutSets: workoutSets.map((set, idx) => {
         if (set.isNewlyAdded) {
           return set;
         }
-        const setRecommendation = setRecommendations[recommendationIndex];
+        const setRecommendation =
+          effectiveRecommendation.setRecommendations?.[recommendationIndex];
         recommendationIndex += 1;
         const recommendedWeight =
           setRecommendation && setRecommendation.recommendedWeight > 0
@@ -2002,7 +2560,7 @@ export default function Workouts() {
     };
   };
 
-  const loadProgressionRecommendations = async () => {
+  const loadProgressionRecommendations = async (dayNumberOverride?: number) => {
     if (!userProgram || todayExercises.length === 0) return;
 
     setLoadingRecommendations(true);
@@ -2021,10 +2579,12 @@ export default function Workouts() {
         return;
       }
 
+      const effectiveDayNumber = dayNumberOverride ?? userProgram.currentDay;
+
       const response = await fetch(
         `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
           ",",
-        )}&setCounts=${setCounts.join(",")}&setLayouts=${setLayouts}`,
+        )}&setCounts=${setCounts.join(",")}&setLayouts=${setLayouts}&dayNumber=${effectiveDayNumber}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -2065,6 +2625,7 @@ export default function Workouts() {
 
   const loadProgressionRecommendationsForExercises = async (
     exercises: WorkoutExercise[],
+    dayNumberOverride?: number,
   ) => {
     if (!userProgram || exercises.length === 0) return;
 
@@ -2082,10 +2643,12 @@ export default function Workouts() {
         return;
       }
 
+      const effectiveDayNumber = dayNumberOverride ?? userProgram.currentDay;
+
       const response = await fetch(
         `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
           ",",
-        )}&setCounts=${setCounts.join(",")}&setLayouts=${setLayouts}`,
+        )}&setCounts=${setCounts.join(",")}&setLayouts=${setLayouts}&dayNumber=${effectiveDayNumber}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -2187,6 +2750,9 @@ export default function Workouts() {
         }
 
         const programmeData = await programmeResponse.json();
+        const adjustmentStatus = await fetchRecoveryAdjustmentStatus(
+          recoveryAdjustmentStatus,
+        );
 
         const fullUserProgram = {
           ...activeProgram,
@@ -2218,23 +2784,29 @@ export default function Workouts() {
 
         const workoutExercises: WorkoutExercise[] = currentDayExercises.map(
           (exercise: ProgrammeExercise) => {
+            const adjustedSetCount = getAdjustedSetCount(
+              exercise.sets,
+              exercise.exercise.id,
+              adjustmentStatus,
+            );
             const cachedDefinitions = getCachedSetDefinitions(
               activeProgram.programmeId,
               activeProgram.currentDay,
               exercise.exercise.id,
             );
             const initialSets = createWorkoutSetsFromDefinitions(
-              exercise.sets,
+              adjustedSetCount,
               exercise.notes,
               cachedDefinitions,
-            );
+            ).slice(0, adjustedSetCount);
 
             return {
               id: exercise.id,
               name: exercise.exercise.name,
               muscleGroup: exercise.exercise.muscleGroup,
-              sets: exercise.sets,
+              sets: adjustedSetCount,
               reps: exercise.reps,
+              strengthRole: exercise.strengthRole,
               notes: exercise.notes,
               exerciseId: exercise.exercise.id,
               workoutSets: initialSets,
@@ -2256,7 +2828,7 @@ export default function Workouts() {
 
   useEffect(() => {
     if (userProgram && todayExercises.length > 0) {
-      loadProgressionRecommendations();
+      loadProgressionRecommendations(userProgram.currentDay);
     }
   }, [userProgram?.currentDay]);
 
@@ -2537,14 +3109,22 @@ export default function Workouts() {
                               dayNumber,
                             );
 
-                            return (
+                            return completed ? (
+                              <button
+                                key={`${weekNumber}-${dayNumber}`}
+                                type="button"
+                                onClick={() =>
+                                  openReadOnlyWorkoutForDay(weekNumber, dayNumber)
+                                }
+                                className="text-[11px] px-2 py-1 rounded-md font-semibold bg-green-500/25 text-green-300 border border-green-400/40 hover:bg-green-500/35 transition-colors"
+                                title={`View completed workout for Week ${weekNumber}, Day ${dayNumber}`}
+                              >
+                                Day {dayNumber}
+                              </button>
+                            ) : (
                               <div
                                 key={`${weekNumber}-${dayNumber}`}
-                                className={`text-[11px] px-2 py-1 rounded-md font-semibold ${
-                                  completed
-                                    ? "bg-green-500/25 text-green-300 border border-green-400/40"
-                                    : "bg-red-500/20 text-red-300 border border-red-400/40"
-                                }`}
+                                className="text-[11px] px-2 py-1 rounded-md font-semibold bg-red-500/20 text-red-300 border border-red-400/40"
                               >
                                 Day {dayNumber}
                               </div>
@@ -2593,6 +3173,13 @@ export default function Workouts() {
                           {exercise.workoutSets.length} Working Set
                           {exercise.workoutSets.length !== 1 ? "s" : ""}
                         </span>
+                        {userProgram?.programme?.progressionFocus ===
+                          "STRENGTH" &&
+                          exercise.strengthRole && (
+                            <span className="text-blue-300 uppercase tracking-wide">
+                              {exercise.strengthRole.replace("_", " ")}
+                            </span>
+                          )}
                         <span className="text-pink-400">
                           {exercise.muscleGroup}
                         </span>
@@ -3054,7 +3641,11 @@ export default function Workouts() {
       )}
 
       {/* Post-Workout Summary Modal */}
-      {workoutCompleted && weeklySummary && (
+      {workoutCompleted &&
+        weeklySummary &&
+        !showWorkoutFeedbackModal &&
+        !showRecoveryAdjustmentModal &&
+        !showExerciseOverperformanceModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div
             ref={summaryShareRef}
@@ -3137,15 +3728,279 @@ export default function Workouts() {
               )}
 
               <button
-                onClick={advanceToNextDay}
+                onClick={() => {
+                  if (isMuscleBuildingProgramme) {
+                    openWorkoutFeedbackModal();
+                    return;
+                  }
+                  advanceToNextDay();
+                }}
                 className="w-full bg-[#86FF99] hover:bg-[#6bd664] text-black font-semibold py-3 rounded-lg transition-colors"
               >
-                Continue to Next Workout
+                {isMuscleBuildingProgramme
+                  ? "Continue"
+                  : "Continue to Next Workout"}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {workoutCompleted &&
+        weeklySummary &&
+        showWorkoutFeedbackModal &&
+        isMuscleBuildingProgramme && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="glass-modal rounded-2xl p-6 w-full max-w-md">
+              <h2 className="text-white text-xl font-bold text-center mb-2">
+                Quick Workout Feedback
+              </h2>
+              <p className="text-[#A0AEC0] text-sm text-center mb-5">
+                This helps tune your muscle-building progression.
+              </p>
+
+              <div className="space-y-5">
+                <div>
+                  <p className="text-white text-sm font-semibold mb-3">
+                    How hard was that workout? (1-10)
+                  </p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {Array.from({ length: 10 }, (_, index) => {
+                      const score = index + 1;
+                      const isSelected = workoutDifficultyScore === score;
+                      return (
+                        <button
+                          key={score}
+                          type="button"
+                          onClick={() => setWorkoutDifficultyScore(score)}
+                          className={`rounded-lg py-2 text-sm font-semibold border transition-colors ${
+                            isSelected
+                              ? "bg-[#00FFAD] text-[#0A0E1A] border-[#00FFAD]"
+                              : "glass-subtile border-white/10 text-white hover:border-[#00FFAD]/60"
+                          }`}
+                        >
+                          {score}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-white text-sm font-semibold mb-3">
+                    How recovered did you feel starting today?
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {[
+                      { value: "FRESH", label: "Fresh" },
+                      { value: "NORMAL", label: "Normal" },
+                      { value: "STILL_TIRED", label: "Still tired" },
+                    ].map((option) => {
+                      const isSelected = startingRecoveryState === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() =>
+                            setStartingRecoveryState(
+                              option.value as WorkoutRecoveryState,
+                            )
+                          }
+                          className={`rounded-lg py-2.5 text-sm font-semibold border transition-colors ${
+                            isSelected
+                              ? "bg-[#00FFAD] text-[#0A0E1A] border-[#00FFAD]"
+                              : "glass-subtile border-white/10 text-white hover:border-[#00FFAD]/60"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {workoutFeedbackError && (
+                <p className="text-sm text-[#FBA3FF] mt-4 text-center">
+                  {workoutFeedbackError}
+                </p>
+              )}
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowWorkoutFeedbackModal(false);
+                    setWorkoutFeedbackError("");
+                  }}
+                  disabled={submittingWorkoutFeedback}
+                  className="glass-button flex-1 py-3 rounded-lg text-white font-semibold"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={submitWorkoutFeedbackAndContinue}
+                  disabled={submittingWorkoutFeedback}
+                  className={`flex-1 py-3 rounded-lg font-semibold transition-colors ${
+                    submittingWorkoutFeedback
+                      ? "bg-[#2A2E38] text-[#8A93A7] cursor-not-allowed"
+                      : "bg-[#86FF99] hover:bg-[#6bd664] text-black"
+                  }`}
+                >
+                  {submittingWorkoutFeedback
+                    ? "Saving..."
+                    : "Save Feedback + Continue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {workoutCompleted &&
+        weeklySummary &&
+        showRecoveryAdjustmentModal &&
+        isMuscleBuildingProgramme && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="glass-modal rounded-2xl p-6 w-full max-w-md">
+              <h2 className="text-white text-xl font-bold text-center mb-2">
+                {adjustmentTriggerType === "EASY_PROGRESS"
+                  ? "Progression Suggestion"
+                  : "Recovery Suggestion"}
+              </h2>
+              <p className="text-[#A0AEC0] text-sm text-center mb-4">
+                {adjustmentTriggerType === "EASY_PROGRESS"
+                  ? "You rated the last 3 workouts as 4/10 or lower and met or exceeded all target reps."
+                  : underperformingExerciseName
+                    ? `You missed target reps for ${underperformingExerciseName} on 2 consecutive occurrences of this training day.`
+                    : `You reported 8/10+ difficulty and feeling still tired for ${recoveryStreakCount} workouts in a row.`}
+              </p>
+              <p className="text-[#D1D5DB] text-sm text-center mb-5">
+                {adjustmentTriggerType === "EASY_PROGRESS"
+                  ? "Suggested adjustment: increase load by 5% for your next training days, then resume normal progression."
+                  : adjustmentTriggerType === "MISSED_TARGETS"
+                    ? "Suggested one-time override: reduce load by 10% for the next occurrence of this exercise on this training day only."
+                    : "Suggested adjustment: reduce load by 10% and set all exercises to 3 sets to improve recovery."}
+              </p>
+
+              {recoveryAdjustmentError && (
+                <p className="text-sm text-[#FBA3FF] mb-4 text-center">
+                  {recoveryAdjustmentError}
+                </p>
+              )}
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={applyRecoveryAdjustmentsAndContinue}
+                  disabled={applyingRecoveryAdjustments}
+                  className={`w-full py-3 rounded-lg font-semibold transition-colors ${
+                    applyingRecoveryAdjustments
+                      ? "bg-[#2A2E38] text-[#8A93A7] cursor-not-allowed"
+                      : "bg-[#86FF99] hover:bg-[#6bd664] text-black"
+                  }`}
+                >
+                  {applyingRecoveryAdjustments
+                    ? "Applying..."
+                    : adjustmentTriggerType === "EASY_PROGRESS"
+                      ? "Approve +5% Increase"
+                      : adjustmentTriggerType === "MISSED_TARGETS"
+                        ? "Approve -10% One-Time Override"
+                        : "Approve Adjustments"}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowRecoveryAdjustmentModal(false);
+                    setRecoveryAdjustmentError("");
+                    await advanceToNextDay();
+                  }}
+                  disabled={applyingRecoveryAdjustments}
+                  className="w-full glass-button py-3 rounded-lg text-white font-semibold"
+                >
+                  {adjustmentTriggerType === "EASY_PROGRESS"
+                    ? "Keep Current Load"
+                    : adjustmentTriggerType === "MISSED_TARGETS"
+                      ? "Keep Current Load"
+                    : "Stick With Current Progression"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Exercise Overperformance Modal */}
+      {workoutCompleted &&
+        weeklySummary &&
+        showExerciseOverperformanceModal &&
+        isMuscleBuildingProgramme && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="glass-modal rounded-2xl p-6 w-full max-w-md">
+              <h2 className="text-white text-xl font-bold text-center mb-2">
+                Ready to Progress?
+              </h2>
+              <p className="text-[#A0AEC0] text-sm text-center mb-4">
+                You've exceeded your target reps for{" "}
+                {overperformingExercises.length === 1
+                  ? `${overperformingExercises[0].exerciseName}`
+                  : `${overperformingExercises.length} exercises`}{" "}
+                for 2 sessions in a row.
+              </p>
+              {overperformingExercises.length > 1 && (
+                <ul className="mb-4 space-y-1">
+                  {overperformingExercises.map((ex) => (
+                    <li
+                      key={ex.exerciseId}
+                      className="text-[#86FF99] text-sm text-center font-semibold"
+                    >
+                      {ex.exerciseName}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-[#D1D5DB] text-sm text-center mb-5">
+                Suggested adjustment: increase load by 5% on{" "}
+                {overperformingExercises.length === 1
+                  ? "this exercise"
+                  : "these exercises"}{" "}
+                for the next occurrence on this training day only, then normal progression resumes.
+              </p>
+
+              {exerciseIncreaseError && (
+                <p className="text-sm text-[#FBA3FF] mb-4 text-center">
+                  {exerciseIncreaseError}
+                </p>
+              )}
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={applyExerciseIncreaseAndContinue}
+                  disabled={applyingExerciseIncrease}
+                  className={`w-full py-3 rounded-lg font-semibold transition-colors ${
+                    applyingExerciseIncrease
+                      ? "bg-[#2A2E38] text-[#8A93A7] cursor-not-allowed"
+                      : "bg-[#86FF99] hover:bg-[#6bd664] text-black"
+                  }`}
+                >
+                  {applyingExerciseIncrease ? "Applying..." : "Approve +5% Increase"}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowExerciseOverperformanceModal(false);
+                    setExerciseIncreaseError("");
+                    await advanceToNextDay();
+                  }}
+                  disabled={applyingExerciseIncrease}
+                  className="w-full glass-button py-3 rounded-lg text-white font-semibold"
+                >
+                  Keep Current Load
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       {workoutCompleted && weeklySummary && (
         <div className="fixed -left-[10000px] top-0 pointer-events-none" aria-hidden="true">
@@ -3154,6 +4009,94 @@ export default function Workouts() {
             className="glass-modal rounded-2xl p-8 w-[28rem]"
           >
             {renderWorkoutSummaryCore()}
+          </div>
+        </div>
+      )}
+
+      {showReadOnlyWorkoutModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="glass-modal rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h2 className="text-white text-xl font-bold">Completed Workout</h2>
+                {readOnlyWorkout && (
+                  <p className="text-[#A0AEC0] text-sm mt-1">
+                    Week {readOnlyWorkout.weekNumber}, Day {readOnlyWorkout.dayNumber}
+                    {readOnlyWorkout.duration
+                      ? ` • ${readOnlyWorkout.duration} min`
+                      : ""}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setShowReadOnlyWorkoutModal(false);
+                  setReadOnlyWorkoutError("");
+                }}
+                className="text-[#5E6272] hover:text-white"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1">
+              {readOnlyWorkoutLoading ? (
+                <div className="text-center py-8 text-[#5E6272]">
+                  Loading completed workout...
+                </div>
+              ) : readOnlyWorkoutError ? (
+                <div className="text-center py-8 text-red-400">{readOnlyWorkoutError}</div>
+              ) : !readOnlyWorkout ? (
+                <div className="text-center py-8 text-[#5E6272]">
+                  No workout data available for this day.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {readOnlyWorkout.exercises.map((exercise) => (
+                    <div
+                      key={exercise.id}
+                      className="glass-subtile rounded-xl p-4 border border-white/10"
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <MuscleIcon muscleGroup={exercise.muscleGroup} size={20} />
+                        <h3 className="text-white font-semibold">{exercise.name}</h3>
+                      </div>
+
+                      <div className="space-y-2">
+                        {exercise.sets.map((set) => (
+                          <div
+                            key={`${exercise.id}-${set.setNumber}`}
+                            className="grid grid-cols-[auto,1fr,1fr,auto] gap-2 text-sm items-center"
+                          >
+                            <span className="text-[#A0AEC0] w-12">Set {set.setNumber}</span>
+                            <span className="text-white">
+                              {typeof set.weight === "number"
+                                ? `${set.weight}kg`
+                                : "-"}
+                            </span>
+                            <span className="text-white">
+                              {typeof set.reps === "number"
+                                ? `${set.reps} reps`
+                                : "-"}
+                              {typeof set.targetReps === "number"
+                                ? ` (target ${set.targetReps})`
+                                : ""}
+                            </span>
+                            <span
+                              className={`text-xs font-semibold ${
+                                set.completed ? "text-green-300" : "text-[#A0AEC0]"
+                              }`}
+                            >
+                              {set.completed ? "Completed" : "Skipped"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
