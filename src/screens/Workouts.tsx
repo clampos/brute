@@ -170,6 +170,7 @@ export default function Workouts() {
   // Timer state
   const [timerRunning, setTimerRunning] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
+  const [restSeconds, setRestSeconds] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -751,7 +752,12 @@ export default function Workouts() {
   const [availableExercises, setAvailableExercises] = useState<any[]>([]);
   const [loadingExercises, setLoadingExercises] = useState(false);
   const [selectedMuscleGroupFilter, setSelectedMuscleGroupFilter] = useState<string>("All");
+  const [selectedEquipmentFilter, setSelectedEquipmentFilter] = useState<string>("All");
   const [replaceTargetExerciseId, setReplaceTargetExerciseId] = useState<string | null>(null);
+  const [showCreateExerciseForm, setShowCreateExerciseForm] = useState(false);
+  const [createExerciseForm, setCreateExerciseForm] = useState({ name: "", muscleGroup: "", equipment: "", category: "isolation" });
+  const [savingCustomExercise, setSavingCustomExercise] = useState(false);
+  const [createExerciseError, setCreateExerciseError] = useState("");
 
   const navigate = useNavigate();
 
@@ -1097,6 +1103,8 @@ export default function Workouts() {
     if (!exercise) return;
     setReplaceTargetExerciseId(exerciseId);
     setSelectedMuscleGroupFilter(exercise.muscleGroup || "All");
+    setSelectedEquipmentFilter("All");
+    setShowCreateExerciseForm(false);
     setShowAddExerciseModal(true);
     setOpenExerciseMenu(null);
     await fetchAvailableExercises();
@@ -1229,14 +1237,45 @@ export default function Workouts() {
     setShowAddExerciseModal(false);
     setReplaceTargetExerciseId(null);
     setSelectedMuscleGroupFilter("All");
+    setSelectedEquipmentFilter("All");
+    setShowCreateExerciseForm(false);
+    setCreateExerciseForm({ name: "", muscleGroup: "", equipment: "", category: "isolation" });
+    setCreateExerciseError("");
   };
 
   // Open add exercise modal
   const openAddExerciseModal = () => {
     setReplaceTargetExerciseId(null);
     setSelectedMuscleGroupFilter("All");
+    setSelectedEquipmentFilter("All");
+    setShowCreateExerciseForm(false);
     setShowAddExerciseModal(true);
     fetchAvailableExercises();
+  };
+
+  const saveCustomExercise = async () => {
+    if (!createExerciseForm.name.trim() || !createExerciseForm.muscleGroup) {
+      setCreateExerciseError("Name and muscle group are required.");
+      return;
+    }
+    setSavingCustomExercise(true);
+    setCreateExerciseError("");
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("http://localhost:4242/auth/exercises/custom", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(createExerciseForm),
+      });
+      if (!res.ok) throw new Error("Failed to create exercise");
+      const exercise = await res.json();
+      setAvailableExercises((prev) => [...prev, exercise]);
+      addExerciseToWorkout(exercise);
+    } catch (err) {
+      setCreateExerciseError("Failed to save exercise. Please try again.");
+    } finally {
+      setSavingCustomExercise(false);
+    }
   };
 
   // Get unique muscle groups from available exercises
@@ -1245,12 +1284,19 @@ export default function Workouts() {
     return ["All", ...Array.from(new Set(groups)).sort()];
   };
 
-  // Filter exercises based on selected muscle group
+  // Get unique equipment types from available exercises
+  const getUniqueEquipmentTypes = () => {
+    const types = availableExercises.map(ex => ex.equipment).filter(Boolean);
+    return ["All", ...Array.from(new Set(types as string[])).sort()];
+  };
+
+  // Filter exercises based on selected muscle group and equipment
   const getFilteredExercises = () => {
-    if (selectedMuscleGroupFilter === "All") {
-      return availableExercises;
-    }
-    return availableExercises.filter(ex => ex.muscleGroup === selectedMuscleGroupFilter);
+    return availableExercises.filter(ex => {
+      const muscleMatch = selectedMuscleGroupFilter === "All" || ex.muscleGroup === selectedMuscleGroupFilter;
+      const equipMatch = selectedEquipmentFilter === "All" || ex.equipment === selectedEquipmentFilter;
+      return muscleMatch && equipMatch;
+    });
   };
 
   // Check if all sets in all exercises are completed
@@ -1468,11 +1514,13 @@ export default function Workouts() {
   };
 
   const formatTime = (secs: number) => {
-    const mins = Math.floor(secs / 60);
+    const hours = Math.floor(secs / 3600);
+    const mins = Math.floor((secs % 3600) / 60);
     const seconds = secs % 60;
-    return `${mins.toString().padStart(2, "0")}:${seconds
-      .toString()
-      .padStart(2, "0")}`;
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+    }
+    return `${mins.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   };
 
   const toPositiveNumber = (raw: string | number | null | undefined) => {
@@ -1971,6 +2019,8 @@ export default function Workouts() {
           : exercise,
       ),
     );
+    // Reset rest timer whenever a set is marked complete
+    setRestSeconds(0);
   };
 
   const addSet = (exerciseId: string) => {
@@ -2918,6 +2968,7 @@ export default function Workouts() {
     if (timerRunning) {
       intervalRef.current = setInterval(() => {
         setSecondsElapsed((prev) => prev + 1);
+        setRestSeconds((prev) => prev + 1);
       }, 1000);
     } else if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -2975,77 +3026,35 @@ export default function Workouts() {
         ]}
       />
 
-      <div className="text-center mt-1">
-        <h3 className="text-lg font-semibold text-white">
-          {userProgram?.programme.name || "Loading..."}
-        </h3>
-        {userProgram?.programme.description && (
-          <p className="text-sm text-[#5E6272] mt-1">
-            {userProgram.programme.description}
-          </p>
-        )}
-        <p className="text-xs text-[#FBA3FF] mt-1">
-          {userProgram?.programme.bodyPartFocus}
-        </p>
-      </div>
-
-      <div className="relative mt-0.5" ref={programmeCalendarRef}>
-        <div className="flex justify-center items-center gap-2 text-sm text-[#A0AEC0]">
-          <span className="uppercase text-xs tracking-wide">
-            Week {userProgram?.currentWeek || 1}, Day{" "}
-            {userProgram?.currentDay || 1}
-          </span>
-          {!timerRunning && secondsElapsed === 0 ? (
-            <button
-              onClick={startTimer}
-              className="flex items-center gap-1 text-[#86FF99] font-medium cursor-pointer"
-              aria-label="Start Workout Timer"
-            >
-              <Play size={14} /> Start Workout Timer
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 rounded-full select-none">
-              {timerRunning ? (
-                <button
-                  onClick={pauseTimer}
-                  className="bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-full p-1 flex items-center justify-center"
-                  aria-label="Pause Workout Timer"
-                >
-                  <Pause size={16} />
-                </button>
-              ) : (
-                <button
-                  onClick={startTimer}
-                  className="bg-green-600 hover:bg-green-700 active:bg-green-800 rounded-full p-1 flex items-center justify-center"
-                  aria-label="Resume Workout Timer"
-                >
-                  <Play size={16} />
-                </button>
-              )}
-
-              <span
-                className="tracking-wide font-inter text-sm"
-                style={{ color: "#5E6272" }}
-              >
-                {formatTime(secondsElapsed)}
+      <div className="flex items-center justify-between mt-2 mb-1">
+        <div className="flex flex-col">
+          <h3 className="text-base font-semibold text-white leading-tight">
+            {userProgram?.programme.name || "Loading..."}
+          </h3>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs text-[#A0AEC0] uppercase tracking-wide">
+              Week {userProgram?.currentWeek || 1} · Day {userProgram?.currentDay || 1}
+            </span>
+            {userProgram?.programme.bodyPartFocus && (
+              <span className="text-[10px] text-[#FBA3FF] bg-[#FBA3FF]/10 px-1.5 py-0.5 rounded-full">
+                {userProgram.programme.bodyPartFocus}
               </span>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
 
+        <div className="relative" ref={programmeCalendarRef}>
           <button
-            onClick={() =>
-              setShowProgrammeCalendarDropdown((previous) => !previous)
-            }
-            className="absolute right-0 glass-button p-2 rounded-full text-[#9ED3FF] hover:text-white"
+            onClick={() => setShowProgrammeCalendarDropdown((previous) => !previous)}
+            className="glass-button p-2 rounded-full text-[#9ED3FF] hover:text-white"
             aria-label="Open programme calendar"
             title="Programme calendar"
           >
             <Calendar size={16} />
           </button>
-        </div>
 
-        {showProgrammeCalendarDropdown && userProgram && (
-          <div className="glass-modal mt-3 rounded-2xl p-4 border border-white/10 z-30 relative">
+          {showProgrammeCalendarDropdown && userProgram && (
+          <div className="glass-modal absolute right-0 mt-2 w-72 rounded-2xl p-4 border border-white/10 z-50">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
                 <p className="text-white font-semibold">Programme Calendar</p>
@@ -3140,11 +3149,84 @@ export default function Workouts() {
           </div>
         )}
       </div>
+    </div>
+
+      {/* ── Workout timers ── */}
+      <div className={`mt-3 transition-all ${
+        secondsElapsed > 0
+          ? "sticky top-0 z-40 -mx-4 px-4 py-2 bg-[#0B1220]/95 backdrop-blur-md border-b border-white/5"
+          : "px-4"
+      }`}>
+        {!timerRunning && secondsElapsed === 0 ? (
+          <button
+            onClick={startTimer}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#86FF99]/10 border border-[#86FF99]/30 text-[#86FF99] font-semibold text-sm hover:bg-[#86FF99]/20 transition-colors"
+          >
+            <Play size={16} />
+            Start Workout
+          </button>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {/* Workout timer */}
+            <div className={`glass-card rounded-xl flex items-center gap-3 ${secondsElapsed > 0 ? "px-3 py-2" : "p-3 flex-col"}`}>
+              {secondsElapsed > 0 ? (
+                <>
+                  <div className="flex flex-col items-start flex-1">
+                    <p className="text-[#A0AEC0] text-[9px] uppercase tracking-widest">Workout</p>
+                    <span className="text-white font-bold text-lg tracking-tight tabular-nums">{formatTime(secondsElapsed)}</span>
+                  </div>
+                  <button
+                    onClick={timerRunning ? pauseTimer : startTimer}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                      timerRunning ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" : "bg-[#86FF99]/20 text-[#86FF99] hover:bg-[#86FF99]/30"
+                    }`}
+                  >
+                    {timerRunning ? <><Pause size={10} /> Pause</> : <><Play size={10} /> Resume</>}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-[#A0AEC0] text-[10px] uppercase tracking-widest mb-1">Workout</p>
+                  <span className="text-white font-bold text-2xl tracking-tight tabular-nums">{formatTime(secondsElapsed)}</span>
+                  <button
+                    onClick={timerRunning ? pauseTimer : startTimer}
+                    className={`mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      timerRunning ? "bg-red-500/20 text-red-400 hover:bg-red-500/30" : "bg-[#86FF99]/20 text-[#86FF99] hover:bg-[#86FF99]/30"
+                    }`}
+                  >
+                    {timerRunning ? <><Pause size={11} /> Pause</> : <><Play size={11} /> Resume</>}
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Rest timer */}
+            <div className={`glass-card rounded-xl flex items-center gap-3 ${secondsElapsed > 0 ? "px-3 py-2" : "p-3 flex-col"}`}>
+              {secondsElapsed > 0 ? (
+                <>
+                  <div className="flex flex-col items-start flex-1">
+                    <p className="text-[#A0AEC0] text-[9px] uppercase tracking-widest">Rest</p>
+                    <span className={`font-bold text-lg tracking-tight tabular-nums ${
+                      restSeconds >= 180 ? "text-red-400" : restSeconds >= 90 ? "text-[#FFC857]" : "text-[#9ED3FF]"
+                    }`}>{formatTime(restSeconds)}</span>
+                  </div>
+                  <p className="text-[#5E6272] text-[9px]">resets<br/>each set</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[#A0AEC0] text-[10px] uppercase tracking-widest mb-1">Rest</p>
+                  <span className={`font-bold text-2xl tracking-tight tabular-nums ${
+                    restSeconds >= 180 ? "text-red-400" : restSeconds >= 90 ? "text-[#FFC857]" : "text-[#9ED3FF]"
+                  }`}>{formatTime(restSeconds)}</span>
+                  <p className="mt-2 text-[#5E6272] text-[10px]">resets each set</p>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="px-4 mt-4 space-y-4" ref={menuRef}>
-        <h3 className="text-sm text-white font-semibold tracking-widest uppercase text-center">
-          Today's Workout - Day {userProgram?.currentDay}
-        </h3>
 
         {todayExercises.length > 0 ? (
           todayExercises.map((exercise, index) => (
@@ -4255,78 +4337,215 @@ export default function Workouts() {
       {/* Add Exercise Modal */}
       {showAddExerciseModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="glass-modal rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <div className="glass-modal rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-white text-xl font-bold">
                 {replaceTargetExerciseId ? "Replace Exercise" : "Add Exercise"}
               </h2>
-              <button
-                onClick={closeAddExerciseModal}
-                className="text-[#5E6272] hover:text-white"
-              >
+              <button onClick={closeAddExerciseModal} className="text-[#5E6272] hover:text-white">
                 <X size={24} />
               </button>
             </div>
 
-            {/* Muscle Group Filters */}
-            <div className="mb-4">
-              <div className="flex flex-wrap gap-2">
-                {getUniqueMuscleGroups().map((group) => (
-                  <button
-                    key={group}
-                    onClick={() => setSelectedMuscleGroupFilter(group)}
-                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                      selectedMuscleGroupFilter === group
-                        ? "bg-[#00FFAD] text-black"
-                        : "glass-chip text-[#B8C1D9] hover:text-white"
-                    }`}
-                  >
-                    {group}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {showCreateExerciseForm ? (
+              /* ── Create custom exercise form ── */
+              <div className="flex flex-col gap-4 overflow-y-auto">
+                <p className="text-[#A0AEC0] text-sm">Saved to your account and available in future workouts.</p>
 
-            <div className="flex-1 overflow-y-auto">
-              {loadingExercises ? (
-                <div className="text-center py-8 text-[#5E6272]">
-                  Loading exercises...
+                <div>
+                  <label className="text-white text-sm font-medium block mb-1.5">Exercise name *</label>
+                  <input
+                    type="text"
+                    value={createExerciseForm.name}
+                    onChange={(e) => setCreateExerciseForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Paused Squat"
+                    className="w-full glass-subtile rounded-lg px-3 py-2.5 text-white text-sm border border-white/10 focus:border-[#00FFAD]/60 outline-none"
+                  />
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {getFilteredExercises().map((exercise) => {
-                    const isAlreadyInWorkout = todayExercises.some(
-                      (ex) =>
-                        ex.exerciseId === exercise.id &&
-                        ex.exerciseId !== replaceTargetExerciseId,
-                    );
-                    return (
+
+                <div>
+                  <label className="text-white text-sm font-medium block mb-1.5">Muscle group *</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["Chest","Back","Shoulders","Quads","Hamstrings","Glutes","Biceps","Triceps","Calves","Abs","Forearms"].map((mg) => (
                       <button
-                        key={exercise.id}
-                        onClick={() => addExerciseToWorkout(exercise)}
-                        disabled={isAlreadyInWorkout}
-                        className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                          isAlreadyInWorkout
-                            ? "glass-subtile border-[#404040] opacity-50 cursor-not-allowed"
-                            : "glass-subtile hover:border-[#9ED3FF]/70"
+                        key={mg}
+                        type="button"
+                        onClick={() => setCreateExerciseForm((f) => ({ ...f, muscleGroup: mg }))}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                          createExerciseForm.muscleGroup === mg
+                            ? "bg-[#00FFAD] text-black border-[#00FFAD]"
+                            : "glass-chip border-white/10 text-[#B8C1D9] hover:text-white hover:border-white/30"
                         }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <MuscleIcon muscleGroup={exercise.muscleGroup} size={24} />
-                          <div>
-                            <p className="text-white font-medium">{exercise.name}</p>
-                            <p className="text-[#5E6272] text-sm">{exercise.muscleGroup}</p>
-                          </div>
-                        </div>
-                        {isAlreadyInWorkout && (
-                          <p className="text-[#FBA3FF] text-xs mt-1">Already in workout</p>
-                        )}
+                        {mg}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
+
+                <div>
+                  <label className="text-white text-sm font-medium block mb-1.5">Equipment</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["None","Barbell","Dumbbell","Cable","Machine","Bodyweight","Resistance Band","Kettlebell"].map((eq) => {
+                      const val = eq === "None" ? "" : eq;
+                      return (
+                        <button
+                          key={eq}
+                          type="button"
+                          onClick={() => setCreateExerciseForm((f) => ({ ...f, equipment: val }))}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                            createExerciseForm.equipment === val
+                              ? "bg-[#9ED3FF] text-black border-[#9ED3FF]"
+                              : "glass-chip border-white/10 text-[#B8C1D9] hover:text-white hover:border-white/30"
+                          }`}
+                        >
+                          {eq}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-white text-sm font-medium block mb-1.5">Type</label>
+                  <div className="flex gap-2">
+                    {[{val:"isolation",label:"Isolation"},{val:"compound",label:"Compound"}].map(({val,label}) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setCreateExerciseForm((f) => ({ ...f, category: val }))}
+                        className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                          createExerciseForm.category === val
+                            ? "bg-[#246BFD] text-white border-[#246BFD]"
+                            : "glass-chip border-white/10 text-[#B8C1D9] hover:text-white hover:border-white/30"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {createExerciseError && (
+                  <p className="text-[#FBA3FF] text-sm">{createExerciseError}</p>
+                )}
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => { setShowCreateExerciseForm(false); setCreateExerciseError(""); }}
+                    className="flex-1 glass-button py-2.5 rounded-lg text-white text-sm font-semibold"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={saveCustomExercise}
+                    disabled={savingCustomExercise}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-colors ${savingCustomExercise ? "bg-[#2A2E38] text-[#8A93A7] cursor-not-allowed" : "bg-[#00FFAD] text-black hover:bg-[#00e09a]"}`}
+                  >
+                    {savingCustomExercise ? "Saving..." : "Save & Add"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── Browse & filter ── */
+              <>
+                {/* Muscle group filter */}
+                <div className="mb-2">
+                  <p className="text-[#A0AEC0] text-xs uppercase tracking-wide mb-1.5">Muscle group</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {getUniqueMuscleGroups().map((group) => (
+                      <button
+                        key={group}
+                        onClick={() => setSelectedMuscleGroupFilter(group)}
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                          selectedMuscleGroupFilter === group
+                            ? "bg-[#00FFAD] text-black"
+                            : "glass-chip text-[#B8C1D9] hover:text-white"
+                        }`}
+                      >
+                        {group}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Equipment filter */}
+                <div className="mb-3">
+                  <p className="text-[#A0AEC0] text-xs uppercase tracking-wide mb-1.5">Equipment</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {getUniqueEquipmentTypes().map((eq) => (
+                      <button
+                        key={eq}
+                        onClick={() => setSelectedEquipmentFilter(eq)}
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                          selectedEquipmentFilter === eq
+                            ? "bg-[#9ED3FF] text-black"
+                            : "glass-chip text-[#B8C1D9] hover:text-white"
+                        }`}
+                      >
+                        {eq}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Create custom exercise button */}
+                <button
+                  onClick={() => setShowCreateExerciseForm(true)}
+                  className="w-full mb-3 glass-button border border-dashed border-white/20 rounded-lg py-2.5 text-sm font-medium text-[#9ED3FF] hover:text-white hover:border-[#9ED3FF]/50 flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Plus size={16} />
+                  Create custom exercise
+                </button>
+
+                <div className="flex-1 overflow-y-auto">
+                  {loadingExercises ? (
+                    <div className="text-center py-8 text-[#5E6272]">Loading exercises...</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {getFilteredExercises().map((exercise) => {
+                        const isAlreadyInWorkout = todayExercises.some(
+                          (ex) => ex.exerciseId === exercise.id && ex.exerciseId !== replaceTargetExerciseId,
+                        );
+                        return (
+                          <button
+                            key={exercise.id}
+                            onClick={() => addExerciseToWorkout(exercise)}
+                            disabled={isAlreadyInWorkout}
+                            className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                              isAlreadyInWorkout
+                                ? "glass-subtile border-[#404040] opacity-50 cursor-not-allowed"
+                                : "glass-subtile hover:border-[#9ED3FF]/70"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <MuscleIcon muscleGroup={exercise.muscleGroup} size={24} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-white font-medium text-sm">
+                                  {exercise.name}
+                                  {exercise.isCustom && (
+                                    <span className="ml-2 text-[10px] text-[#9ED3FF] font-normal uppercase tracking-wide">custom</span>
+                                  )}
+                                </p>
+                                <p className="text-[#5E6272] text-xs">
+                                  {exercise.muscleGroup}{exercise.equipment ? ` · ${exercise.equipment}` : ""}
+                                </p>
+                              </div>
+                            </div>
+                            {isAlreadyInWorkout && (
+                              <p className="text-[#FBA3FF] text-xs mt-1">Already in workout</p>
+                            )}
+                          </button>
+                        );
+                      })}
+                      {getFilteredExercises().length === 0 && (
+                        <p className="text-center text-[#5E6272] py-6 text-sm">No exercises match these filters.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

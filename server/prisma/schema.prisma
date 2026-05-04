@@ -85,6 +85,8 @@ model Exercise {
   defaultRepMax           Int?     @map("default_rep_max")
   complementaryExerciseIds String? @map("complementary_exercise_ids")
   replacementExerciseIds   String? @map("replacement_exercise_ids")
+  isCustom                 Boolean @default(false) @map("is_custom")
+  createdByUserId          String? @map("created_by_user_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

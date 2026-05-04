@@ -1941,19 +1941,58 @@ router.get(
   },
 );
 
-// GET /auth/exercises/all - Get all exercises
+// GET /auth/exercises/all - Get all exercises (global + current user's custom)
 router.get(
   "/exercises/all",
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     try {
+      const userId = (req as any).user.userId;
       const exercises = await prisma.exercise.findMany({
+        where: {
+          OR: [
+            { isCustom: false },
+            { isCustom: true, createdByUserId: userId },
+          ],
+        } as any,
         orderBy: [{ muscleGroup: "asc" }, { name: "asc" }],
       });
 
       res.json(exercises);
     } catch (error) {
       console.error("Error fetching all exercises:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
+// POST /auth/exercises/custom - Create a custom exercise for the current user
+router.post(
+  "/exercises/custom",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const { name, muscleGroup, equipment, category } = req.body;
+
+    if (!name?.trim() || !muscleGroup || !category) {
+      return res.status(400).json({ error: "Name, muscle group, and category are required" });
+    }
+
+    try {
+      const exercise = await prisma.exercise.create({
+        data: {
+          name: name.trim(),
+          muscleGroup,
+          category,
+          equipment: equipment || null,
+          isCustom: true,
+          createdByUserId: userId,
+        } as any,
+      });
+
+      res.status(201).json(exercise);
+    } catch (error) {
+      console.error("Error creating custom exercise:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
