@@ -1548,14 +1548,11 @@ router.get(
       // Get library programmes (no userId) + user's custom programmes
       const programmes = await prisma.programme.findMany({
         where: {
-  // remove userId filtering if not in schema
-},
-       // where: {
-         // OR: [
-           // { userId: null }, // Library programmes
-           // { userId: userId }, // User's custom programmes
-         // ],
-       // },
+          OR: [
+            { isCustom: false },
+            { isCustom: true, userId },
+          ],
+        },
         include: {
           exercises: true,
         },
@@ -1641,8 +1638,8 @@ router.post(
           bodyPartFocus,
           progressionFocus: resolvedProgressionFocus,
           description,
-         // isCustom: true, // Mark as custom
-         // userId: userId, // Associate with the user
+          isCustom: true,
+          userId,
         },
       });
 
@@ -1721,16 +1718,59 @@ router.put(
   },
 );
 
+// PATCH /auth/programmes/:id — rename a custom programme
+router.patch(
+  "/programmes/:id",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const { id } = req.params;
+    const { name } = req.body;
+    const userId = (req as any).user?.userId;
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+
+    try {
+      const programme = await prisma.programme.findUnique({ where: { id } });
+
+      if (!programme) return res.status(404).json({ error: "Programme not found" });
+      if (!programme.isCustom || programme.userId !== userId) {
+        return res.status(403).json({ error: "You can only rename your own custom programmes" });
+      }
+
+      const updated = await prisma.programme.update({
+        where: { id },
+        data: { name: name.trim() },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error renaming programme:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
+
 router.delete(
   "/programmes/:id",
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     const { id } = req.params;
+    const userId = (req as any).user?.userId;
 
     try {
-      await prisma.programme.delete({
-        where: { id },
-      });
+      const programme = await prisma.programme.findUnique({ where: { id } });
+
+      if (!programme) {
+        return res.status(404).json({ error: "Programme not found" });
+      }
+
+      if (!programme.isCustom || programme.userId !== userId) {
+        return res.status(403).json({ error: "You can only delete your own custom programmes" });
+      }
+
+      await prisma.programme.delete({ where: { id } });
 
       res.status(204).send();
     } catch (error) {
@@ -1927,6 +1967,23 @@ router.get(
         orderBy: {
           name: "asc",
         },
+        select: {
+          id: true,
+          name: true,
+          muscleGroup: true,
+          category: true,
+          equipment: true,
+          isSelected: true,
+          movementPattern: true,
+          defaultRepMin: true,
+          defaultRepMax: true,
+          complementaryExerciseIds: true,
+          replacementExerciseIds: true,
+          isCustom: true,
+          createdByUserId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       });
 
       res.json(exercises);
@@ -2122,16 +2179,7 @@ router.get(
       const userPrograms = await prisma.userProgram.findMany({
         where: { userId },
         include: {
-          programme: {
-            include: {
-              exercises: {
-                include: {
-                  exercise: true,
-                },
-                orderBy: [{ dayNumber: "asc" }, { orderIndex: "asc" }],
-              },
-            },
-          },
+          programme: true,
         },
         orderBy: {
           createdAt: "desc",
@@ -3498,6 +3546,65 @@ router.post(
   },
 );
 
+// POST /auth/workouts/skip - Skip today's workout, mark as missed, advance day
+router.post(
+  "/workouts/skip",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+
+    try {
+      const userProgram = await prisma.userProgram.findFirst({
+        where: { userId, status: "ACTIVE" },
+        include: { programme: true },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!userProgram) {
+        return res.status(404).json({ error: "No active program found" });
+      }
+
+      const dayNumber = userProgram.currentDay;
+      const weekNumber = userProgram.currentWeek;
+
+      await prisma.workout.create({
+        data: {
+          userProgramId: userProgram.id,
+          weekNumber,
+          dayNumber,
+          completedAt: new Date(),
+          duration: 0,
+          skipped: true,
+        },
+      });
+
+      const nextDay = dayNumber >= (userProgram.programme.daysPerWeek || 3) ? 1 : dayNumber + 1;
+      const nextWeek = dayNumber >= (userProgram.programme.daysPerWeek || 3) ? weekNumber + 1 : weekNumber;
+      const isProgramCompleted = nextWeek > ((userProgram.programme.weeks || 4) + 1);
+
+      await prisma.userProgram.update({
+        where: { id: userProgram.id },
+        data: {
+          currentDay: isProgramCompleted ? userProgram.programme.daysPerWeek || 3 : nextDay,
+          currentWeek: isProgramCompleted ? (userProgram.programme.weeks || 4) + 1 : nextWeek,
+          status: isProgramCompleted ? "COMPLETED" : "ACTIVE",
+          endDate: isProgramCompleted ? new Date() : null,
+        },
+      });
+
+      res.json({
+        message: "Workout skipped",
+        nextDay: isProgramCompleted ? null : nextDay,
+        nextWeek: isProgramCompleted ? null : nextWeek,
+        programCompleted: isProgramCompleted,
+      });
+    } catch (error) {
+      console.error("❌ Error skipping workout:", error);
+      res.status(500).json({ error: "Failed to skip workout" });
+    }
+  },
+);
+
 // Add these endpoints to your auth.ts file
 
 // PATCH /auth/user-programs/:id - Update user program status
@@ -4172,10 +4279,13 @@ router.get(
     const userId = (req as any).user.userId;
 
     try {
-      // Get all completed workout sets for this user
+      // Get completed workout sets for this user — cap at 2 years to avoid unbounded scans
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
       const workoutSets = await prisma.workoutSet.findMany({
         where: {
           completed: true,
+          createdAt: { gte: twoYearsAgo },
           workoutExercise: {
             workout: {
               userProgram: {
@@ -4184,11 +4294,14 @@ router.get(
             },
           },
         },
-        include: {
+        select: {
+          weight: true,
+          reps: true,
           workoutExercise: {
-            include: {
-              exercise: true,
-              workout: true,
+            select: {
+              exerciseId: true,
+              exercise: { select: { name: true, muscleGroup: true } },
+              workout: { select: { completedAt: true } },
             },
           },
         },
@@ -4326,6 +4439,626 @@ router.post(
       });
     }
   },
+);
+
+// GET /auth/dashboard/tiles - Data for dynamic dashboard tiles
+router.get(
+  "/dashboard/tiles",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user.userId;
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    try {
+      // Last bodyweight entry
+      const lastBodyweight = await prisma.bodyweightEntry.findFirst({
+        where: { userId },
+        orderBy: { date: "desc" },
+        select: { weight: true, date: true },
+      });
+
+      // Active programme + most recent workout
+      const activeProgram = await prisma.userProgram.findFirst({
+        where: { userId, status: "ACTIVE" },
+        orderBy: { createdAt: "desc" },
+        include: {
+          programme: {
+            select: { name: true, weeks: true, daysPerWeek: true, bodyPartFocus: true },
+          },
+          workouts: {
+            orderBy: { completedAt: "desc" },
+            take: 1,
+            select: { completedAt: true },
+          },
+        },
+      });
+
+      // Recent PRs — any exercise where estimated 1RM in last 7 days > all-time best before
+      const recentSets = await prisma.workoutSet.findMany({
+        where: {
+          completed: true,
+          createdAt: { gte: sevenDaysAgo },
+          workoutExercise: { workout: { userProgram: { userId } } },
+          weight: { gt: 0 },
+          reps: { gt: 0 },
+        },
+        include: {
+          workoutExercise: {
+            include: { exercise: { select: { name: true, id: true } } },
+          },
+        },
+      });
+
+      // Best estimated 1RM per exercise from last 7 days
+      const recentBest = new Map<string, { name: string; orm: number; weight: number; reps: number }>();
+      for (const set of recentSets) {
+        const w = set.weight!;
+        const r = set.reps!;
+        const orm = w * (1 + r / 30);
+        const exerciseId = set.workoutExercise.exerciseId;
+        const existing = recentBest.get(exerciseId);
+        if (!existing || orm > existing.orm) {
+          recentBest.set(exerciseId, { name: set.workoutExercise.exercise.name, orm, weight: w, reps: r });
+        }
+      }
+
+      let recentPR: { exerciseName: string; weight: number; reps: number } | null = null;
+      const exerciseIds = [...recentBest.keys()];
+      if (exerciseIds.length > 0) {
+        const allOlderSets = await prisma.workoutSet.findMany({
+          where: {
+            completed: true,
+            createdAt: { lt: sevenDaysAgo },
+            workoutExercise: {
+              exerciseId: { in: exerciseIds },
+              workout: { userProgram: { userId } },
+            },
+            weight: { gt: 0 },
+            reps: { gt: 0 },
+          },
+          select: { weight: true, reps: true, workoutExercise: { select: { exerciseId: true } } },
+        });
+        const prevBestMap = new Map<string, number>();
+        for (const s of allOlderSets) {
+          const eid = s.workoutExercise.exerciseId;
+          const orm = s.weight! * (1 + s.reps! / 30);
+          if ((prevBestMap.get(eid) ?? 0) < orm) prevBestMap.set(eid, orm);
+        }
+        for (const [exerciseId, recent] of recentBest) {
+          const prevBest = prevBestMap.get(exerciseId) ?? 0;
+          if (recent.orm > prevBest * 1.01) {
+            recentPR = { exerciseName: recent.name, weight: recent.weight, reps: recent.reps };
+            break;
+          }
+        }
+      }
+
+      // Weekly volume by muscle group (sets completed since last Sunday)
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      const weekSets = await prisma.workoutSet.findMany({
+        where: {
+          completed: true,
+          createdAt: { gte: weekStart },
+          workoutExercise: { workout: { userProgram: { userId } } },
+        },
+        include: {
+          workoutExercise: {
+            include: { exercise: { select: { muscleGroup: true } } },
+          },
+        },
+      });
+      const volumeByMuscle: Record<string, number> = {};
+      for (const set of weekSets) {
+        const mg = set.workoutExercise.exercise.muscleGroup;
+        volumeByMuscle[mg] = (volumeByMuscle[mg] || 0) + 1;
+      }
+      const milestoneValues = [10, 15, 20, 25, 30];
+      let volumeMilestone: { muscle: string; sets: number } | null = null;
+      for (const [muscle, sets] of Object.entries(volumeByMuscle)) {
+        if (milestoneValues.includes(sets)) {
+          volumeMilestone = { muscle, sets };
+          break;
+        }
+      }
+
+      return res.json({
+        lastBodyweight: lastBodyweight
+          ? { weight: lastBodyweight.weight, date: lastBodyweight.date }
+          : null,
+        lastWorkout:
+          activeProgram && activeProgram.workouts.length > 0
+            ? { date: activeProgram.workouts[0].completedAt, bodyPartFocus: activeProgram.programme.bodyPartFocus }
+            : null,
+        activeProgram: activeProgram
+          ? {
+              currentWeek: activeProgram.currentWeek,
+              currentDay: activeProgram.currentDay,
+              weeks: activeProgram.programme.weeks,
+              daysPerWeek: activeProgram.programme.daysPerWeek,
+              bodyPartFocus: activeProgram.programme.bodyPartFocus,
+              lastWorkoutAt: activeProgram.workouts[0]?.completedAt ?? null,
+            }
+          : null,
+        recentPR,
+        volumeMilestone,
+      });
+    } catch (err) {
+      console.error("Dashboard tiles error:", err);
+      return res.status(500).json({ error: "Failed to load dashboard tiles" });
+    }
+  },
+);
+
+// POST /auth/programmes/generate
+router.post(
+  "/programmes/generate",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const userId = (req as any).user?.userId;
+    const { goal, experienceLevel, daysPerWeek, equipment, programmeName, priorityMuscle = "fullBody" } = req.body;
+
+    if (!goal || !experienceLevel || !daysPerWeek || !equipment) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    if (goal !== "MUSCLE_BUILDING") {
+      return res.status(400).json({ error: "Only Muscle Building goal is supported currently" });
+    }
+
+    const days = Number(daysPerWeek);
+    if (isNaN(days) || days < 2 || days > 6) {
+      return res.status(400).json({ error: "daysPerWeek must be between 2 and 6" });
+    }
+
+    // Programme length by experience
+    const weeksMap: Record<string, number> = { beginner: 8, intermediate: 12, advanced: 16 };
+    const weeks = weeksMap[experienceLevel] ?? 12;
+
+    // Sets per role by experience
+    const setsMap: Record<string, { main: number; supplemental: number; accessory: number }> = {
+      beginner:     { main: 3, supplemental: 3, accessory: 3 },
+      intermediate: { main: 4, supplemental: 3, accessory: 3 },
+      advanced:     { main: 4, supplemental: 4, accessory: 4 },
+    };
+    const setConfig = setsMap[experienceLevel] ?? setsMap.intermediate;
+
+    // Equipment whitelist
+    const equipmentMap: Record<string, string[] | null> = {
+      fullGym:     null, // no filter
+      barbellRack: ["Barbell", "barbell", "Cable", "cable", "Machine", "machine", "Bodyweight", "bodyweight"],
+      dumbbells:   ["Dumbbell", "dumbbell", "Dumbbells", "Bodyweight", "bodyweight"],
+      bodyweight:  ["Bodyweight", "bodyweight"],
+    };
+    const equipmentWhitelist = equipmentMap[equipment] ?? null;
+
+    // Split templates: array of day types for each training day
+    type DayType = "FullBody" | "Upper" | "Lower" | "Push" | "Pull" | "Legs";
+    const splitMap: Record<number, DayType[]> = {
+      2: ["FullBody", "FullBody"],
+      3: ["FullBody", "FullBody", "FullBody"],
+      4: ["Upper", "Lower", "Upper", "Lower"],
+      5: ["Upper", "Lower", "Upper", "Lower", "FullBody"],
+      6: ["Push", "Pull", "Legs", "Push", "Pull", "Legs"],
+    };
+    const split = splitMap[days] ?? splitMap[3];
+
+    // bodyPartFocus label
+    const bodyPartFocusMap: Record<number, string> = {
+      2: "Full Body",
+      3: "Full Body",
+      4: "Upper / Lower",
+      5: "Upper / Lower",
+      6: "Push / Pull / Legs",
+    };
+    const bodyPartFocus = bodyPartFocusMap[days] ?? "Full Body";
+
+    // Muscle group slot templates per day type
+    // Each slot: muscleVariants (array of possible muscleGroup names), isCompound, role
+    interface Slot {
+      muscleVariants: string[];
+      isCompound: boolean;
+      role: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
+      reps: string;
+    }
+    const dayTemplates: Record<DayType, Slot[]> = {
+      FullBody: [
+        { muscleVariants: ["Quadriceps", "Quads", "Legs"], isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Hamstrings", "Glutes"],        isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Chest", "Pectorals"],          isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
+        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
+        { muscleVariants: ["Shoulders", "Deltoids"],       isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Biceps"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+      ],
+      Upper: [
+        { muscleVariants: ["Chest", "Pectorals"],          isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Shoulders", "Deltoids"],       isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
+        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Biceps"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Triceps"],                     isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+      ],
+      Lower: [
+        { muscleVariants: ["Quadriceps", "Quads", "Legs"], isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Hamstrings", "Glutes"],        isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Quadriceps", "Quads"],         isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Hamstrings"],                  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Glutes"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Calves"],                      isCompound: false, role: "ACCESSORY",     reps: "12-20" },
+      ],
+      Push: [
+        { muscleVariants: ["Chest", "Pectorals"],          isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Shoulders", "Deltoids"],       isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
+        { muscleVariants: ["Chest", "Pectorals"],          isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Shoulders", "Deltoids"],       isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Triceps"],                     isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+      ],
+      Pull: [
+        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
+        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Biceps"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+      ],
+      Legs: [
+        { muscleVariants: ["Quadriceps", "Quads", "Legs"], isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Hamstrings", "Glutes"],        isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Glutes"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Quadriceps", "Quads"],         isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Hamstrings"],                  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Calves"],                      isCompound: false, role: "ACCESSORY",     reps: "12-20" },
+      ],
+    };
+
+    // Helper: determine if exercise is compound
+    function isCompoundExercise(ex: any): boolean {
+      const mp  = (ex.movementPattern ?? "").toLowerCase();
+      const cat = (ex.category ?? "").toLowerCase();
+      const nm  = (ex.name ?? "").toLowerCase();
+      if (mp.includes("compound") || cat.includes("compound")) return true;
+      return ["squat", "deadlift", "press", "row", "pull-up", "chin-up", "lunge", "bench", "overhead"].some(
+        (k) => nm.includes(k)
+      );
+    }
+
+    try {
+      // Fetch all exercises (optionally filtered by equipment)
+      const allExercises = await prisma.exercise.findMany({
+        where: equipmentWhitelist
+          ? { equipment: { in: equipmentWhitelist } }
+          : undefined,
+      });
+
+      // Index by lowercase muscleGroup
+      const byMuscle: Record<string, any[]> = {};
+      for (const ex of allExercises) {
+        const key = (ex.muscleGroup ?? "").toLowerCase().trim();
+        if (!byMuscle[key]) byMuscle[key] = [];
+        byMuscle[key].push(ex);
+      }
+
+      // Pick one exercise for a slot (avoiding already-used ids)
+      function pickExercise(slot: Slot, used: Set<string>): any | null {
+        const candidates = slot.muscleVariants
+          .flatMap((m) => byMuscle[m.toLowerCase()] ?? [])
+          .filter((ex) => !used.has(ex.id));
+
+        const compound  = candidates.filter(isCompoundExercise);
+        const isolation = candidates.filter((ex) => !isCompoundExercise(ex));
+
+        const preferred = slot.isCompound ? compound : isolation;
+        const fallback  = slot.isCompound ? isolation : compound;
+
+        const pool = preferred.length > 0 ? preferred : fallback;
+        if (pool.length === 0) return null;
+
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+
+      // Extra slots injected per day type when a priority muscle is set
+      const priorityExtraSlots: Record<string, { dayTypes: DayType[]; slots: Slot[] }> = {
+        chest: {
+          dayTypes: ["FullBody", "Upper", "Push"],
+          slots: [
+            { muscleVariants: ["Chest", "Pectorals"], isCompound: false, role: "ACCESSORY", reps: "12-15" },
+          ],
+        },
+        back: {
+          dayTypes: ["FullBody", "Upper", "Pull"],
+          slots: [
+            { muscleVariants: ["Back", "Lats", "Upper Back"], isCompound: false, role: "ACCESSORY", reps: "10-15" },
+          ],
+        },
+        shoulders: {
+          dayTypes: ["FullBody", "Upper", "Push"],
+          slots: [
+            { muscleVariants: ["Shoulders", "Deltoids"], isCompound: false, role: "ACCESSORY", reps: "12-15" },
+          ],
+        },
+        arms: {
+          dayTypes: ["FullBody", "Upper", "Push", "Pull"],
+          slots: [
+            { muscleVariants: ["Biceps"],  isCompound: false, role: "ACCESSORY", reps: "10-15" },
+            { muscleVariants: ["Triceps"], isCompound: false, role: "ACCESSORY", reps: "10-15" },
+          ],
+        },
+        legs: {
+          dayTypes: ["FullBody", "Lower", "Legs"],
+          slots: [
+            { muscleVariants: ["Quadriceps", "Quads"], isCompound: false, role: "ACCESSORY", reps: "10-15" },
+            { muscleVariants: ["Hamstrings"],           isCompound: false, role: "ACCESSORY", reps: "10-15" },
+          ],
+        },
+        glutes: {
+          dayTypes: ["FullBody", "Lower", "Legs"],
+          slots: [
+            { muscleVariants: ["Glutes"], isCompound: false, role: "ACCESSORY", reps: "12-15" },
+          ],
+        },
+      };
+
+      // MRV (Maximum Recoverable Volume) — weekly set cap per muscle; prevents accessory slots
+      // from piling on the same muscle across many days
+      const mrvByLevel: Record<string, number> = { beginner: 15, intermediate: 20, advanced: 25 };
+      const mrv = mrvByLevel[experienceLevel] ?? 20;
+
+      // Normalise a slot's muscleVariants to a single tracking key
+      function primaryMuscleKey(variants: string[]): string {
+        const v = variants[0].toLowerCase();
+        if (v.includes("bicep"))                      return "Biceps";
+        if (v.includes("tricep"))                     return "Triceps";
+        if (v.includes("chest") || v.includes("pectoral")) return "Chest";
+        if (v.includes("back")  || v.includes("lat")) return "Back";
+        if (v.includes("shoulder") || v.includes("deltoid")) return "Shoulders";
+        if (v.includes("quad")  || v.includes("leg")) return "Quads";
+        if (v.includes("hamstring"))                  return "Hamstrings";
+        if (v.includes("glute"))                      return "Glutes";
+        if (v.includes("calv")  || v.includes("calf")) return "Calves";
+        return variants[0];
+      }
+
+      // Tracks weekly direct sets per muscle group across all days (for MRV check)
+      const weeklyMuscleSetsSoFar: Record<string, number> = {};
+
+      // Build programme exercise rows
+      const programmeExerciseRows: Array<{
+        exerciseId: string;
+        dayNumber: number;
+        orderIndex: number;
+        sets: number;
+        reps: string;
+        strengthRole: string;
+      }> = [];
+
+      for (let i = 0; i < split.length; i++) {
+        const dayType = split[i];
+
+        const extraPriority =
+          priorityMuscle && priorityMuscle !== "fullBody" && priorityExtraSlots[priorityMuscle]
+            ? priorityExtraSlots[priorityMuscle]
+            : null;
+        const extraSlots =
+          extraPriority && extraPriority.dayTypes.includes(dayType)
+            ? extraPriority.slots
+            : [];
+
+        const slots    = [...dayTemplates[dayType], ...extraSlots];
+        const usedToday = new Set<string>();
+
+        // Per-day set cap — keep workouts manageable
+        const MAX_SETS_PER_DAY = 27;
+        const getDaySets = (dayNum: number) =>
+          programmeExerciseRows
+            .filter((r) => r.dayNumber === dayNum)
+            .reduce((acc, r) => acc + r.sets, 0);
+
+        for (let j = 0; j < slots.length; j++) {
+          const slot = slots[j];
+
+          // Skip accessories if day is already at/above the cap
+          const currentDaySets = getDaySets(i + 1);
+          const setsCount =
+            slot.role === "MAIN_LIFT"
+              ? setConfig.main
+              : slot.role === "SUPPLEMENTAL"
+              ? setConfig.supplemental
+              : setConfig.accessory;
+
+          if (slot.role === "ACCESSORY" && currentDaySets + setsCount > MAX_SETS_PER_DAY) continue;
+
+          // MRV cap — skip accessory slots if this muscle already has enough weekly volume
+          const muscleKey = primaryMuscleKey(slot.muscleVariants);
+          if (slot.role === "ACCESSORY" && (weeklyMuscleSetsSoFar[muscleKey] ?? 0) + setsCount > mrv) continue;
+
+          const ex = pickExercise(slot, usedToday);
+          if (!ex) continue;
+
+          usedToday.add(ex.id);
+
+          programmeExerciseRows.push({
+            exerciseId: ex.id,
+            dayNumber:  i + 1,
+            orderIndex: j,
+            sets:       setsCount,
+            reps:       slot.reps,
+            strengthRole: slot.role,
+          });
+
+          // Track weekly sets for MRV enforcement (all roles contribute to total)
+          weeklyMuscleSetsSoFar[muscleKey] = (weeklyMuscleSetsSoFar[muscleKey] ?? 0) + setsCount;
+        }
+      }
+
+      // ── MEV enforcement ────────────────────────────────────────────────────
+      // Ensure every major muscle group hits its Minimum Effective Volume
+      const mevByLevel: Record<string, number> = { beginner: 10, intermediate: 12, advanced: 16 };
+      const mev = mevByLevel[experienceLevel] ?? 12;
+
+      const majorMuscles = ["Chest", "Back", "Shoulders", "Quads", "Hamstrings", "Glutes", "Biceps", "Triceps"];
+
+      // Synonyms: maps canonical name → possible DB muscleGroup values (lowercase)
+      const muscleSynonyms: Record<string, string[]> = {
+        Chest:      ["chest", "pectorals"],
+        Back:       ["back", "lats", "upper back", "latissimus"],
+        Shoulders:  ["shoulders", "deltoids", "delts"],
+        Quads:      ["quads", "quadriceps", "legs"],
+        Hamstrings: ["hamstrings"],
+        Glutes:     ["glutes", "glute"],
+        Biceps:     ["biceps"],
+        Triceps:    ["triceps"],
+      };
+
+      // Days relevant to each major muscle
+      const muscleRelevantDays: Record<string, DayType[]> = {
+        Chest:      ["Push", "Upper", "FullBody"],
+        Back:       ["Pull", "Upper", "FullBody"],
+        Shoulders:  ["Push", "Upper", "FullBody"],
+        Quads:      ["Legs", "Lower", "FullBody"],
+        Hamstrings: ["Legs", "Lower", "FullBody"],
+        Glutes:     ["Legs", "Lower", "FullBody"],
+        Biceps:     ["Pull", "Upper", "FullBody"],
+        Triceps:    ["Push", "Upper", "FullBody"],
+      };
+
+      // Secondary muscle contributions: primary → { secondary: fraction of sets credited }
+      // e.g. bench press (Chest) contributes 0.5 × sets to Triceps and 0.5 × sets to Shoulders
+      const secondaryContributions: Record<string, Record<string, number>> = {
+        Chest:      { Triceps: 0.5, Shoulders: 0.5 },
+        Back:       { Biceps: 0.5, Hamstrings: 0.4, Glutes: 0.3 }, // rows/pull-ups → biceps; deadlift → posterior chain
+        Shoulders:  { Triceps: 0.5, Chest: 0.3 },
+        Quads:      { Glutes: 0.5, Hamstrings: 0.3 },
+        Hamstrings: { Glutes: 0.5 },
+        Glutes:     { Hamstrings: 0.3, Quads: 0.2 }, // hip thrust → hamstrings; step-ups → quads
+        Triceps:    { Shoulders: 0.3, Chest: 0.3 },  // close-grip bench + dips hit chest too
+      };
+
+      // Calculate current weekly sets per canonical muscle (primary + secondary credit)
+      const weeklySetsByMuscle: Record<string, number> = {};
+      for (const row of programmeExerciseRows) {
+        const ex = allExercises.find((e) => e.id === row.exerciseId);
+        if (!ex) continue;
+        const mgLower = (ex.muscleGroup ?? "").toLowerCase().trim();
+        const canonical = majorMuscles.find((m) =>
+          muscleSynonyms[m].some((s) => mgLower === s || mgLower.includes(s)),
+        );
+        if (!canonical) continue;
+        // Primary muscle gets full sets
+        weeklySetsByMuscle[canonical] = (weeklySetsByMuscle[canonical] ?? 0) + row.sets;
+        // Secondary muscles get fractional credit — compounds only (e.g. bench → triceps/shoulders)
+        if (ex.category === "Compound") {
+          const secondaries = secondaryContributions[canonical] ?? {};
+          for (const [secMuscle, fraction] of Object.entries(secondaries)) {
+            weeklySetsByMuscle[secMuscle] = (weeklySetsByMuscle[secMuscle] ?? 0) + row.sets * fraction;
+          }
+        }
+      }
+
+      // For each muscle below MEV, add extra accessory sets
+      for (const muscle of majorMuscles) {
+        let currentSets = weeklySetsByMuscle[muscle] ?? 0;
+        if (currentSets >= mev) continue;
+
+        const relevantDayTypes = muscleRelevantDays[muscle] ?? ["FullBody"];
+        const variants = [muscle, ...muscleSynonyms[muscle].map((s) => s.charAt(0).toUpperCase() + s.slice(1))];
+
+        const applicableDayIndices = split
+          .map((dt, i) => ({ dt, i }))
+          .filter(({ dt }) => relevantDayTypes.includes(dt))
+          .map(({ i }) => i);
+
+        if (applicableDayIndices.length === 0) continue;
+
+        let round = 0;
+        while (currentSets < mev) {
+          // Pick the applicable day with the fewest sets (load-balance MEV additions)
+          const dayIdx = applicableDayIndices.reduce((best, idx) => {
+            const bestSets = programmeExerciseRows.filter((r) => r.dayNumber === best + 1).reduce((s, r) => s + r.sets, 0);
+            const idxSets  = programmeExerciseRows.filter((r) => r.dayNumber === idx  + 1).reduce((s, r) => s + r.sets, 0);
+            return idxSets < bestSets ? idx : best;
+          });
+          round++;
+
+          const usedInDay = new Set(
+            programmeExerciseRows.filter((r) => r.dayNumber === dayIdx + 1).map((r) => r.exerciseId),
+          );
+
+          const extraSlot: Slot = { muscleVariants: variants, isCompound: false, role: "ACCESSORY", reps: "10-15" };
+          const ex = pickExercise(extraSlot, usedInDay);
+          if (!ex) break; // no more distinct exercises available
+
+          const newSets = setConfig.accessory;
+          programmeExerciseRows.push({
+            exerciseId:   ex.id,
+            dayNumber:    dayIdx + 1,
+            orderIndex:   programmeExerciseRows.filter((r) => r.dayNumber === dayIdx + 1).length,
+            sets:         newSets,
+            reps:         "10-15",
+            strengthRole: "ACCESSORY",
+          });
+
+          currentSets += newSets;
+          weeklySetsByMuscle[muscle] = currentSets;
+
+          if (round > applicableDayIndices.length * 4) break; // safety — avoid infinite loop if exercises exhausted
+        }
+      }
+      // ── end MEV enforcement ────────────────────────────────────────────────
+
+      // Auto-generate name
+      const baseNames: Record<string, string> = {
+        beginner:     "Starter Build",
+        intermediate: "Mass Protocol",
+        advanced:     "Elite Mass",
+      };
+      const priorityLabels: Record<string, string> = {
+        fullBody:  "",
+        chest:     "Chest-Focused",
+        back:      "Back & Width",
+        shoulders: "Shoulder-Focused",
+        arms:      "Arms-Focused",
+        legs:      "Leg-Focused",
+        glutes:    "Glute-Focused",
+      };
+      const baseName      = baseNames[experienceLevel] ?? "Hypertrophy Programme";
+      const priorityPart  = priorityLabels[priorityMuscle] ? `${priorityLabels[priorityMuscle]} ` : "";
+      const generatedName = programmeName || `${priorityPart}${baseName} · ${days} Days`;
+
+      // Create programme
+      const programme = await prisma.programme.create({
+        data: {
+          name:              generatedName,
+          daysPerWeek:       days,
+          weeks,
+          bodyPartFocus,
+          progressionFocus:  "MUSCLE_BUILDING",
+          description: `${priorityPart}${experienceLevel} hypertrophy programme. ${days} days/week, ${weeks} weeks.`,
+          isCustom: true,
+          userId,
+          experienceLevel,
+        },
+      });
+
+      if (programmeExerciseRows.length > 0) {
+        await prisma.programmeExercise.createMany({
+          data: programmeExerciseRows.map((row) => ({
+            programmeId:  programme.id,
+            exerciseId:   row.exerciseId,
+            dayNumber:    row.dayNumber,
+            orderIndex:   row.orderIndex,
+            sets:         row.sets,
+            reps:         row.reps,
+            strengthRole: row.strengthRole as any,
+          })),
+        });
+      }
+
+      return res.status(201).json(programme);
+    } catch (err) {
+      console.error("Programme generate error:", err);
+      return res.status(500).json({ error: "Failed to generate programme" });
+    }
+  }
 );
 
 export default router;

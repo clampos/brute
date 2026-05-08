@@ -10,16 +10,25 @@
   --glass-bg-soft: linear-gradient(145deg, rgba(50, 62, 86, 0.44), rgba(30, 39, 58, 0.36));
 }
 
+html {
+  background-color: #0a0f1f;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
 body {
-  background:
+  background-color: #0a0f1f;
+  background-image:
     radial-gradient(90% 90% at 12% 0%, rgba(86, 160, 255, 0.18), transparent 60%),
     radial-gradient(80% 80% at 100% 100%, rgba(43, 89, 191, 0.18), transparent 60%),
     linear-gradient(165deg, #0a0f1f 0%, #0c1730 45%, #102243 100%);
-  background-attachment: fixed;
+  background-size: cover;
+  background-repeat: no-repeat;
 }
 
 #root {
-  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
 }
 
 /* Global glass utility classes */

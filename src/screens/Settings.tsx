@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { pageTransition, stagger, fadeUp, easeOut } from "../utils/animations";
 import {
   Camera,
   SettingsIcon,
@@ -140,7 +142,7 @@ export default function Settings() {
       return;
     }
 
-    fetch("http://localhost:4242/auth/user/profile", {
+    fetch("/auth/user/profile", {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -222,7 +224,7 @@ export default function Settings() {
       formData.append("profilePhoto", file);
 
       const response = await fetch(
-        "http://localhost:4242/auth/user/profile-photo",
+        "/auth/user/profile-photo",
         {
           method: "POST",
           headers: {
@@ -266,7 +268,7 @@ export default function Settings() {
 
     try {
       const response = await fetch(
-        "http://localhost:4242/auth/user/profile-photo",
+        "/auth/user/profile-photo",
         {
           method: "DELETE",
           headers: {
@@ -322,7 +324,7 @@ export default function Settings() {
     };
 
     try {
-      const res = await fetch("http://localhost:4242/auth/user/profile", {
+      const res = await fetch("/auth/user/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -402,7 +404,7 @@ export default function Settings() {
       return;
     }
 
-    fetch("http://localhost:4242/auth/referrals", {
+    fetch("/auth/referrals", {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -483,7 +485,7 @@ export default function Settings() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        "http://localhost:4242/auth/change-password",
+        "/auth/change-password",
         {
           method: "POST",
           headers: {
@@ -516,7 +518,7 @@ export default function Settings() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        "http://localhost:4242/auth/delete-account",
+        "/auth/delete-account",
         {
           method: "DELETE",
           headers: {
@@ -567,8 +569,12 @@ export default function Settings() {
   }
 
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
-      {/* Top Bar */}
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32 gap-4"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Settings"
         pageIcon={<SettingsIcon size={18} />}
@@ -580,520 +586,315 @@ export default function Settings() {
         ]}
       />
 
-      <div className="mt-4 rounded-2xl p-6 bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] text-black text-center">
-        <h3
-          className="text-lg font-semibold mb-2"
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          Your Referral Code
-        </h3>
-        <div className="flex items-center justify-center gap-2 mb-4">
-          <p className="text-xl font-bold tracking-wide">
-            {referralStats?.referralCode}
-          </p>
-          <button
-            onClick={copyReferralCode}
-            className="p-2 bg-white/20 rounded-full hover:bg-white/30 transition-colors"
-          >
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-          </button>
+      {/* Profile photo */}
+      <div className="glass-card border border-white/10 rounded-2xl p-5 flex flex-col items-center gap-3">
+        <div className="relative">
+          <div className="w-20 h-20 rounded-full border-2 border-white/20 overflow-hidden flex items-center justify-center bg-white/5">
+            {profilePhoto ? (
+              <img
+                src={`${profilePhoto}`}
+                alt="Profile"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                  (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty("display", "flex");
+                }}
+              />
+            ) : null}
+            <div className={`absolute inset-0 flex items-center justify-center ${profilePhoto ? "hidden" : "flex"}`}>
+              <User size={28} className="text-[#5E6272]" />
+            </div>
+          </div>
         </div>
-        <p className="text-sm">
-          Share this code with friends - you'll both get a free month!
-        </p>
+        <div className="flex gap-2">
+          <label
+            htmlFor="profilePhotoUpload"
+            className={`cursor-pointer glass-button border border-white/10 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 ${photoUploading ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            <Camera size={14} />
+            {photoUploading ? "Uploading…" : "Upload Photo"}
+            <input
+              type="file"
+              id="profilePhotoUpload"
+              accept="image/*"
+              className="hidden"
+              onChange={handleProfilePhotoUpload}
+              disabled={photoUploading}
+            />
+          </label>
+          {profilePhoto && (
+            <button
+              onClick={handleRemoveProfilePhoto}
+              disabled={photoUploading}
+              className="glass-button border border-red-500/30 text-red-400 px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        {profileError && <p className="text-red-400 text-xs text-center">{profileError}</p>}
       </div>
 
-      {referralStats && (
-        <div className="mt-4 space-y-4">
-          <div className="bg-[#262A34] rounded-xl p-4">
-            <h4 className="text-white font-semibold mb-3">Referral Stats</h4>
-            <div className="grid grid-cols-2 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-bold text-[#246BFD]">
-                  {referralStats.freeMonthsEarned}
-                </p>
-                <p className="text-sm text-[#5E6272]">Free Months Earned</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[#246BFD]">
-                  {referralStats.totalReferrals}
-                </p>
-                <p className="text-sm text-[#5E6272]">Total Referrals</p>
-              </div>
+      {/* Quick access — Track Metrics */}
+      <motion.button
+        onClick={() => navigate("/metrics")}
+        whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(158,211,255,0.15)" }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        className="glass-card border border-[#9ED3FF]/30 rounded-2xl p-4 flex items-center justify-between w-full hover:border-[#9ED3FF]/60 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#9ED3FF] to-[#246BFD] flex items-center justify-center">
+            <TrendingUp size={20} className="text-white" />
+          </div>
+          <div className="text-left">
+            <p className="text-white font-medium text-sm">Track Metrics</p>
+            <p className="text-[#A0AEC0] text-xs">Bodyweight, body fat & PRs</p>
+          </div>
+        </div>
+        <svg className="text-[#A0AEC0]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+      </motion.button>
+
+      {/* Personal Profile */}
+      <div className="glass-card border border-white/10 rounded-2xl p-5">
+        <p className="text-[#A0AEC0] text-xs uppercase tracking-widest mb-4">Personal Profile</p>
+
+        <motion.div className="space-y-3" variants={stagger} initial="hidden" animate="show">
+        {/* Unit System */}
+        <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Globe size={15} className="text-[#9ED3FF]" />
+              <span className="text-white text-sm font-medium">Unit System</span>
             </div>
-            <div className="mt-4 text-center">
-              <p className="text-sm text-[#5E6272]">
-                Referral Credits Available:{" "}
-                <span className="text-white font-semibold">
-                  {referralStats.referralCredits}
-                </span>
-              </p>
+            <button
+              onClick={toggleUnitSystem}
+              className={`relative w-12 h-6 rounded-full transition-colors ${unitSystem === "imperial" ? "bg-[#246BFD]" : "bg-white/15"}`}
+            >
+              <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${unitSystem === "imperial" ? "translate-x-6" : "translate-x-0"}`} />
+            </button>
+          </div>
+          <div className="flex gap-3 mt-1">
+            <span className={`text-xs ${unitSystem === "metric" ? "text-[#9ED3FF] font-semibold" : "text-[#5E6272]"}`}>Metric (kg, cm)</span>
+            <span className={`text-xs ${unitSystem === "imperial" ? "text-[#9ED3FF] font-semibold" : "text-[#5E6272]"}`}>Imperial (lbs/st, ft)</span>
+          </div>
+          {unitSystem === "imperial" && (
+            <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between">
+              <span className="text-white text-xs">Weight display</span>
+              <button
+                onClick={toggleImperialWeightType}
+                className="text-xs px-3 py-1 glass-button border border-white/10 text-[#9ED3FF] rounded-lg"
+              >
+                {imperialWeightType === "lbs" ? "Switch to Stone" : "Switch to Pounds"}
+              </button>
+            </div>
+          )}
+        </motion.div>
+
+        {/* Height */}
+        <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-[#A0AEC0] text-xs mb-1">Height</p>
+              {editing.height ? (
+                unitSystem === "metric" ? (
+                  <input
+                    type="number"
+                    value={height ?? ""}
+                    onChange={(e) => setHeight(e.target.value === "" ? null : parseFloat(e.target.value))}
+                    step="0.1" min="0"
+                    className="w-full p-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-[#9ED3FF] focus:outline-none"
+                    placeholder="cm"
+                    autoFocus
+                  />
+                ) : (
+                  <div className="flex gap-2">
+                    <input type="number" value={heightFeet} onChange={(e) => setHeightFeet(e.target.value)} min="0"
+                      className="flex-1 p-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-[#9ED3FF] focus:outline-none" placeholder="ft" autoFocus />
+                    <input type="number" value={heightInches} onChange={(e) => setHeightInches(e.target.value)} min="0" max="11"
+                      className="flex-1 p-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-[#9ED3FF] focus:outline-none" placeholder="in" />
+                  </div>
+                )
+              ) : (
+                <p className="text-white text-sm">{formatDisplayValue("height", height)}</p>
+              )}
+            </div>
+            <div className="ml-3">
+              {editing.height ? (
+                <button onClick={() => handleFieldSave("height")} disabled={fieldLoading.height}
+                  className="p-2 bg-[#246BFD] rounded-lg disabled:opacity-50">
+                  {fieldLoading.height ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Save size={15} className="text-white" />}
+                </button>
+              ) : (
+                <button onClick={() => toggleEdit("height")} className="p-2 glass-button rounded-lg border border-white/10">
+                  <Edit3 size={15} className="text-[#A0AEC0]" />
+                </button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Date of Birth */}
+        <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-[#A0AEC0] text-xs mb-1">Date of Birth</p>
+              {editing.birthday ? (
+                <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} autoFocus
+                  className="w-full p-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-[#9ED3FF] focus:outline-none" />
+              ) : (
+                <p className="text-white text-sm">{formatDisplayValue("birthday", birthday)}</p>
+              )}
+            </div>
+            <div className="ml-3">
+              {editing.birthday ? (
+                <button onClick={() => handleFieldSave("birthday")} disabled={fieldLoading.birthday}
+                  className="p-2 bg-[#246BFD] rounded-lg disabled:opacity-50">
+                  {fieldLoading.birthday ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Save size={15} className="text-white" />}
+                </button>
+              ) : (
+                <button onClick={() => toggleEdit("birthday")} className="p-2 glass-button rounded-lg border border-white/10">
+                  <Edit3 size={15} className="text-[#A0AEC0]" />
+                </button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Gender */}
+        <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-[#A0AEC0] text-xs mb-1">Gender</p>
+              {editing.gender ? (
+                <select value={gender ?? ""} onChange={(e) => setGender(e.target.value || null)} autoFocus
+                  className="w-full p-2 rounded-lg bg-[#0B1220] border border-white/10 text-white text-sm focus:border-[#9ED3FF] focus:outline-none">
+                  <option value="">Select</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Non-binary">Non-binary</option>
+                  <option value="Other">Other</option>
+                </select>
+              ) : (
+                <p className="text-white text-sm">{formatDisplayValue("gender", gender)}</p>
+              )}
+            </div>
+            <div className="ml-3">
+              {editing.gender ? (
+                <button onClick={() => handleFieldSave("gender")} disabled={fieldLoading.gender}
+                  className="p-2 bg-[#246BFD] rounded-lg disabled:opacity-50">
+                  {fieldLoading.gender ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <Save size={15} className="text-white" />}
+                </button>
+              ) : (
+                <button onClick={() => toggleEdit("gender")} className="p-2 glass-button rounded-lg border border-white/10">
+                  <Edit3 size={15} className="text-[#A0AEC0]" />
+                </button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+        </motion.div>
+      </div>
+
+      {/* Referral */}
+      {referralStats && (
+        <div className="glass-card border border-white/10 rounded-2xl p-5">
+          <p className="text-[#A0AEC0] text-xs uppercase tracking-widest mb-4">Referrals</p>
+
+          <div className="glass-subtile rounded-xl p-3 mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-[#A0AEC0] text-xs mb-0.5">Your referral code</p>
+              <p className="text-white font-bold tracking-widest">{referralStats.referralCode}</p>
+            </div>
+            <motion.button
+              onClick={copyReferralCode}
+              whileTap={{ scale: 0.85, rotate: -8 }}
+              transition={{ type: "spring", stiffness: 400, damping: 20 }}
+              className="glass-button border border-white/10 p-2.5 rounded-xl"
+            >
+              {copied ? <Check size={16} className="text-[#86FF99]" /> : <Copy size={16} className="text-[#A0AEC0]" />}
+            </motion.button>
+          </div>
+
+          <p className="text-[#5E6272] text-xs mb-4 text-center">Share your code — you'll both earn a free month</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="glass-subtile rounded-xl p-3 text-center">
+              <p className="text-2xl font-bold text-[#9ED3FF]">{referralStats.totalReferrals}</p>
+              <p className="text-[#A0AEC0] text-xs mt-0.5">Referrals</p>
+            </div>
+            <div className="glass-subtile rounded-xl p-3 text-center">
+              <p className="text-2xl font-bold text-[#86FF99]">{referralStats.freeMonthsEarned}</p>
+              <p className="text-[#A0AEC0] text-xs mt-0.5">Free months earned</p>
             </div>
           </div>
 
           {referralStats.referredUsers?.length > 0 && (
-            <div className="bg-[#262A34] rounded-xl p-4">
-              <h4 className="text-white font-semibold mb-3">
-                Recent Referrals
-              </h4>
-              <div className="space-y-2">
-                {referralStats.referredUsers.slice(0, 5).map((user, index) => (
-                  <div
-                    key={index}
-                    className="flex justify-between items-center py-2 border-b border-gray-600 last:border-b-0"
-                  >
-                    <span className="text-white">
-                      {user.firstName} {user.surname}
-                    </span>
-                    <span
-                      className={`text-xs px-2 py-1 rounded ${
-                        user.subscribed
-                          ? "bg-green-600 text-white"
-                          : "bg-gray-600 text-gray-300"
-                      }`}
-                    >
-                      {user.subscribed ? "Active" : "Pending"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="bg-[#262A34] rounded-xl p-4">
-            <h4 className="text-white font-semibold mb-3">Personal Profile</h4>
-
-            {profileError && (
-              <div className="mb-4 p-3 bg-red-900/20 border border-red-500 rounded-lg">
-                <p className="text-red-400 text-sm">{profileError}</p>
-              </div>
-            )}
-
-            <div className="space-y-4 text-white">
-              <div className="flex flex-col items-center space-y-2 mb-6">
-                <div className="w-24 h-24 rounded-full bg-[#1F222B] border-2 border-[#5E6272] overflow-hidden flex items-center justify-center relative">
-                  {profilePhoto ? (
-                    <img
-                      src={`http://localhost:4242${profilePhoto}`}
-                      alt="Profile"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                        const fallback =
-                          e.currentTarget.parentElement!.querySelector(
-                            ".fallback-icon"
-                          );
-                        if (fallback) {
-                          (fallback as HTMLElement).style.display = "flex";
-                        }
-                      }}
-                    />
-                  ) : null}
-                  <div
-                    className={`absolute inset-0 w-full h-full bg-[#1F222B] flex items-center justify-center fallback-icon ${
-                      profilePhoto ? "hidden" : "flex"
-                    }`}
-                  >
-                    <User size={32} className="text-[#5E6272]" />
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <label
-                    htmlFor="profilePhotoUpload"
-                    className={`cursor-pointer bg-[#86FF99] text-black px-4 py-2 rounded font-semibold hover:bg-[#6bd664] transition flex items-center gap-2 select-none ${
-                      photoUploading ? "opacity-50 cursor-not-allowed" : ""
-                    }`}
-                  >
-                    <Camera size={16} />
-                    {photoUploading ? "Uploading..." : "Upload"}
-                    <input
-                      type="file"
-                      id="profilePhotoUpload"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleProfilePhotoUpload}
-                      disabled={photoUploading}
-                    />
-                  </label>
-
-                  {profilePhoto && (
-                    <button
-                      onClick={handleRemoveProfilePhoto}
-                      disabled={photoUploading}
-                      className="bg-red-600 hover:bg-red-700 rounded px-4 py-2 font-semibold text-white disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Unit System Toggle - Now inside Personal Profile */}
-              <div className="mb-4 p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe size={18} className="text-[#246BFD]" />
-                    <span className="text-white font-medium">Unit System</span>
-                  </div>
-                  <button
-                    onClick={toggleUnitSystem}
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      unitSystem === "imperial"
-                        ? "bg-[#246BFD]"
-                        : "bg-[#5E6272]"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${
-                        unitSystem === "imperial"
-                          ? "translate-x-7"
-                          : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
-                <div className="flex gap-4 mt-2">
-                  <span
-                    className={`text-sm ${
-                      unitSystem === "metric"
-                        ? "text-[#246BFD] font-semibold"
-                        : "text-[#5E6272]"
-                    }`}
-                  >
-                    Metric (kg, cm)
+            <div className="mt-3 space-y-2">
+              {referralStats.referredUsers.slice(0, 5).map((user, index) => (
+                <div key={index} className="glass-subtile rounded-xl px-3 py-2 flex justify-between items-center">
+                  <span className="text-white text-sm">{user.firstName} {user.surname}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${user.subscribed ? "bg-[#86FF99]/15 text-[#86FF99]" : "bg-white/5 text-[#5E6272]"}`}>
+                    {user.subscribed ? "Active" : "Pending"}
                   </span>
-                  <span
-                    className={`text-sm ${
-                      unitSystem === "imperial"
-                        ? "text-[#246BFD] font-semibold"
-                        : "text-[#5E6272]"
-                    }`}
-                  >
-                    Imperial (lbs/st, ft)
-                  </span>
-                </div>
-
-                {/* Imperial Weight Type Toggle - Only show when imperial is selected */}
-                {unitSystem === "imperial" && (
-                  <div className="mt-3 pt-3 border-t border-[#5E6272]/30">
-                    <div className="flex items-center justify-between">
-                      <span className="text-white text-sm">Weight Display</span>
-                      <button
-                        onClick={toggleImperialWeightType}
-                        className="px-3 py-1 bg-[#246BFD] hover:bg-blue-700 rounded-lg text-white text-xs font-medium transition-colors"
-                      >
-                        {imperialWeightType === "lbs"
-                          ? "Switch to Stone"
-                          : "Switch to Pounds"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
-                <div className="flex-1">
-                  <label className="block text-sm text-[#5E6272] mb-1">
-                    Bodyweight
-                  </label>
-                  <p className="text-white">
-                    {formatDisplayValue("bodyweight", bodyweight)}
-                  </p>
-                  <p className="text-xs text-[#5E6272] mt-1">
-                    Update via Track Metrics →
-                  </p>
-                </div>
-                <div className="ml-3">
-                  <button
-                    onClick={() => navigate("/metrics")}
-                    className="p-2 bg-[#246BFD]/20 hover:bg-[#246BFD]/40 rounded-lg transition-colors"
-                  >
-                    <TrendingUp size={16} className="text-[#246BFD]" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
-                <div className="flex-1">
-                  <label className="block text-sm text-[#5E6272] mb-1">
-                    Height
-                  </label>
-                  {editing.height ? (
-                    unitSystem === "metric" ? (
-                      <input
-                        type="number"
-                        value={height ?? ""}
-                        onChange={(e) =>
-                          setHeight(
-                            e.target.value === ""
-                              ? null
-                              : parseFloat(e.target.value)
-                          )
-                        }
-                        step="0.1"
-                        min="0"
-                        className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                        placeholder="Enter height in cm"
-                        autoFocus
-                      />
-                    ) : (
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          value={heightFeet}
-                          onChange={(e) => setHeightFeet(e.target.value)}
-                          min="0"
-                          className="flex-1 p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                          placeholder="Feet"
-                          autoFocus
-                        />
-                        <input
-                          type="number"
-                          value={heightInches}
-                          onChange={(e) => setHeightInches(e.target.value)}
-                          min="0"
-                          max="11"
-                          className="flex-1 p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                          placeholder="Inches"
-                        />
-                      </div>
-                    )
-                  ) : (
-                    <p className="text-white">
-                      {formatDisplayValue("height", height)}
-                    </p>
-                  )}
-                </div>
-                <div className="ml-3">
-                  {editing.height ? (
-                    <button
-                      onClick={() => handleFieldSave("height")}
-                      disabled={fieldLoading.height}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {fieldLoading.height ? (
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      ) : (
-                        <Save size={16} />
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => toggleEdit("height")}
-                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
-                    >
-                      <Edit3 size={16} className="text-[#5E6272]" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
-                <div className="flex-1">
-                  <label className="block text-sm text-[#5E6272] mb-1">
-                    Date of Birth
-                  </label>
-                  {editing.birthday ? (
-                    <input
-                      type="date"
-                      value={birthday}
-                      onChange={(e) => setBirthday(e.target.value)}
-                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                      autoFocus
-                    />
-                  ) : (
-                    <p className="text-white">
-                      {formatDisplayValue("birthday", birthday)}
-                    </p>
-                  )}
-                </div>
-                <div className="ml-3">
-                  {editing.birthday ? (
-                    <button
-                      onClick={() => handleFieldSave("birthday")}
-                      disabled={fieldLoading.birthday}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {fieldLoading.birthday ? (
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      ) : (
-                        <Save size={16} />
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => toggleEdit("birthday")}
-                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
-                    >
-                      <Edit3 size={16} className="text-[#5E6272]" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-3 rounded-lg bg-[#1F222B] border border-transparent hover:border-[#5E6272]/30 transition-colors">
-                <div className="flex-1">
-                  <label className="block text-sm text-[#5E6272] mb-1">
-                    Gender
-                  </label>
-                  {editing.gender ? (
-                    <select
-                      value={gender ?? ""}
-                      onChange={(e) => setGender(e.target.value || null)}
-                      className="w-full p-2 rounded bg-[#262A34] text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                      autoFocus
-                    >
-                      <option value="">Select</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Non-binary">Non-binary</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  ) : (
-                    <p className="text-white">
-                      {formatDisplayValue("gender", gender)}
-                    </p>
-                  )}
-                </div>
-                <div className="ml-3">
-                  {editing.gender ? (
-                    <button
-                      onClick={() => handleFieldSave("gender")}
-                      disabled={fieldLoading.gender}
-                      className="p-2 bg-[#246BFD] hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {fieldLoading.gender ? (
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                      ) : (
-                        <Save size={16} />
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => toggleEdit("gender")}
-                      className="p-2 bg-[#5E6272]/20 hover:bg-[#5E6272]/40 rounded-lg transition-colors"
-                    >
-                      <Edit3 size={16} className="text-[#5E6272]" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <button
-                onClick={() => navigate("/metrics")}
-                className="w-full bg-[#246BFD] hover:bg-blue-700 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
-              >
-                <TrendingUp size={18} />
-                Track Metrics
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-[#262A34] rounded-xl p-4">
-            <h4 className="text-white font-semibold mb-3">General Settings</h4>
-            <div className="space-y-2">
-              {settingsOptions.map((setting, index) => (
-                <div
-                  key={index}
-                  className={`flex justify-between items-center py-3 px-4 rounded-lg text-white cursor-pointer transition-colors ${
-                    setting.danger
-                      ? "bg-red-600/20 hover:bg-red-600/30"
-                      : "bg-[#1F222B] hover:bg-[#2A2E39]"
-                  }`}
-                  onClick={setting.onClick}
-                >
-                  <span className={setting.danger ? "text-red-400" : ""}>
-                    {setting.label}
-                  </span>
-                  {setting.label === "Logout" && (
-                    <LogOut size={18} className="text-red-400" />
-                  )}
                 </div>
               ))}
             </div>
-          </div>
+          )}
         </div>
       )}
 
+      {/* Account */}
+      <div className="glass-card border border-white/10 rounded-2xl p-5">
+        <p className="text-[#A0AEC0] text-xs uppercase tracking-widest mb-4">Account</p>
+        <div className="space-y-2">
+          <button onClick={() => setShowChangeEmail(true)}
+            className="w-full glass-subtile rounded-xl px-4 py-3 flex justify-between items-center text-white text-sm">
+            <span>Change Email</span>
+            <svg className="text-[#5E6272]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <button onClick={() => setShowChangePassword(true)}
+            className="w-full glass-subtile rounded-xl px-4 py-3 flex justify-between items-center text-white text-sm">
+            <span>Change Password</span>
+            <svg className="text-[#5E6272]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+          <button onClick={handleLogout}
+            className="w-full rounded-xl px-4 py-3 flex justify-between items-center text-sm bg-red-500/10 border border-red-500/20">
+            <span className="text-red-400 font-medium">Log Out</span>
+            <LogOut size={15} className="text-red-400" />
+          </button>
+          <button onClick={() => setShowDeleteAccount(true)}
+            className="w-full rounded-xl px-4 py-3 text-left text-xs text-[#5E6272]">
+            Delete Account
+          </button>
+        </div>
+      </div>
+
+      {/* Change Password modal */}
       {showChangePassword && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-white text-lg font-semibold">
-                Change Password
-              </h3>
-              <button
-                onClick={resetPasswordModal}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={24} />
-              </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center p-4 z-50">
+          <div className="glass-modal border border-white/10 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-white font-semibold">Change Password</h3>
+              <button onClick={resetPasswordModal} className="text-[#5E6272] hover:text-white"><X size={20} /></button>
             </div>
-
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              <input
-                type="password"
-                placeholder="Current Password"
-                value={passwordForm.currentPassword}
-                onChange={(e) =>
-                  setPasswordForm({
-                    ...passwordForm,
-                    currentPassword: e.target.value,
-                  })
-                }
-                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                required
-              />
-              <input
-                type="password"
-                placeholder="New Password"
-                value={passwordForm.newPassword}
-                onChange={(e) =>
-                  setPasswordForm({
-                    ...passwordForm,
-                    newPassword: e.target.value,
-                  })
-                }
-                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                required
-                minLength={8}
-              />
-              <input
-                type="password"
-                placeholder="Confirm New Password"
-                value={passwordForm.confirmPassword}
-                onChange={(e) =>
-                  setPasswordForm({
-                    ...passwordForm,
-                    confirmPassword: e.target.value,
-                  })
-                }
-                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                required
-                minLength={8}
-              />
-
-              {passwordError && (
-                <p className="text-red-400 text-sm">{passwordError}</p>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={resetPasswordModal}
-                  className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={passwordLoading}
-                  className="flex-1 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50"
-                >
-                  {passwordLoading ? "Changing..." : "Change Password"}
+            <form onSubmit={handleChangePassword} className="space-y-3">
+              {["currentPassword", "newPassword", "confirmPassword"].map((field, i) => (
+                <input key={field} type="password"
+                  placeholder={["Current password", "New password", "Confirm new password"][i]}
+                  value={passwordForm[field as keyof typeof passwordForm]}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, [field]: e.target.value })}
+                  className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 text-sm focus:border-[#9ED3FF] focus:outline-none"
+                  required minLength={field !== "currentPassword" ? 8 : undefined}
+                />
+              ))}
+              {passwordError && <p className="text-red-400 text-xs">{passwordError}</p>}
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={resetPasswordModal}
+                  className="flex-1 py-3 glass-button border border-white/10 rounded-xl text-white text-sm font-medium">Cancel</button>
+                <button type="submit" disabled={passwordLoading}
+                  className="flex-1 py-3 bg-[#246BFD] rounded-xl text-white text-sm font-medium disabled:opacity-50">
+                  {passwordLoading ? "Saving…" : "Save"}
                 </button>
               </div>
             </form>
@@ -1101,130 +902,52 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Change Email modal */}
       {showChangeEmail && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-white text-lg font-semibold">Change Email</h3>
-              <button
-                onClick={resetEmailModal}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={24} />
-              </button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center p-4 z-50">
+          <div className="glass-modal border border-white/10 rounded-2xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-white font-semibold">Change Email</h3>
+              <button onClick={resetEmailModal} className="text-[#5E6272] hover:text-white"><X size={20} /></button>
             </div>
-
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setEmailError("");
-                setEmailLoading(true);
-
-                if (emailForm.newEmail !== emailForm.confirmEmail) {
-                  setEmailError("Emails don't match");
-                  setEmailLoading(false);
-                  return;
-                }
-
-                // simple email format check
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(emailForm.newEmail)) {
-                  setEmailError("Please enter a valid email address");
-                  setEmailLoading(false);
-                  return;
-                }
-
-                try {
-                  const token = localStorage.getItem("token");
-                  const res = await fetch(
-                    "http://localhost:4242/auth/change-email",
-                    {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                      },
-                      body: JSON.stringify({
-                        currentPassword: emailForm.currentPassword,
-                        newEmail: emailForm.newEmail,
-                      }),
-                    }
-                  );
-
-                  if (!res.ok) {
-                    const body = await res.json().catch(() => ({}));
-                    throw new Error(body.error || "Failed to change email");
-                  }
-
-                  resetEmailModal();
-                  alert(
-                    "Email changed successfully. Please use your new email to login next time."
-                  );
-                  // Optionally, log out the user to force re-login
-                  localStorage.removeItem("token");
-                  navigate("/login");
-                } catch (err: any) {
-                  setEmailError(err.message || "Failed to change email");
-                } finally {
-                  setEmailLoading(false);
-                }
-              }}
-              className="space-y-4"
-            >
-              <input
-                type="password"
-                placeholder="Current Password"
-                value={emailForm.currentPassword}
-                onChange={(e) =>
-                  setEmailForm({
-                    ...emailForm,
-                    currentPassword: e.target.value,
-                  })
-                }
-                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                required
-              />
-
-              <input
-                type="email"
-                placeholder="New Email"
-                value={emailForm.newEmail}
-                onChange={(e) =>
-                  setEmailForm({ ...emailForm, newEmail: e.target.value })
-                }
-                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                required
-              />
-
-              <input
-                type="email"
-                placeholder="Confirm New Email"
-                value={emailForm.confirmEmail}
-                onChange={(e) =>
-                  setEmailForm({ ...emailForm, confirmEmail: e.target.value })
-                }
-                className="w-full p-3 rounded bg-[#1F222B] placeholder-white/70 text-white border border-gray-600 focus:border-[#246BFD] focus:outline-none"
-                required
-              />
-
-              {emailError && (
-                <p className="text-red-400 text-sm">{emailError}</p>
-              )}
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={resetEmailModal}
-                  className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={emailLoading}
-                  className="flex-1 py-3 bg-[#246BFD] rounded font-semibold hover:bg-blue-700 transition text-white disabled:opacity-50"
-                >
-                  {emailLoading ? "Changing..." : "Change Email"}
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setEmailError("");
+              setEmailLoading(true);
+              if (emailForm.newEmail !== emailForm.confirmEmail) { setEmailError("Emails don't match"); setEmailLoading(false); return; }
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!emailRegex.test(emailForm.newEmail)) { setEmailError("Invalid email address"); setEmailLoading(false); return; }
+              try {
+                const token = localStorage.getItem("token");
+                const res = await fetch("/auth/change-email", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ currentPassword: emailForm.currentPassword, newEmail: emailForm.newEmail }),
+                });
+                if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.error || "Failed to change email"); }
+                resetEmailModal();
+                alert("Email changed. Please log in with your new email.");
+                localStorage.removeItem("token");
+                navigate("/login");
+              } catch (err: any) { setEmailError(err.message || "Failed to change email"); }
+              finally { setEmailLoading(false); }
+            }} className="space-y-3">
+              <input type="password" placeholder="Current password" value={emailForm.currentPassword}
+                onChange={(e) => setEmailForm({ ...emailForm, currentPassword: e.target.value })}
+                className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 text-sm focus:border-[#9ED3FF] focus:outline-none" required />
+              <input type="email" placeholder="New email" value={emailForm.newEmail}
+                onChange={(e) => setEmailForm({ ...emailForm, newEmail: e.target.value })}
+                className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 text-sm focus:border-[#9ED3FF] focus:outline-none" required />
+              <input type="email" placeholder="Confirm new email" value={emailForm.confirmEmail}
+                onChange={(e) => setEmailForm({ ...emailForm, confirmEmail: e.target.value })}
+                className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/30 text-sm focus:border-[#9ED3FF] focus:outline-none" required />
+              {emailError && <p className="text-red-400 text-xs">{emailError}</p>}
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={resetEmailModal}
+                  className="flex-1 py-3 glass-button border border-white/10 rounded-xl text-white text-sm font-medium">Cancel</button>
+                <button type="submit" disabled={emailLoading}
+                  className="flex-1 py-3 bg-[#246BFD] rounded-xl text-white text-sm font-medium disabled:opacity-50">
+                  {emailLoading ? "Saving…" : "Save"}
                 </button>
               </div>
             </form>
@@ -1232,47 +955,27 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Delete Account modal */}
       {showDeleteAccount && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#262A34] rounded-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end justify-center p-4 z-50">
+          <div className="glass-modal border border-white/10 rounded-2xl p-6 w-full max-w-md">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-white text-lg font-semibold">
-                Delete Account
-              </h3>
-              <button
-                onClick={resetDeleteAccountModal}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={24} />
-              </button>
+              <h3 className="text-white font-semibold">Delete Account</h3>
+              <button onClick={resetDeleteAccountModal} className="text-[#5E6272] hover:text-white"><X size={20} /></button>
             </div>
-
-            <p className="text-red-500 mb-6">
-              Are you sure you want to delete your account? This action cannot
-              be undone.
-            </p>
-
+            <p className="text-[#A0AEC0] text-sm mb-6">This will permanently delete your account and all your data. This cannot be undone.</p>
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={resetDeleteAccountModal}
-                className="flex-1 py-3 bg-gray-600 rounded font-semibold hover:bg-gray-700 transition text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteAccount}
-                className="flex-1 py-3 bg-red-600 rounded font-semibold hover:bg-red-700 transition text-white"
-              >
-                Delete Account
-              </button>
+              <button type="button" onClick={resetDeleteAccountModal}
+                className="flex-1 py-3 glass-button border border-white/10 rounded-xl text-white text-sm font-medium">Cancel</button>
+              <button type="button" onClick={handleDeleteAccount}
+                className="flex-1 py-3 bg-red-600 rounded-xl text-white text-sm font-medium hover:bg-red-700">Delete Account</button>
             </div>
           </div>
         </div>
       )}
 
       <BottomBar onLogout={handleLogout} />
-    </div>
+    </motion.div>
   );
+
 }

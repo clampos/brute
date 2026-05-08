@@ -8,21 +8,24 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronRight,
-  MoreHorizontal,
   Edit3,
   Play,
   X,
+  Sparkles,
+  Trash2,
+  Pencil,
+  Check,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { modalOverlay, modalPanel, spring, pageTransition, stagger, fadeUp, easeOut } from "../utils/animations";
 
 export default function Programmes() {
   const navigate = useNavigate();
   const [firstName, setFirstName] = useState("John");
   const [surname, setSurname] = useState("Doe");
   const [loading, setLoading] = useState(true);
-  const [programmesData, setProgrammesData] = useState<Record<string, any[]>>(
-    {},
-  );
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [programmes, setprogrammes] = useState<any[]>([]);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ brute: true, custom: true });
   const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
   const [filterTab, setFilterTab] = useState<"all" | "previous">("all");
   const [progressionFocusTab, setProgressionFocusTab] = useState<
@@ -38,6 +41,25 @@ export default function Programmes() {
   const [showEndProgrammeModal, setShowEndProgrammeModal] = useState(false);
   const [endingProgramme, setEndingProgramme] = useState(false);
 
+  // Generate programme modal state
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  // Delete programme modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [programmeToDelete, setProgrammeToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingProgramme, setDeletingProgramme] = useState(false);
+  const [programmeSourceTab, setProgrammeSourceTab] = useState<"custom" | "brute">("custom");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [savingRename, setSavingRename] = useState(false);
+  const [generateStep, setGenerateStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [generateGoal, setGenerateGoal] = useState<string>("MUSCLE_BUILDING");
+  const [generateLevel, setGenerateLevel] = useState<string>("");
+  const [generateDays, setGenerateDays] = useState<number>(4);
+  const [generateEquipment, setGenerateEquipment] = useState<string>("");
+  const [generatePriorityMuscle, setGeneratePriorityMuscle] = useState<string>("fullBody");
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -47,10 +69,14 @@ export default function Programmes() {
 
     const fetchData = async () => {
       try {
-        // Fetch user
-        const userRes = await fetch("http://localhost:4242/api/dashboard", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const headers = { Authorization: `Bearer ${token}` };
+
+        // All three are independent — fetch in parallel
+        const [userRes, userProgramRes, progRes] = await Promise.all([
+          fetch("/api/dashboard",       { headers }),
+          fetch("/auth/user-programs",  { headers }),
+          fetch("/auth/programmes",     { headers }),
+        ]);
 
         if (userRes.status === 401) {
           localStorage.removeItem("token");
@@ -66,14 +92,6 @@ export default function Programmes() {
         setFirstName(userData.firstName);
         setSurname(userData.surname);
 
-        // Fetch active user program and previous programmes
-        const userProgramRes = await fetch(
-          "http://localhost:4242/auth/user-programs",
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-
         if (userProgramRes.ok) {
           const userPrograms = await userProgramRes.json();
           const active = userPrograms.find((up: any) => up.status === "ACTIVE");
@@ -86,30 +104,10 @@ export default function Programmes() {
           setPreviousPrograms(completed);
         }
 
-        // Fetch programmes
-        const progRes = await fetch("http://localhost:4242/auth/programmes", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
         if (!progRes.ok) throw new Error("Failed to fetch programmes");
 
         const data = await progRes.json();
-
-        // Group by bodyPartFocus
-        const grouped: Record<string, any[]> = {};
-        data.forEach((p: any) => {
-          if (!grouped[p.bodyPartFocus]) grouped[p.bodyPartFocus] = [];
-          grouped[p.bodyPartFocus].push(p);
-        });
-
-        setProgrammesData(grouped);
-
-        // Initialize open state for all sections
-        const initialOpen: Record<string, boolean> = {};
-        Object.keys(grouped).forEach((key) => {
-          initialOpen[key] = true;
-        });
-        setOpenSections(initialOpen);
+        setprogrammes(data);
       } catch (err) {
         console.error("Programmes bootstrap error:", err);
       } finally {
@@ -156,25 +154,62 @@ export default function Programmes() {
     navigate(`/editor/${programmeId}`);
   };
 
-  const filteredProgrammeSections = Object.entries(programmesData)
-    .map(([section, programmes]) => {
-      const filteredProgrammes = (programmes as any[]).filter((prog: any) => {
-        const focus = prog.progressionFocus || "MUSCLE_BUILDING";
-        return focus === progressionFocusTab;
+  const filteredProgrammes = programmes.filter((p: any) => {
+    const focus = p.progressionFocus || "MUSCLE_BUILDING";
+    return focus === progressionFocusTab;
+  });
+  const bruteProgs = filteredProgrammes.filter((p: any) => !p.isCustom);
+  const customProgs = filteredProgrammes.filter((p: any) => p.isCustom);
+
+  const handleDeleteProgramme = async (programmeId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    setDeletingProgramme(true);
+    try {
+      const res = await fetch(`/auth/programmes/${programmeId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
-      return [section, filteredProgrammes] as [string, any[]];
-    })
-    .filter(([, programmes]) => programmes.length > 0);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to delete programme");
+      }
+      setprogrammes((prev) => prev.filter((p) => p.id !== programmeId));
+      setShowDeleteModal(false);
+      setProgrammeToDelete(null);
+    } catch (err: any) {
+      alert(err.message || "Failed to delete programme");
+    } finally {
+      setDeletingProgramme(false);
+    }
+  };
+
+  const handleRename = async (id: string) => {
+    const token = localStorage.getItem("token");
+    if (!token || !renameValue.trim()) return;
+    setSavingRename(true);
+    try {
+      const res = await fetch(`/auth/programmes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: renameValue.trim() }),
+      });
+      if (!res.ok) throw new Error("Failed to rename");
+      setprogrammes((prev) => prev.map((p) => p.id === id ? { ...p, name: renameValue.trim() } : p));
+      setRenamingId(null);
+    } catch {
+      alert("Failed to rename programme");
+    } finally {
+      setSavingRename(false);
+    }
+  };
 
   const handleStartProgramme = async (programmeId: string) => {
     // Check if there's an active programme that's different from the one being selected
     if (activeUserProgram && activeUserProgram.programmeId !== programmeId) {
       // Find the programme name
-      let programmeName = "";
-      Object.values(programmesData).forEach((programs: any[]) => {
-        const found = programs.find((p) => p.id === programmeId);
-        if (found) programmeName = found.name;
-      });
+      const found = programmes.find((p: any) => p.id === programmeId);
+      const programmeName = found?.name || "";
 
       setSelectedProgrammeId(programmeId);
       setSelectedProgrammeName(programmeName);
@@ -194,7 +229,7 @@ export default function Programmes() {
       // First, cancel any active programmes
       if (activeUserProgram) {
         await fetch(
-          `http://localhost:4242/auth/user-programs/${activeUserProgram.id}`,
+          `/auth/user-programs/${activeUserProgram.id}`,
           {
             method: "PATCH",
             headers: {
@@ -207,7 +242,7 @@ export default function Programmes() {
       }
 
       // Create new user program with today as start date
-      const response = await fetch("http://localhost:4242/auth/user-programs", {
+      const response = await fetch("/auth/user-programs", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -246,7 +281,7 @@ export default function Programmes() {
 
     try {
       const response = await fetch(
-        `http://localhost:4242/auth/user-programs/${activeUserProgram.id}`,
+        `/auth/user-programs/${activeUserProgram.id}`,
         {
           method: "PATCH",
           headers: {
@@ -282,8 +317,72 @@ export default function Programmes() {
     }
   };
 
+  const resetGenerateModal = () => {
+    setShowGenerateModal(false);
+    setGenerateStep(1);
+    setGenerateGoal("MUSCLE_BUILDING");
+    setGenerateLevel("");
+    setGenerateDays(4);
+    setGenerateEquipment("");
+    setGeneratePriorityMuscle("fullBody");
+    setGenerateError(null);
+  };
+
+  const handleGenerateProgramme = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    setGenerating(true);
+    setGenerateError(null);
+
+    try {
+      const res = await fetch("/auth/programmes/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          goal: generateGoal,
+          experienceLevel: generateLevel,
+          daysPerWeek: generateDays,
+          equipment: generateEquipment,
+          priorityMuscle: generatePriorityMuscle,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to generate programme");
+      }
+
+      const newProg = await res.json();
+
+      // Refresh programme list
+      const progRes = await fetch("/auth/programmes", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (progRes.ok) {
+        const data = await progRes.json();
+        setprogrammes(data);
+      }
+
+      resetGenerateModal();
+      navigate(`/editor/${newProg.id}`);
+    } catch (err: any) {
+      setGenerateError(err.message ?? "Something went wrong");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
@@ -296,7 +395,7 @@ export default function Programmes() {
       />
 
       {/* Filter Tabs */}
-      <div className="flex gap-2 mt-3 mb-5">
+      <div className="flex gap-2 mt-2 mb-3">
         <button
           onClick={() => setFilterTab("all")}
           className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
@@ -321,51 +420,54 @@ export default function Programmes() {
 
       {/* Active Programme Banner */}
       {activeUserProgram && (
-        <div className="w-full px-2 mb-5">
-          <div className="bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] rounded-xl px-4 py-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-black font-semibold text-sm">
+        <div className="w-full px-2 mb-3">
+          <div className="bg-gradient-to-br from-[#FFB8E0] via-[#BE9EFF] via-[#88C0FC] to-[#86FF99] rounded-xl px-4 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-black font-semibold text-xs tracking-wide">
                 ACTIVE PROGRAMME
               </span>
               <button
                 onClick={() => setShowEndProgrammeModal(true)}
-                className="w-7 h-7 rounded-full bg-black/20 hover:bg-black/30 text-black flex items-center justify-center transition-colors"
+                className="w-6 h-6 rounded-full bg-black/20 hover:bg-black/30 text-black flex items-center justify-center transition-colors"
                 aria-label="End active programme"
-                title="End programme"
               >
-                <X size={16} />
+                <X size={13} />
               </button>
             </div>
-            <h3 className="text-black font-bold text-lg mb-1">
-              {activeUserProgram.programme.name}
-            </h3>
-            <p className="text-black/80 text-sm mb-3">
-              Week {activeUserProgram.currentWeek} • Day{" "}
-              {activeUserProgram.currentDay}
-            </p>
-            <button
-              onClick={() => navigate("/workouts")}
-              className="w-full bg-black text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2"
-            >
-              <Play size={16} />
-              Continue Workout
-            </button>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-black font-bold text-base truncate">
+                  {activeUserProgram.programme.name}
+                </h3>
+                <p className="text-black/70 text-xs">
+                  Week {activeUserProgram.currentWeek} · Day {activeUserProgram.currentDay}
+                </p>
+              </div>
+              <button
+                onClick={() => navigate("/workouts")}
+                className="flex-shrink-0 bg-black text-white px-4 py-2 rounded-lg font-medium flex items-center gap-1.5 text-sm"
+              >
+                <Play size={13} />
+                Continue
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Create New Custom Programme */}
-      <div className="w-full px-2 mb-6 mt-6">
+      {/* Create / Generate + Focus tabs */}
+      <div className="w-full px-2 mb-4 mt-3">
         <div
-          className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
-          onClick={() => navigate("/programmes/create")}
+          className="bg-gradient-to-r from-[#246BFD]/20 to-[#BE9EFF]/20 border border-[#246BFD]/40 rounded-xl px-4 py-3 flex justify-between items-center cursor-pointer hover:from-[#246BFD]/30 hover:to-[#BE9EFF]/30 transition-colors"
+          onClick={() => { setShowGenerateModal(true); setGenerateStep(1); }}
         >
-          <span className="font-semibold text-base text-white">
-            Create New Custom Programme
-          </span>
-          <div className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center font-bold">
-            +
+          <div>
+            <span className="font-semibold text-base text-white block">
+              Generate a Programme
+            </span>
+            <span className="text-xs text-[#8EC5FF]">Built around your goals and schedule</span>
           </div>
+          <Sparkles size={20} className="text-[#8EC5FF]" />
         </div>
 
         {filterTab === "all" && (
@@ -413,133 +515,276 @@ export default function Programmes() {
                   { bg: "from-[#FFD700]", accent: "border-[#FFA500]" },
                   { bg: "from-[#BE9EFF]", accent: "border-[#9C6BFF]" },
                 ];
-                const colourIdx =
-                  previousPrograms.indexOf(userProgram) % colours.length;
+                const colourIdx = previousPrograms.indexOf(userProgram) % colours.length;
                 const colour = colours[colourIdx];
-
                 return (
-                  <div
-                    key={userProgram.id}
-                    className={`w-full bg-[#1C1F26] rounded-xl px-4 py-4 border-l-4 ${colour.accent}`}
-                  >
-                    <p className="font-semibold text-white mb-1">
-                      {userProgram.programme.name}
-                    </p>
-                    <p className="text-sm text-[#5E6272]">
-                      Completed {formatProgrammeDate(userProgram.endDate)}
-                    </p>
+                  <div key={userProgram.id} className={`w-full bg-[#1C1F26] rounded-xl px-4 py-4 border-l-4 ${colour.accent}`}>
+                    <p className="font-semibold text-white mb-1">{userProgram.programme.name}</p>
+                    <p className="text-sm text-[#5E6272]">Completed {formatProgrammeDate(userProgram.endDate)}</p>
                   </div>
                 );
               })}
             </div>
           ) : (
             <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
-              <p className="text-[#5E6272] font-semibold text-lg">
-                No completed programmes yet
-              </p>
+              <p className="text-[#5E6272] font-semibold text-lg">No completed programmes yet</p>
             </div>
           )
-        ) : // All Programmes View
-        filteredProgrammeSections.length > 0 ? (
-          filteredProgrammeSections.map(([section, programmes], idx) => {
-            const isOpen = openSections[section];
+        ) : (
+          // All Programmes View — sub-tabs for My vs Brute
+          <div>
+            {/* Source sub-tabs */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setProgrammeSourceTab("custom")}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors border ${
+                  programmeSourceTab === "custom"
+                    ? "bg-[#246BFD]/20 border-[#246BFD]/60 text-white"
+                    : "bg-transparent border-[#2F3544] text-[#5E6272]"
+                }`}
+              >
+                My Programmes
+                {customProgs.length > 0 && (
+                  <span className="ml-1.5 text-xs opacity-70">({customProgs.length})</span>
+                )}
+              </button>
+              <button
+                onClick={() => setProgrammeSourceTab("brute")}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors border ${
+                  programmeSourceTab === "brute"
+                    ? "bg-[#00FFAD]/10 border-[#00FFAD]/40 text-white"
+                    : "bg-transparent border-[#2F3544] text-[#5E6272]"
+                }`}
+              >
+                Brute Library
+                {bruteProgs.length > 0 && (
+                  <span className="ml-1.5 text-xs opacity-70">({bruteProgs.length})</span>
+                )}
+              </button>
+            </div>
 
-            return (
-              <div key={idx}>
-                <div
-                  className="flex items-center gap-2 cursor-pointer mb-2"
-                  onClick={() => toggleSection(section)}
-                >
-                  {isOpen ? (
-                    <ChevronDown className="text-green-500 w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="text-green-500 w-4 h-4" />
-                  )}
-                  <h3 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                    {section}
-                  </h3>
+            {/* My Programmes list */}
+            {programmeSourceTab === "custom" && (
+              customProgs.length === 0 ? (
+                <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex flex-col items-center gap-3">
+                  <p className="text-[#5E6272] font-semibold text-base">No custom programmes yet</p>
+                  <p className="text-[#3A3E48] text-sm text-center">Generate one or create your own above</p>
                 </div>
-
-                {isOpen && (
-                  <div className="flex flex-col gap-3">
-                    {programmes.map((prog: any) => {
-                      const isActive =
-                        activeUserProgram?.programmeId === prog.id;
-
-                      return (
-                        <div
-                          key={prog.id}
-                          className={`w-full bg-[#1C1F26] rounded-xl px-4 py-3 ${
-                            isActive
-                              ? "border-2 border-green-500"
-                              : "border border-[#2F3544]"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className="font-semibold text-white">
-                                  {prog.name}
-                                </p>
-                                {isActive && (
-                                  <CheckCircle
-                                    className="text-green-500"
-                                    size={16}
+              ) : (
+                <motion.div className="flex flex-col gap-3" variants={stagger} initial="hidden" animate="show">
+                  {customProgs.map((prog: any) => {
+                    const isActive = activeUserProgram?.programmeId === prog.id;
+                    const isRenaming = renamingId === prog.id;
+                    return (
+                      <motion.div
+                        key={prog.id}
+                        variants={fadeUp}
+                        transition={easeOut}
+                        className={`w-full bg-[#1C1F26] rounded-xl px-4 py-3 border ${
+                          isActive ? "border-green-500/60" : "border-[#246BFD]/30"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              {isRenaming ? (
+                                <div className="flex items-center gap-2 flex-1">
+                                  <input
+                                    autoFocus
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleRename(prog.id);
+                                      if (e.key === "Escape") setRenamingId(null);
+                                    }}
+                                    className="flex-1 bg-[#2A2E38] border border-[#246BFD]/60 rounded-lg px-3 py-1.5 text-white text-sm outline-none"
                                   />
-                                )}
-                              </div>
-                              <p className="text-sm text-[#00FFAD]">
-                                {prog.daysPerWeek} days · {prog.weeks} weeks
-                              </p>
-                              {prog.description && (
-                                <p className="text-xs text-[#5E6272] mt-1">
-                                  {prog.description}
-                                </p>
+                                  <button
+                                    onClick={() => handleRename(prog.id)}
+                                    disabled={savingRename}
+                                    className="p-1.5 rounded-lg bg-[#246BFD]/20 text-[#8EC5FF] hover:bg-[#246BFD]/40 transition-colors"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => setRenamingId(null)}
+                                    className="p-1.5 rounded-lg bg-white/5 text-[#5E6272] hover:bg-white/10 transition-colors"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="font-semibold text-white truncate">{prog.name}</p>
+                                  {isActive && <CheckCircle className="text-green-500 flex-shrink-0" size={16} />}
+                                  <span className="text-xs text-[#8EC5FF] bg-[#246BFD]/15 px-1.5 py-0.5 rounded-full flex-shrink-0">Custom</span>
+                                  <button
+                                    onClick={() => { setRenamingId(prog.id); setRenameValue(prog.name); }}
+                                    className="p-1 rounded-lg text-[#5E6272] hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                </>
                               )}
                             </div>
-                          </div>
-
-                          <div className="flex gap-2 mt-3">
-                            <button
-                              onClick={() => handleEditProgramme(prog.id)}
-                              className="flex-1 bg-[#2A2E38] hover:bg-[#3a3f4a] text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
-                            >
-                              <Edit3 size={14} />
-                              Customize
-                            </button>
-                            {!isActive && (
-                              <button
-                                onClick={() => handleStartProgramme(prog.id)}
-                                className="flex-1 bg-[#246BFD] hover:bg-blue-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
-                              >
-                                <Play size={14} />
-                                Start
-                              </button>
-                            )}
+                            <p className="text-sm text-[#00FFAD]">{prog.daysPerWeek} days · {prog.weeks} weeks</p>
+                            {prog.description && <p className="text-xs text-[#5E6272] mt-1">{prog.description}</p>}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
-            <p className="text-[#5E6272] font-semibold text-lg">
-              {progressionFocusTab === "STRENGTH"
-                ? "No strength programmes yet"
-                : "No muscle-building programmes yet"}
-            </p>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => handleEditProgramme(prog.id)}
+                            className="flex-1 bg-[#2A2E38] hover:bg-[#3a3f4a] text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <Edit3 size={14} />
+                            Customize
+                          </button>
+                          {!isActive && (
+                            <button
+                              onClick={() => handleStartProgramme(prog.id)}
+                              className="flex-1 bg-[#246BFD] hover:bg-blue-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <Play size={14} />
+                              Start
+                            </button>
+                          )}
+                          <button
+                            onClick={() => { setProgrammeToDelete({ id: prog.id, name: prog.name }); setShowDeleteModal(true); }}
+                            className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              )
+            )}
+
+            {/* Brute Library list */}
+            {programmeSourceTab === "brute" && (
+              bruteProgs.length === 0 ? (
+                <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
+                  <p className="text-[#5E6272] font-semibold text-lg">
+                    {progressionFocusTab === "STRENGTH" ? "No strength programmes yet" : "No muscle-building programmes yet"}
+                  </p>
+                </div>
+              ) : (
+                <motion.div className="flex flex-col gap-3" variants={stagger} initial="hidden" animate="show">
+                  {bruteProgs.map((prog: any) => {
+                    const isActive = activeUserProgram?.programmeId === prog.id;
+                    return (
+                      <motion.div
+                        key={prog.id}
+                        variants={fadeUp}
+                        transition={easeOut}
+                        className={`w-full bg-[#1C1F26] rounded-xl px-4 py-3 ${
+                          isActive ? "border-2 border-green-500/60" : "border border-[#2F3544]"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-semibold text-white">{prog.name}</p>
+                              {isActive && <CheckCircle className="text-green-500" size={16} />}
+                            </div>
+                            <p className="text-sm text-[#00FFAD]">{prog.daysPerWeek} days · {prog.weeks} weeks</p>
+                            {prog.description && <p className="text-xs text-[#5E6272] mt-1">{prog.description}</p>}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => handleEditProgramme(prog.id)}
+                            className="flex-1 bg-[#2A2E38] hover:bg-[#3a3f4a] text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <Edit3 size={14} />
+                            Customize
+                          </button>
+                          {!isActive && (
+                            <button
+                              onClick={() => handleStartProgramme(prog.id)}
+                              className="flex-1 bg-[#246BFD] hover:bg-blue-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                            >
+                              <Play size={14} />
+                              Start
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </motion.div>
+              )
+            )}
           </div>
         )}
       </div>
 
+      {/* Delete Programme Modal */}
+      <AnimatePresence>
+        {showDeleteModal && programmeToDelete && (
+          <motion.div
+            className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50"
+            variants={modalOverlay}
+            initial="hidden"
+            animate="show"
+            exit="hidden"
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="bg-[#1C1F26] rounded-2xl p-6 w-full max-w-sm border border-[#2F3544]"
+              variants={modalPanel}
+              transition={spring}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-red-500/15 flex items-center justify-center">
+                  <Trash2 size={18} className="text-red-400" />
+                </div>
+                <h2 className="text-white font-bold text-lg">Delete Programme?</h2>
+              </div>
+              <p className="text-[#A0AEC0] text-sm mb-2">
+                <span className="text-white font-medium">{programmeToDelete.name}</span> will be permanently deleted.
+              </p>
+              <p className="text-[#5E6272] text-xs mb-6">
+                Your exercise history is kept — only the programme template is removed.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowDeleteModal(false); setProgrammeToDelete(null); }}
+                  className="flex-1 py-3 bg-[#2A2E38] hover:bg-[#3A3E48] text-white rounded-xl font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDeleteProgramme(programmeToDelete.id)}
+                  disabled={deletingProgramme}
+                  className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+                >
+                  {deletingProgramme ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Warning Modal */}
-      {showWarningModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl">
+      <AnimatePresence>
+        {showWarningModal && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            variants={modalOverlay}
+            initial="hidden"
+            animate="show"
+            exit="hidden"
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl"
+              variants={modalPanel}
+              transition={spring}
+            >
             <h2 className="text-white text-2xl font-bold text-center mb-4">
               Switch Programme?
             </h2>
@@ -580,16 +825,29 @@ export default function Programmes() {
                 Switch
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* End Active Programme Modal */}
-      {showEndProgrammeModal && activeUserProgram && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl">
-            <h2 className="text-white text-2xl font-bold text-center mb-4">
-              End Programme?
+      <AnimatePresence>
+        {showEndProgrammeModal && activeUserProgram && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+            variants={modalOverlay}
+            initial="hidden"
+            animate="show"
+            exit="hidden"
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="bg-[#1C1F26] rounded-2xl p-8 w-full max-w-md border border-[#2F3544] shadow-2xl"
+              variants={modalPanel}
+              transition={spring}
+            >
+              <h2 className="text-white text-2xl font-bold text-center mb-4">
+                End Programme?
             </h2>
             <p className="text-[#A0AEC0] text-center mb-2">
               This will end
@@ -619,11 +877,216 @@ export default function Programmes() {
                 {endingProgramme ? "Ending..." : "End Programme"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Generate Programme Modal */}
+      <AnimatePresence>
+        {showGenerateModal && (
+          <motion.div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            variants={modalOverlay}
+            initial="hidden"
+            animate="show"
+            exit="hidden"
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="bg-[#1C1F26] border border-[#2F3544] rounded-2xl w-full max-w-md p-6 shadow-2xl"
+              variants={modalPanel}
+              transition={spring}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={18} className="text-[#8EC5FF]" />
+                  <h2 className="text-white font-bold text-lg">Generate Programme</h2>
+              </div>
+              <button onClick={resetGenerateModal} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Step 1: Goal */}
+            {generateStep === 1 && (
+              <div>
+                <p className="text-[#9CA3AF] text-sm mb-4">What is your primary goal?</p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => { setGenerateGoal("MUSCLE_BUILDING"); setGenerateStep(2); }}
+                    className="w-full bg-[#246BFD]/20 border border-[#246BFD]/60 rounded-xl px-4 py-4 text-left hover:bg-[#246BFD]/30 transition-colors"
+                  >
+                    <div className="text-white font-semibold">Muscle Building</div>
+                    <div className="text-[#8EC5FF] text-xs mt-1">Hypertrophy-focused training to build size and mass</div>
+                  </button>
+                  <button
+                    disabled
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-left opacity-50 cursor-not-allowed"
+                  >
+                    <div className="text-white font-semibold">Strength</div>
+                    <div className="text-[#9CA3AF] text-xs mt-1">Coming soon</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Experience Level */}
+            {generateStep === 2 && (
+              <div>
+                <p className="text-[#9CA3AF] text-sm mb-4">What is your training experience level?</p>
+                <div className="flex flex-col gap-3">
+                  {[
+                    { key: "beginner",     label: "Beginner",     desc: "Under 1 year of consistent training · 8 week programme" },
+                    { key: "intermediate", label: "Intermediate",  desc: "1–3 years of consistent training · 12 week programme" },
+                    { key: "advanced",     label: "Advanced",      desc: "3+ years of consistent training · 16 week programme" },
+                  ].map(({ key, label, desc }) => (
+                    <button
+                      key={key}
+                      onClick={() => { setGenerateLevel(key); setGenerateStep(3); }}
+                      className={`w-full border rounded-xl px-4 py-4 text-left transition-colors ${
+                        generateLevel === key
+                          ? "bg-[#246BFD]/20 border-[#246BFD]/60"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-white font-semibold">{label}</div>
+                      <div className="text-[#9CA3AF] text-xs mt-1">{desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setGenerateStep(1)} className="mt-4 text-[#9CA3AF] text-sm hover:text-white transition-colors">← Back</button>
+              </div>
+            )}
+
+            {/* Step 3: Days per week */}
+            {generateStep === 3 && (
+              <div>
+                <p className="text-[#9CA3AF] text-sm mb-4">How many days per week can you train?</p>
+                <div className="grid grid-cols-3 gap-3 mb-2">
+                  {[2, 3, 4, 5, 6].map((days) => (
+                    <button
+                      key={days}
+                      onClick={() => setGenerateDays(days)}
+                      className={`border rounded-xl px-3 py-4 text-center transition-colors ${
+                        generateDays === days
+                          ? "bg-[#246BFD]/20 border-[#246BFD]/60"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-white font-bold text-xl">{days}</div>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setGenerateStep(4)}
+                  className="mt-4 w-full bg-[#246BFD] hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors"
+                >
+                  Continue
+                </button>
+                <button onClick={() => setGenerateStep(2)} className="mt-3 text-[#9CA3AF] text-sm hover:text-white transition-colors">← Back</button>
+              </div>
+            )}
+
+            {/* Step 4: Priority muscle group */}
+            {generateStep === 4 && (
+              <div>
+                <p className="text-[#9CA3AF] text-sm mb-4">Any muscle group you want to prioritise?</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: "fullBody",   label: "Full Body",  desc: "Equal focus across all muscles" },
+                    { key: "chest",      label: "Chest",      desc: "Extra chest volume each session" },
+                    { key: "back",       label: "Back",       desc: "Extra back & lat volume" },
+                    { key: "shoulders",  label: "Shoulders",  desc: "Extra shoulder work" },
+                    { key: "arms",       label: "Arms",       desc: "Extra biceps & triceps" },
+                    { key: "legs",       label: "Legs",       desc: "Extra quad & hamstring volume" },
+                    { key: "glutes",     label: "Glutes",     desc: "Extra glute-focused work" },
+                  ].map(({ key, label, desc }) => (
+                    <button
+                      key={key}
+                      onClick={() => setGeneratePriorityMuscle(key)}
+                      className={`border rounded-xl px-3 py-3 text-left transition-colors ${
+                        generatePriorityMuscle === key
+                          ? "bg-[#246BFD]/20 border-[#246BFD]/60"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-white font-semibold text-sm">{label}</div>
+                      <div className="text-[#9CA3AF] text-xs mt-0.5">{desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setGenerateStep(5)}
+                  className="mt-4 w-full bg-[#246BFD] hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors"
+                >
+                  Continue
+                </button>
+                <button onClick={() => setGenerateStep(3)} className="mt-3 text-[#9CA3AF] text-sm hover:text-white transition-colors">← Back</button>
+              </div>
+            )}
+
+            {/* Step 5: Equipment */}
+            {generateStep === 5 && (
+              <div>
+                <p className="text-[#9CA3AF] text-sm mb-4">What equipment do you have access to?</p>
+                <div className="flex flex-col gap-3">
+                  {[
+                    { key: "fullGym",     label: "Full Gym",           desc: "Barbells, machines, cables, dumbbells" },
+                    { key: "barbellRack", label: "Barbell + Rack",     desc: "Barbell, squat rack, cables, basic machines" },
+                    { key: "dumbbells",   label: "Dumbbells Only",     desc: "Dumbbell set and bodyweight exercises" },
+                    { key: "bodyweight",  label: "Bodyweight",         desc: "No equipment — bodyweight only" },
+                  ].map(({ key, label, desc }) => (
+                    <button
+                      key={key}
+                      onClick={() => setGenerateEquipment(key)}
+                      className={`w-full border rounded-xl px-4 py-3 text-left transition-colors ${
+                        generateEquipment === key
+                          ? "bg-[#246BFD]/20 border-[#246BFD]/60"
+                          : "bg-white/5 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      <div className="text-white font-semibold">{label}</div>
+                      <div className="text-[#9CA3AF] text-xs mt-0.5">{desc}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {generateError && (
+                  <div className="mt-3 text-red-400 text-sm text-center">{generateError}</div>
+                )}
+
+                <button
+                  onClick={handleGenerateProgramme}
+                  disabled={!generateEquipment || generating}
+                  className={`mt-4 w-full font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 ${
+                    !generateEquipment || generating
+                      ? "bg-white/10 text-[#9CA3AF] cursor-not-allowed"
+                      : "bg-gradient-to-r from-[#246BFD] to-[#BE9EFF] text-white hover:opacity-90"
+                  }`}
+                >
+                  {generating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      Generate Programme
+                    </>
+                  )}
+                </button>
+                <button onClick={() => setGenerateStep(4)} className="mt-3 text-[#9CA3AF] text-sm hover:text-white transition-colors">← Back</button>
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+        )}
+      </AnimatePresence>
 
       <BottomBar onLogout={handleLogout} />
-    </div>
+    </motion.div>
   );
 }

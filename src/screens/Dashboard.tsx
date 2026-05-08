@@ -1,4 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
+import { fadeUp, stagger, easeOut, pageTransition } from "../utils/animations";
+import CountUp from "../components/CountUp";
 import {
   ArrowRight,
   Play,
@@ -9,6 +12,7 @@ import {
   ListTodo,
   Flame,
   Shield,
+  History,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
@@ -59,13 +63,217 @@ interface StreakStatus {
   daysUntilExpiry: number | null;
 }
 
+interface TileData {
+  lastBodyweight: { weight: number; date: string } | null;
+  lastWorkout: { date: string; bodyPartFocus: string } | null;
+  activeProgram: {
+    currentWeek: number;
+    currentDay: number;
+    weeks: number;
+    daysPerWeek: number;
+    bodyPartFocus: string;
+    lastWorkoutAt: string | null;
+  } | null;
+  recentPR: { exerciseName: string; weight: number; reps: number } | null;
+  volumeMilestone: { muscle: string; sets: number } | null;
+}
+
+type DynamicTile = {
+  key: string;
+  label: string;
+  sublabel?: string;
+  icon: React.ReactNode;
+  gradient: string;
+  onClick: () => void;
+  priority: number;
+};
+
+function computeDynamicTiles(
+  data: TileData,
+  streakStatus: StreakStatus | null,
+  navigate: (path: string) => void,
+): DynamicTile[] {
+  const tiles: DynamicTile[] = [];
+  const now = new Date();
+
+  // 1. No active programme
+  if (!data.activeProgram) {
+    tiles.push({
+      key: "no_programme",
+      label: "Start a programme",
+      sublabel: "Choose a plan to begin your journey",
+      icon: <ListTodo size={24} className="text-white" />,
+      gradient: "from-[#DA70D6] to-[#C2185B]",
+      onClick: () => navigate("/programmes"),
+      priority: 1,
+    });
+  }
+
+  // 2. Real PR (last 7 days)
+  if (data.recentPR) {
+    tiles.push({
+      key: "pr",
+      label: `New ${data.recentPR.exerciseName} PR!`,
+      sublabel: `${data.recentPR.weight}kg × ${data.recentPR.reps} reps`,
+      icon: <Trophy size={24} className="text-white" />,
+      gradient: "from-[#66BB6A] to-[#43A047]",
+      onClick: () => navigate("/metrics"),
+      priority: 2,
+    });
+  }
+
+  // 3. Stale programme (10+ days no workout)
+  if (data.activeProgram?.lastWorkoutAt) {
+    const daysSince = Math.floor(
+      (now.getTime() - new Date(data.activeProgram.lastWorkoutAt).getTime()) /
+        (1000 * 60 * 60 * 24),
+    );
+    if (daysSince >= 10) {
+      tiles.push({
+        key: "stale_programme",
+        label: "Back on track?",
+        sublabel: `No workout in ${daysSince} days`,
+        icon: <Play size={24} className="text-white" />,
+        gradient: "from-[#FF6B6B] to-[#FF8E53]",
+        onClick: () => navigate("/workouts"),
+        priority: 3,
+      });
+    }
+  }
+
+  // 4. Programme nearly complete (≤2 weeks left)
+  if (data.activeProgram) {
+    const weeksLeft = data.activeProgram.weeks - data.activeProgram.currentWeek;
+    if (weeksLeft >= 0 && weeksLeft <= 2) {
+      tiles.push({
+        key: "nearly_done",
+        label: weeksLeft === 0 ? "Final week — well done!" : `${weeksLeft} week${weeksLeft === 1 ? "" : "s"} left`,
+        sublabel: "Plan your next programme",
+        icon: <ListTodo size={24} className="text-white" />,
+        gradient: "from-[#FFC857] to-[#FF8C42]",
+        onClick: () => navigate("/programmes"),
+        priority: 4,
+      });
+    }
+  }
+
+  // 5. Upcoming workout (active programme, not stale)
+  if (data.activeProgram) {
+    const daysSince = data.activeProgram.lastWorkoutAt
+      ? Math.floor(
+          (now.getTime() - new Date(data.activeProgram.lastWorkoutAt).getTime()) /
+            (1000 * 60 * 60 * 24),
+        )
+      : 999;
+    if (daysSince < 10) {
+      tiles.push({
+        key: "upcoming",
+        label: `Next: Day ${data.activeProgram.currentDay}`,
+        sublabel: data.activeProgram.bodyPartFocus,
+        icon: <Play size={24} className="text-white" />,
+        gradient: "from-[#9ED3FF] to-[#246BFD]",
+        onClick: () => navigate("/workouts"),
+        priority: 5,
+      });
+    }
+  }
+
+  // 6. Volume milestone this week
+  if (data.volumeMilestone) {
+    tiles.push({
+      key: "volume_milestone",
+      label: `${data.volumeMilestone.sets} sets of ${data.volumeMilestone.muscle}`,
+      sublabel: "This week · Great volume!",
+      icon: <Trophy size={24} className="text-white" />,
+      gradient: "from-[#C6B5FF] to-[#7B5FD6]",
+      onClick: () => navigate("/metrics"),
+      priority: 6,
+    });
+  }
+
+  // 7. Streak milestone
+  if (streakStatus && [1, 2, 4, 8, 12, 16, 20, 26, 52].includes(streakStatus.streakCount)) {
+    tiles.push({
+      key: "streak_milestone",
+      label: `${streakStatus.streakCount}-week streak!`,
+      sublabel: "Keep the momentum going",
+      icon: <Flame size={24} className="text-white" />,
+      gradient: "from-[#FF8C42] to-[#FFC857]",
+      onClick: () => navigate("/"),
+      priority: 7,
+    });
+  }
+
+  // 8. Bodyweight — stale, never logged, or recent
+  if (!data.lastBodyweight) {
+    tiles.push({
+      key: "bodyweight_log",
+      label: "Log your bodyweight",
+      sublabel: "Track your progress over time",
+      icon: <Scale size={24} className="text-white" />,
+      gradient: "from-[#FF9966] to-[#FF6B6B]",
+      onClick: () => navigate("/settings"),
+      priority: 8,
+    });
+  } else {
+    const daysSince = Math.floor(
+      (now.getTime() - new Date(data.lastBodyweight.date).getTime()) /
+        (1000 * 60 * 60 * 24),
+    );
+    if (daysSince >= 7) {
+      tiles.push({
+        key: "bodyweight_stale",
+        label: "Update Bodyweight",
+        sublabel: `Last logged ${daysSince} days ago`,
+        icon: <Scale size={24} className="text-white" />,
+        gradient: "from-[#FF9966] to-[#FF6B6B]",
+        onClick: () => navigate("/settings"),
+        priority: 8,
+      });
+    } else {
+      tiles.push({
+        key: "bodyweight_recent",
+        label: `${data.lastBodyweight.weight}kg`,
+        sublabel: `Logged ${daysSince === 0 ? "today" : `${daysSince} day${daysSince === 1 ? "" : "s"} ago`}`,
+        icon: <Scale size={24} className="text-white" />,
+        gradient: "from-[#FF9966] to-[#FF6B6B]",
+        onClick: () => navigate("/settings"),
+        priority: 8,
+      });
+    }
+  }
+
+  // 9. Last workout recap (within 14 days)
+  if (data.lastWorkout) {
+    const daysSince = Math.floor(
+      (now.getTime() - new Date(data.lastWorkout.date).getTime()) /
+        (1000 * 60 * 60 * 24),
+    );
+    if (daysSince <= 14) {
+      tiles.push({
+        key: "last_workout",
+        label: daysSince === 0 ? "Trained today" : `Trained ${daysSince} day${daysSince === 1 ? "" : "s"} ago`,
+        sublabel: data.lastWorkout.bodyPartFocus,
+        icon: <History size={24} className="text-white" />,
+        gradient: "from-[#43CBFF] to-[#9708CC]",
+        onClick: () => navigate("/metrics"),
+        priority: 9,
+      });
+    }
+  }
+
+  return tiles.sort((a, b) => a.priority - b.priority).slice(0, 3);
+}
+
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [userProgram, setUserProgram] = useState<UserProgram | null>(null);
   const [todayWorkout, setTodayWorkout] = useState<any>(null);
   const [weeklyStats, setWeeklyStats] = useState<WeeklyStats | null>(null);
   const [streakStatus, setStreakStatus] = useState<StreakStatus | null>(null);
+  const [tileData, setTileData] = useState<TileData | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const hasFetchedStats = useRef(false);
 
   const navItems = ["overview", "performance"];
 
@@ -89,15 +297,17 @@ export default function Dashboard() {
 
     const fetchData = async () => {
       try {
-        // Fetch user data
-        const dashboardRes = await fetch(
-          "http://localhost:4242/api/dashboard",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        );
+        const headers = { Authorization: `Bearer ${token}` };
+
+        // Fire all independent requests in parallel
+        const [dashboardRes, profileRes, userProgramRes, streakRes, tilesRes] =
+          await Promise.all([
+            fetch("/api/dashboard",          { headers }),
+            fetch("/auth/user/profile",      { headers }),
+            fetch("/auth/user-programs",     { headers }),
+            fetch("/auth/streak",            { headers }),
+            fetch("/auth/dashboard/tiles",   { headers }),
+          ]);
 
         if (dashboardRes.status === 401) {
           localStorage.removeItem("token");
@@ -119,58 +329,24 @@ export default function Dashboard() {
 
         const userData = await dashboardRes.json();
         const dashboardFirstName = (userData?.firstName ?? "").trim();
-        if (dashboardFirstName) {
-          setFirstName(dashboardFirstName);
-        }
+        if (dashboardFirstName) setFirstName(dashboardFirstName);
         setSurname(userData.surname);
         setMessage(userData.message);
-
-        // Fetch profile data to get profile photo
-        const profileRes = await fetch(
-          "http://localhost:4242/auth/user/profile",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        );
 
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           const profileFirstName = (profileData?.firstName ?? "").trim();
-          if (profileFirstName) {
-            setFirstName(profileFirstName);
-          }
+          if (profileFirstName) setFirstName(profileFirstName);
           setProfilePhoto(profileData.profilePhoto);
         }
 
-        // Fetch active user program
-        const userProgramRes = await fetch(
-          "http://localhost:4242/auth/user-programs",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        );
-
         if (userProgramRes.ok) {
           const userPrograms = await userProgramRes.json();
-          const active = userPrograms.find((up: any) => up.status === "ACTIVE");
-          setUserProgram(active);
+          setUserProgram(userPrograms.find((up: any) => up.status === "ACTIVE"));
         }
 
-        // Run streak expiry check and fetch latest streak state on app open
-        const streakRes = await fetch("http://localhost:4242/auth/streak", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (streakRes.ok) {
-          const streakData = await streakRes.json();
-          setStreakStatus(streakData);
-        }
+        if (streakRes.ok) setStreakStatus(await streakRes.json());
+        if (tilesRes.ok)  setTileData(await tilesRes.json());
 
         setLoading(false);
       } catch (err) {
@@ -186,12 +362,12 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchWeeklyStats = async () => {
       const token = localStorage.getItem("token");
-      if (!token || !userProgram) return;
+      if (!token) return;
 
       setLoadingStats(true);
       try {
         const response = await fetch(
-          "http://localhost:4242/auth/workouts/weekly-stats",
+          "/auth/workouts/weekly-stats",
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -210,10 +386,11 @@ export default function Dashboard() {
       }
     };
 
-    if (activeTab === "performance" && userProgram) {
+    if (activeTab === "performance" && !hasFetchedStats.current) {
+      hasFetchedStats.current = true;
       fetchWeeklyStats();
     }
-  }, [activeTab, userProgram]);
+  }, [activeTab]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -255,7 +432,12 @@ export default function Dashboard() {
   const displayFirstName = firstName.trim();
 
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Dashboard"
         pageIcon={
@@ -267,7 +449,7 @@ export default function Dashboard() {
           >
             {profilePhoto ? (
               <img
-                src={`http://localhost:4242${profilePhoto}`}
+                src={`${profilePhoto}`}
                 alt="Profile"
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -294,8 +476,11 @@ export default function Dashboard() {
       />
 
       {/* Welcome Message */}
-      <h1
+      <motion.h1
         className="text-center mt-1"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
         style={{
           fontFamily: "'Poppins', sans-serif",
           fontWeight: 600,
@@ -306,14 +491,16 @@ export default function Dashboard() {
         }}
       >
         {displayFirstName ? `${greeting}, ${displayFirstName}` : `${greeting}!`}
-      </h1>
+      </motion.h1>
 
       {/* Filter Menu */}
       <div className="flex justify-around mt-3 mb-4">
         {navItems.map((item) => (
-          <button
+          <motion.button
             key={item}
             onClick={() => setActiveTab(item)}
+            whileTap={{ scale: 0.93 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
             className={`px-4 py-2 rounded-full font-medium text-sm ${
               isActive(item)
                 ? "bg-[#246BFD] text-white"
@@ -321,7 +508,7 @@ export default function Dashboard() {
             }`}
           >
             {item === "overview" ? "Overview" : "This Week's Performance"}
-          </button>
+          </motion.button>
         ))}
       </div>
 
@@ -330,7 +517,14 @@ export default function Dashboard() {
         <div className="flex flex-col gap-4">
           {/* Today's Workout Box */}
           {userProgram && todayWorkout ? (
-            <div className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden">
+            <motion.div
+              className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+              whileHover={{ y: -3, boxShadow: "0 12px 36px rgba(0,206,209,0.35)" }}
+              whileTap={{ scale: 0.98 }}
+            >
               <div className="relative z-10">
                 <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
                 <p className="text-sm opacity-90 font-medium mb-6">
@@ -338,39 +532,56 @@ export default function Dashboard() {
                   Day {userProgram.currentDay}
                 </p>
 
-                <button
+                <motion.button
                   onClick={() => navigate("/workouts")}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
                   className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transition-all"
                 >
                   Start Now
-                </button>
+                </motion.button>
               </div>
-            </div>
+            </motion.div>
           ) : (
-            <div className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden">
+            <motion.div
+              className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+              whileHover={{ y: -3, boxShadow: "0 12px 36px rgba(0,206,209,0.35)" }}
+              whileTap={{ scale: 0.98 }}
+            >
               <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
               <p className="text-sm opacity-90 mb-6">
                 Choose a programme to begin your fitness journey
               </p>
-              <button
+              <motion.button
                 onClick={() => navigate("/programmes")}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transition-all"
               >
                 Start Now
-              </button>
-            </div>
+              </motion.button>
+            </motion.div>
           )}
 
           {/* Old code removed - was showing progress bar and view programme button */}
 
           {/* Rolling consistency streak */}
           {streakStatus && (
-            <div className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4">
+            <motion.div
+              className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(255,140,66,0.15)" }}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Flame size={18} className="text-[#FF8C42]" />
                   <span className="text-white font-semibold text-base">
-                    {streakStatus.streakCount}-week streak
+                    <CountUp to={streakStatus.streakCount} duration={0.7} />-week streak
                   </span>
                 </div>
                 {streakStatus.freezeUsedOnCurrentStreak && (
@@ -386,9 +597,10 @@ export default function Dashboard() {
               </p>
 
               <div className="w-full bg-[#1A1D23] rounded-full h-2 mt-3 overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-[#FF8C42] to-[#FFC857] h-2 rounded-full transition-all duration-300"
-                  style={{
+                <motion.div
+                  className="bg-gradient-to-r from-[#FF8C42] to-[#FFC857] h-2 rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{
                     width: `${Math.min(
                       100,
                       (streakStatus.currentWindowWorkouts /
@@ -396,6 +608,7 @@ export default function Dashboard() {
                         100,
                     )}%`,
                   }}
+                  transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                 />
               </div>
 
@@ -405,298 +618,205 @@ export default function Dashboard() {
                   {streakStatus.countdownDaysRemaining === 1 ? "" : "s"} to keep your streak.
                 </p>
               )}
-            </div>
+            </motion.div>
           )}
 
-          {/* Quick Action Boxes */}
-          <div
-            onClick={() => navigate("/settings")}
-            className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#FF9966] to-[#FF6B6B] flex items-center justify-center">
-                <Scale size={24} className="text-white" />
-              </div>
-              <span className="font-medium text-white">Update Bodyweight</span>
-            </div>
-            <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
-          </div>
-
-          <div
-            onClick={() => navigate("/metrics")}
-            className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#66BB6A] to-[#43A047] flex items-center justify-center">
-                <Trophy size={24} className="text-white" />
-              </div>
-              <span className="font-medium text-white">
-                New Bench Press PR!
-              </span>
-            </div>
-            <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
-          </div>
-
-          <div
-            onClick={() => navigate("/programmes")}
-            className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#DA70D6] to-[#C2185B] flex items-center justify-center">
-                <ListTodo size={24} className="text-white" />
-              </div>
-              <span className="font-medium text-white">
-                Plan your next programme
-              </span>
-            </div>
-            <ArrowRight size={20} className="text-white" strokeWidth={1.5} />
-          </div>
+          {/* Quick Action Tiles */}
+          {tileData && (
+            <motion.div
+              className="flex flex-col gap-4"
+              variants={stagger}
+              initial="hidden"
+              animate="show"
+            >
+              {computeDynamicTiles(tileData, streakStatus, navigate).map((tile) => (
+                <motion.div
+                  key={tile.key}
+                  variants={fadeUp}
+                  transition={easeOut}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={tile.onClick}
+                  className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4 flex justify-between items-center cursor-pointer hover:bg-[#2A2E38] transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-12 h-12 rounded-lg bg-gradient-to-br ${tile.gradient} flex items-center justify-center flex-shrink-0`}
+                    >
+                      {tile.icon}
+                    </div>
+                    <div>
+                      <span className="font-medium text-white block">{tile.label}</span>
+                      {tile.sublabel && (
+                        <span className="text-xs text-[#A0AEC0]">{tile.sublabel}</span>
+                      )}
+                    </div>
+                  </div>
+                  <ArrowRight size={20} className="text-white flex-shrink-0" strokeWidth={1.5} />
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
         </div>
       )}
 
       {activeTab === "performance" && (
-        <div className="flex flex-col gap-6 mt-4">
-          {userProgram && (
-            <div
-              className="rounded-xl px-6 py-8"
-              style={{ background: "#262A34" }}
-            >
-              <h3
-                className="text-[#5E6272] font-semibold text-lg mb-4"
-                style={{ fontFamily: "'Poppins', sans-serif" }}
-              >
-                Current Programme Progress
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-white">
-                    {userProgram.programme.name}
-                  </span>
-                  <span className="text-[#246BFD] font-medium">
-                    Week {userProgram.currentWeek}/{userProgram.programme.weeks}
-                  </span>
-                </div>
-                <div className="w-full bg-[#1A1D23] rounded-full h-2">
-                  <div
-                    className="bg-[#246BFD] h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${calculateProgress(userProgram)}%` }}
-                  ></div>
-                </div>
-                <div className="flex justify-between text-sm text-[#5E6272]">
-                  <span>Started: {formatDate(userProgram.startDate)}</span>
-                  <span>{calculateProgress(userProgram)}% complete</span>
-                </div>
+        <div className="flex flex-col gap-4 mt-2">
+
+          {/* Programme Progress */}
+          {userProgram ? (
+            <div className="glass-card border border-white/10 rounded-2xl p-5">
+              <p className="text-[#A0AEC0] text-xs uppercase tracking-widest mb-3">Programme Progress</p>
+              <div className="flex justify-between items-baseline mb-3">
+                <span className="text-white font-semibold">{userProgram.programme.name}</span>
+                <span className="text-[#9ED3FF] text-sm font-medium">
+                  Week {userProgram.currentWeek} / {userProgram.programme.weeks}
+                </span>
               </div>
+              <div className="w-full bg-white/5 rounded-full h-2 mb-3">
+                <motion.div
+                  className="bg-gradient-to-r from-[#9ED3FF] to-[#246BFD] h-2 rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${calculateProgress(userProgram)}%` }}
+                  transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-[#5E6272]">
+                <span>Started {formatDate(userProgram.startDate)}</span>
+                <span>{calculateProgress(userProgram)}% complete</span>
+              </div>
+            </div>
+          ) : (
+            <div className="glass-card border border-white/10 rounded-2xl p-5 text-center">
+              <p className="text-[#A0AEC0] text-sm">No active programme</p>
+              <button
+                onClick={() => navigate("/programmes")}
+                className="mt-3 text-[#9ED3FF] text-sm font-medium underline underline-offset-2"
+              >
+                Start one now
+              </button>
             </div>
           )}
 
-          {/* Weekly Goal */}
-          <div
-            className="rounded-xl px-6 py-8"
-            style={{ background: "#262A34" }}
-          >
-            <h3
-              className="text-[#5E6272] font-semibold text-sm mb-6"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
-            >
-              Weekly Goal
-            </h3>
+          {/* This Week summary */}
+          <div className="glass-card border border-white/10 rounded-2xl p-5">
+            <p className="text-[#A0AEC0] text-xs uppercase tracking-widest mb-4">This Week</p>
+
             {loadingStats ? (
-              <p className="text-white text-sm">Loading stats...</p>
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#9ED3FF]" />
+              </div>
             ) : weeklyStats ? (
-              <div className="flex flex-col items-center">
-                {/* Circular Progress */}
-                <div className="relative w-40 h-40 mb-4">
-                  <svg className="w-full h-full transform -rotate-90">
-                    <circle
-                      cx="80"
-                      cy="80"
-                      r="70"
-                      stroke="#1A1D23"
-                      strokeWidth="12"
-                      fill="none"
-                    />
-                    <circle
-                      cx="80"
-                      cy="80"
-                      r="70"
-                      stroke="url(#gradient)"
-                      strokeWidth="12"
-                      fill="none"
-                      strokeDasharray={`${
-                        2 *
-                        Math.PI *
-                        70 *
-                        (weeklyStats.workoutsCompleted /
-                          weeklyStats.workoutsTarget)
-                      } ${2 * Math.PI * 70}`}
-                      strokeLinecap="round"
-                      className="transition-all duration-500"
-                    />
-                    <defs>
-                      <linearGradient
-                        id="gradient"
-                        x1="0%"
-                        y1="0%"
-                        x2="100%"
-                        y2="100%"
-                      >
-                        <stop offset="0%" stopColor="#00FFAD" />
-                        <stop offset="100%" stopColor="#246BFD" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-4xl font-bold text-white">
-                      {weeklyStats.workoutsCompleted}
-                    </span>
-                    <span className="text-sm text-[#5E6272]">
-                      / {weeklyStats.workoutsTarget}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-[#5E6272] text-center text-sm mt-4">
-                  You've completed {weeklyStats.workoutsCompleted}/
-                  {weeklyStats.workoutsTarget} workouts for this week's plan.
-                  Well done!
-                </p>
-                <button
-                  onClick={() => navigate("/programmes")}
-                  className="mt-6 w-full bg-gradient-to-r from-[#DA70D6] to-[#C2185B] hover:from-[#C55CC4] hover:to-[#A8155C] text-white px-4 py-3 rounded-full text-sm font-medium transition-all"
+              <>
+                {/* Stat pills */}
+                <motion.div
+                  className="grid grid-cols-3 gap-3 mb-6"
+                  variants={stagger}
+                  initial="hidden"
+                  animate="show"
                 >
-                  See Full Programme
-                </button>
-              </div>
-            ) : (
-              <p className="text-white text-sm">
-                Start a programme to track your weekly goals
-              </p>
-            )}
-          </div>
+                  <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-white">
+                      <CountUp to={weeklyStats.workoutsCompleted} duration={0.7} />
+                    </p>
+                    <p className="text-[10px] text-[#A0AEC0] mt-0.5">
+                      / {weeklyStats.workoutsTarget} workouts
+                    </p>
+                  </motion.div>
+                  <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-white">
+                      <CountUp to={weeklyStats.totalSets} duration={0.8} />
+                    </p>
+                    <p className="text-[10px] text-[#A0AEC0] mt-0.5">sets</p>
+                  </motion.div>
+                  <motion.div variants={fadeUp} transition={easeOut} className="glass-subtile rounded-xl p-3 text-center">
+                    <p className="text-2xl font-bold text-white">
+                      <CountUp to={weeklyStats.totalExercises} duration={0.9} />
+                    </p>
+                    <p className="text-[10px] text-[#A0AEC0] mt-0.5">exercises</p>
+                  </motion.div>
+                </motion.div>
 
-          {/* Weight moved in the last 7 days */}
-          <div
-            className="rounded-xl px-6 py-8"
-            style={{ background: "#262A34" }}
-          >
-            <h3
-              className="text-[#5E6272] font-semibold text-sm mb-6"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
-            >
-              Workouts This Week
-            </h3>
-            {loadingStats ? (
-              <p className="text-white text-sm">Loading stats...</p>
-            ) : weeklyStats && weeklyStats.dailyStats.length > 0 ? (
-              <div>
-                {/* Bar Chart - two bars per day (Exercises and Sets) */}
-                <div className="flex items-end justify-between h-40 mb-6 gap-2">
-                  {weeklyStats.dailyStats.map((day, index) => {
-                    // Use common max for both bars so they're visually comparable
-                    const commonMax = Math.max(
-                      ...weeklyStats.dailyStats.flatMap((d) => [
-                        d.exercises,
-                        d.sets,
-                      ]),
-                      1,
-                    );
-                    const exercisesHeight = (day.exercises / commonMax) * 100;
-                    const setsHeight = (day.sets / commonMax) * 100;
+                {/* Weekly goal progress bar */}
+                {weeklyStats.workoutsTarget > 0 && (
+                  <div className="mb-6">
+                    <div className="flex justify-between text-xs text-[#5E6272] mb-1.5">
+                      <span>Weekly goal</span>
+                      <span>{weeklyStats.workoutsCompleted}/{weeklyStats.workoutsTarget} sessions</span>
+                    </div>
+                    <div className="w-full bg-white/5 rounded-full h-2">
+                      <motion.div
+                        className="bg-gradient-to-r from-[#00FFAD] to-[#246BFD] h-2 rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, (weeklyStats.workoutsCompleted / weeklyStats.workoutsTarget) * 100)}%` }}
+                        transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+                      />
+                    </div>
+                  </div>
+                )}
 
-                    return (
-                      <div
-                        key={index}
-                        className="flex-1 flex flex-col items-center"
-                      >
-                        <div className="flex items-end justify-center gap-1.5 h-full w-full">
-                          {/* Exercises bar */}
-                          <div
-                            className="flex-1 bg-gradient-to-t from-[#00FFAD] to-[#00D699] rounded-t transition-all duration-300 relative group overflow-visible"
-                            style={{
-                              height: `${exercisesHeight}%`,
-                              minHeight: day.exercises > 0 ? "4px" : "0px",
-                            }}
-                            title={`${day.exercises} ${day.exercises === 1 ? "exercise" : "exercises"}`}
-                          >
-                            {/* Tooltip on hover */}
-                            {day.exercises > 0 && (
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black/90 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                                {day.exercises}{" "}
-                                {day.exercises === 1 ? "exercise" : "exercises"}
-                              </div>
-                            )}
+                {/* Day-by-day bar chart */}
+                <div>
+                  <p className="text-[#5E6272] text-xs mb-3">Sets per day</p>
+                  <div className="flex items-end justify-between gap-1.5 h-24">
+                    {weeklyStats.dailyStats.map((day, index) => {
+                      const maxSets = Math.max(...weeklyStats.dailyStats.map((d) => d.sets), 1);
+                      const heightPct = (day.sets / maxSets) * 100;
+                      const isToday = new Date(day.date).toDateString() === new Date().toDateString();
+                      return (
+                        <div key={index} className="flex-1 flex flex-col items-center gap-1.5">
+                          <div className="w-full flex items-end" style={{ height: "80px" }}>
+                            <motion.div
+                              className={`w-full rounded-t ${
+                                day.sets === 0
+                                  ? "bg-white/5"
+                                  : isToday
+                                  ? "bg-gradient-to-t from-[#86FF99] to-[#00D699]"
+                                  : "bg-gradient-to-t from-[#9ED3FF] to-[#246BFD]"
+                              }`}
+                              initial={{ scaleY: 0 }}
+                              animate={{ scaleY: 1 }}
+                              transition={{
+                                duration: 0.4,
+                                delay: index * 0.05,
+                                ease: [0.22, 1, 0.36, 1],
+                              }}
+                              style={{
+                                transformOrigin: "bottom",
+                                height: day.sets === 0 ? "4px" : `${heightPct}%`,
+                                minHeight: "4px",
+                              }}
+                            />
                           </div>
-                          {/* Sets bar */}
-                          <div
-                            className="flex-1 bg-gradient-to-t from-[#9C6BFF] to-[#7B5FD6] rounded-t transition-all duration-300 relative group overflow-visible"
-                            style={{
-                              height: `${setsHeight}%`,
-                              minHeight: day.sets > 0 ? "4px" : "0px",
-                            }}
-                            title={`${day.sets} ${day.sets === 1 ? "set" : "sets"}`}
-                          >
-                            {/* Tooltip on hover */}
-                            {day.sets > 0 && (
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black/90 rounded text-xs text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                                {day.sets} {day.sets === 1 ? "set" : "sets"}
-                              </div>
-                            )}
-                          </div>
+                          <p className={`text-[10px] font-medium ${isToday ? "text-white" : "text-[#5E6272]"}`}>
+                            {day.dayName.substring(0, 1)}
+                          </p>
                         </div>
-                        {/* Day label */}
-                        <p className="text-[#5E6272] text-xs mt-2 font-medium">
-                          {day.dayName.substring(0, 3)}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Legend */}
-                <div className="flex justify-center gap-6 mb-4 text-xs">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-gradient-to-br from-[#00FFAD] to-[#00D699] rounded"></div>
-                    <span className="text-[#5E6272]">Exercises</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 bg-gradient-to-br from-[#9C6BFF] to-[#7B5FD6] rounded"></div>
-                    <span className="text-[#5E6272]">Sets</span>
+                      );
+                    })}
                   </div>
                 </div>
-
-                {/* Summary */}
-                <div className="flex justify-center gap-6 pt-4 border-t border-[#1A1D23]">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-white">
-                      {weeklyStats.totalExercises}
-                    </p>
-                    <p className="text-xs text-[#5E6272]">
-                      {weeklyStats.totalExercises === 1
-                        ? "Exercise"
-                        : "Exercises"}
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-white">
-                      {weeklyStats.totalSets}
-                    </p>
-                    <p className="text-xs text-[#5E6272]">
-                      {weeklyStats.totalSets === 1 ? "Set" : "Sets"}
-                    </p>
-                  </div>
-                </div>
-              </div>
+              </>
             ) : (
-              <p className="text-white text-sm">
-                No workout data for the last 7 days
+              <p className="text-[#A0AEC0] text-sm text-center py-4">
+                No workout data this week
               </p>
             )}
           </div>
+
+          <motion.button
+            onClick={() => navigate("/programmes")}
+            whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(36,107,253,0.2)" }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="w-full glass-button border border-white/10 rounded-2xl py-3.5 text-white text-sm font-medium"
+          >
+            View Full Programme
+          </motion.button>
         </div>
       )}
 
       <BottomBar onLogout={handleLogout} />
       <InstallPrompt forceShow={true} />
-    </div>
+    </motion.div>
   );
 }

@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { pageTransition } from "../utils/animations";
 import BottomBar from "../components/BottomBar";
 import TopBar from "../components/TopBar";
 import InstallPrompt from "../components/InstallPrompt";
@@ -15,6 +17,7 @@ import {
   Minus,
   X,
   Share2,
+  SkipForward,
 } from "lucide-react";
 import html2canvas from "html2canvas";
 import BullseyeIcon from "../assets/Icons/Bullseye Icon.svg";
@@ -22,6 +25,12 @@ import DownwardsIcon from "../assets/Icons/Downards Icon.svg";
 import ProgressIcon from "../assets/Icons/Progress Icon.svg";
 import MuscleIcon from "../components/MuscleIcon";
 import { getSuggestedReps, estimate1RM } from "../utils/repAdjustmentUtils";
+import {
+  UnitSystem,
+  getUnitPreference,
+  kgToLbs,
+  lbsToKg,
+} from "../utils/unitConversions";
 
 type WorkoutSet = {
   weight: string;
@@ -171,6 +180,11 @@ export default function Workouts() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [restSeconds, setRestSeconds] = useState(0);
+
+  // Unit system
+  const [unitSystem] = useState<UnitSystem>(getUnitPreference);
+  // Raw typed string per weight input — key is `${exerciseId}-${setIdx}`
+  const [weightDisplayValues, setWeightDisplayValues] = useState<Record<string, string>>({});
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -180,6 +194,8 @@ export default function Workouts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [savingWorkout, setSavingWorkout] = useState(false);
+  const [showSkipModal, setShowSkipModal] = useState(false);
+  const [skippingWorkout, setSkippingWorkout] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const recommendationsRequestRef = useRef(0);
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
@@ -313,7 +329,7 @@ export default function Workouts() {
   ): Promise<RecoveryAdjustmentStatus> => {
     try {
       const response = await fetch(
-        "http://localhost:4242/auth/workouts/recovery-adjustments/status",
+        "/auth/workouts/recovery-adjustments/status",
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -389,7 +405,7 @@ export default function Workouts() {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:4242/auth/workouts/by-day?weekNumber=${weekNumber}&dayNumber=${dayNumber}`,
+        `/auth/workouts/by-day?weekNumber=${weekNumber}&dayNumber=${dayNumber}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -794,7 +810,7 @@ export default function Workouts() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:4242/auth/user-programs/${userProgram.id}`,
+        `/auth/user-programs/${userProgram.id}`,
         {
           method: "PATCH",
           headers: {
@@ -836,7 +852,7 @@ export default function Workouts() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:4242/auth/programmes/${userProgram.programme.id}`,
+        `/auth/programmes/${userProgram.programme.id}`,
         {
           method: "PUT",
           headers: {
@@ -934,7 +950,7 @@ export default function Workouts() {
       }
 
       const response = await fetch(
-        `http://localhost:4242/auth/workouts/history/${exerciseId}?limit=${limit}`,
+        `/auth/workouts/history/${exerciseId}?limit=${limit}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -1164,7 +1180,7 @@ export default function Workouts() {
     setLoadingExercises(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:4242/auth/exercises/all", {
+      const res = await fetch("/auth/exercises/all", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to fetch exercises");
@@ -1262,7 +1278,7 @@ export default function Workouts() {
     setCreateExerciseError("");
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("http://localhost:4242/auth/exercises/custom", {
+      const res = await fetch("/auth/exercises/custom", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(createExerciseForm),
@@ -1545,6 +1561,32 @@ export default function Workouts() {
     return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
   };
 
+  // Convert a kg string stored in state to the user's preferred display string.
+  const displaySetWeight = (kgStr: string): string => {
+    if (!kgStr.trim()) return kgStr;
+    const kg = parseFloat(kgStr);
+    if (isNaN(kg)) return kgStr;
+    if (unitSystem === "imperial") {
+      const lbs = Math.round(kgToLbs(kg) * 10) / 10;
+      return Number.isInteger(lbs) ? String(lbs) : lbs.toFixed(1);
+    }
+    return kgStr;
+  };
+
+  // Convert the user's typed input (in their preferred unit) back to a kg string.
+  const inputWeightToKg = (input: string): string => {
+    if (!input.trim()) return input;
+    const val = parseFloat(input);
+    if (isNaN(val)) return input;
+    if (unitSystem === "imperial") {
+      const kg = Math.round(lbsToKg(val) * 10) / 10;
+      return Number.isInteger(kg) ? String(kg) : kg.toFixed(1);
+    }
+    return input;
+  };
+
+  const weightUnit = unitSystem === "imperial" ? "lbs" : "kg";
+
   const downloadShareImage = (blob: Blob, filename: string) => {
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -1712,11 +1754,16 @@ export default function Workouts() {
                     : `${weeklySummary.previousWorkoutComparison.totalVolumeChangePct > 0 ? "+" : ""}${weeklySummary.previousWorkoutComparison.totalVolumeChangePct.toFixed(1)}% volume`}
                 </p>
                 <p className="text-[#86FF99] text-xs font-semibold mt-0.5">
-                  {weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg > 0
-                    ? `+${weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg.toFixed(1)}kg load`
-                    : weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg < 0
-                      ? `${Math.abs(weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg).toFixed(1)}kg less`
-                      : "Same load"}
+                  {(() => {
+                    const rawKg = weeklySummary.previousWorkoutComparison.totalExtraWeightMovedKg;
+                    const val = unitSystem === "imperial" ? Math.round(kgToLbs(Math.abs(rawKg)) * 10) / 10 : Math.abs(rawKg);
+                    const unit = weightUnit;
+                    return rawKg > 0
+                      ? `+${val.toFixed(1)}${unit} load`
+                      : rawKg < 0
+                        ? `-${val.toFixed(1)}${unit} less`
+                        : "Same load";
+                  })()}
                 </p>
               </div>
             )}
@@ -1754,8 +1801,8 @@ export default function Workouts() {
                 if (!w && !r) return null;
                 return (
                   <div key={name} className="mb-1 last:mb-0">
-                    {w && <p className="text-white text-sm">{name}: {w.value}kg — new best</p>}
-                    {r && <p className="text-white text-sm">{name}: {r.value} reps @ {r.contextWeightKg}kg — new best</p>}
+                    {w && <p className="text-white text-sm">{name}: {unitSystem === "imperial" ? `${Math.round(kgToLbs(w.value) * 10) / 10}lbs` : `${w.value}kg`} — new best</p>}
+                    {r && <p className="text-white text-sm">{name}: {r.value} reps @ {unitSystem === "imperial" ? `${Math.round(kgToLbs(r.contextWeightKg) * 10) / 10}lbs` : `${r.contextWeightKg}kg`} — new best</p>}
                   </div>
                 );
               });
@@ -1885,11 +1932,10 @@ export default function Workouts() {
           setIndex,
         );
 
-        // Use the ORIGINAL (pre-edit) weight + current reps to derive 1RM so
-        // that the 1RM is not polluted by any intermediate typed values.
-        // Calculate 1RM using ensemble method instead of just Epley.
-        const anchorWeight = previousEditedWeight;
-        const anchorReps = toPositiveNumber(setToUpdate.reps);
+        // Use the programme recommendation as the primary 1RM anchor — it is the
+        // stable "ground truth" (original planned weight × reps) and does not
+        // drift with each edit. Only fall back to the previous-edit values when
+        // no recommendation exists (custom exercise / first-ever set).
         const fallbackWeight = toPositiveNumber(
           recommendationForSet?.recommendedWeight,
         );
@@ -1897,12 +1943,13 @@ export default function Workouts() {
           recommendationForSet?.recommendedReps,
         );
 
+        const anchorWeight = fallbackWeight || previousEditedWeight;
+        const anchorReps   = fallbackReps   || toPositiveNumber(setToUpdate.reps);
+
         const oneRepMax =
           anchorWeight && anchorReps
             ? estimate1RM(anchorWeight, anchorReps)
-            : fallbackWeight && fallbackReps
-              ? estimate1RM(fallbackWeight, fallbackReps)
-              : null;
+            : null;
 
         if (!oneRepMax) return exercise;
 
@@ -1925,13 +1972,15 @@ export default function Workouts() {
               : { ...set, weight: nextWeightRaw };
           }
 
-          // Use ensemble algorithm to get suggested reps
+          // If the user has returned to exactly the anchor weight, restore the
+          // anchor reps directly — the formula doesn't round-trip cleanly
+          // (estimate1RM then getSuggestedReps at the same weight gives ~10 not 11).
           const suggestedReps =
-            anchorWeight && anchorReps
-              ? getSuggestedReps(anchorWeight, anchorReps, nextWeight)
-              : (fallbackWeight && fallbackReps
-                  ? getSuggestedReps(fallbackWeight, fallbackReps, nextWeight)
-                  : 1);
+            !anchorWeight || !anchorReps
+              ? 1
+              : Math.abs(nextWeight - anchorWeight) < 0.5
+                ? anchorReps
+                : getSuggestedReps(anchorWeight, anchorReps, nextWeight);
 
           return {
             ...set,
@@ -1963,10 +2012,10 @@ export default function Workouts() {
 
                 return {
                   ...rec,
-                  recommendedWeight: recWeight ?? rec.recommendedWeight,
-                  recommendedReps: Number.isNaN(recReps)
-                    ? rec.recommendedReps
-                    : recReps,
+                  // Do NOT update recommendedWeight or recommendedReps — they are the
+                  // original programme targets and must stay stable so that
+                  // finalizeWeightChange always has a clean 1RM anchor regardless of
+                  // how many times the user edits the weight field.
                 };
               }),
             }
@@ -2048,6 +2097,33 @@ export default function Workouts() {
     loadProgressionRecommendationsForExercises(updatedExercises);
   };
 
+  const skipWorkout = async () => {
+    setSkippingWorkout(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("/auth/workouts/skip", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to skip workout");
+      }
+      localStorage.removeItem("workoutSession");
+      setShowSkipModal(false);
+      // Refresh the page to load the next day's workout
+      window.location.reload();
+    } catch (err: any) {
+      setError(err.message || "Failed to skip workout");
+      setShowSkipModal(false);
+    } finally {
+      setSkippingWorkout(false);
+    }
+  };
+
   const saveWorkout = async () => {
     if (!userProgram) {
       setError("Cannot save workout - missing program");
@@ -2100,7 +2176,7 @@ export default function Workouts() {
         (new Date().getTime() - startTime.getTime()) / 1000 / 60,
       );
 
-      const response = await fetch("http://localhost:4242/auth/workouts", {
+      const response = await fetch("/auth/workouts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2173,7 +2249,7 @@ export default function Workouts() {
     try {
       localStorage.removeItem("workoutSession");
       const response = await fetch(
-        "http://localhost:4242/auth/workouts/complete-day",
+        "/auth/workouts/complete-day",
         {
           method: "POST",
           headers: {
@@ -2223,7 +2299,7 @@ export default function Workouts() {
 
       // Fetch the next day's exercises
       const programmeResponse = await fetch(
-        `http://localhost:4242/auth/programmes/${userProgram?.programme?.id}`,
+        `/auth/programmes/${userProgram?.programme?.id}`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -2307,7 +2383,7 @@ export default function Workouts() {
       setWorkoutFeedbackError("");
 
       const response = await fetch(
-        `http://localhost:4242/auth/workouts/${completedWorkoutId}/feedback`,
+        `/auth/workouts/${completedWorkoutId}/feedback`,
         {
           method: "PATCH",
           headers: {
@@ -2402,7 +2478,7 @@ export default function Workouts() {
       setRecoveryAdjustmentError("");
 
       const response = await fetch(
-        "http://localhost:4242/auth/workouts/recovery-adjustments/apply",
+        "/auth/workouts/recovery-adjustments/apply",
         {
           method: "POST",
           headers: {
@@ -2491,7 +2567,7 @@ export default function Workouts() {
       setExerciseIncreaseError("");
 
       const response = await fetch(
-        "http://localhost:4242/auth/workouts/recovery-adjustments/apply",
+        "/auth/workouts/recovery-adjustments/apply",
         {
           method: "POST",
           headers: {
@@ -2632,7 +2708,7 @@ export default function Workouts() {
       const effectiveDayNumber = dayNumberOverride ?? userProgram.currentDay;
 
       const response = await fetch(
-        `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
+        `/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
           ",",
         )}&setCounts=${setCounts.join(",")}&setLayouts=${setLayouts}&dayNumber=${effectiveDayNumber}`,
         {
@@ -2696,7 +2772,7 @@ export default function Workouts() {
       const effectiveDayNumber = dayNumberOverride ?? userProgram.currentDay;
 
       const response = await fetch(
-        `http://localhost:4242/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
+        `/auth/workouts/recommendations?exerciseIds=${exerciseIds.join(
           ",",
         )}&setCounts=${setCounts.join(",")}&setLayouts=${setLayouts}&dayNumber=${effectiveDayNumber}`,
         {
@@ -2759,14 +2835,14 @@ export default function Workouts() {
           }
         }
 
-        const response = await fetch(
-          "http://localhost:4242/auth/user-programs",
-          {
+        const [response, adjustmentStatus] = await Promise.all([
+          fetch("/auth/user-programs", {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
-          },
-        );
+          }),
+          fetchRecoveryAdjustmentStatus(recoveryAdjustmentStatus),
+        ]);
 
         if (!response.ok) {
           throw new Error("Failed to fetch user program");
@@ -2787,7 +2863,7 @@ export default function Workouts() {
         }
 
         const programmeResponse = await fetch(
-          `http://localhost:4242/auth/programmes/${activeProgram.programmeId}`,
+          `/auth/programmes/${activeProgram.programmeId}`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -2800,9 +2876,6 @@ export default function Workouts() {
         }
 
         const programmeData = await programmeResponse.json();
-        const adjustmentStatus = await fetchRecoveryAdjustmentStatus(
-          recoveryAdjustmentStatus,
-        );
 
         const fullUserProgram = {
           ...activeProgram,
@@ -3008,10 +3081,13 @@ export default function Workouts() {
   }
 
   return (
-    <div
+    <motion.div
       className={`min-h-screen text-[#5E6272] flex flex-col p-4 ${
         areAllSetsCompleted() && !workoutCompleted ? "pb-36" : "pb-32"
       }`}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
     >
       {/* Top Bar */}
       <TopBar
@@ -3043,17 +3119,28 @@ export default function Workouts() {
           </div>
         </div>
 
-        <div className="relative" ref={programmeCalendarRef}>
+        <div className="flex items-center gap-2">
+          {/* Skip session — small icon button */}
           <button
-            onClick={() => setShowProgrammeCalendarDropdown((previous) => !previous)}
-            className="glass-button p-2 rounded-full text-[#9ED3FF] hover:text-white"
-            aria-label="Open programme calendar"
-            title="Programme calendar"
+            onClick={() => setShowSkipModal(true)}
+            className="glass-button p-2 rounded-full text-[#5E6272] hover:text-white"
+            aria-label="Skip this session"
+            title="Skip this session"
           >
-            <Calendar size={16} />
+            <SkipForward size={16} />
           </button>
 
-          {showProgrammeCalendarDropdown && userProgram && (
+          <div className="relative" ref={programmeCalendarRef}>
+            <button
+              onClick={() => setShowProgrammeCalendarDropdown((previous) => !previous)}
+              className="glass-button p-2 rounded-full text-[#9ED3FF] hover:text-white"
+              aria-label="Open programme calendar"
+              title="Programme calendar"
+            >
+              <Calendar size={16} />
+            </button>
+
+            {showProgrammeCalendarDropdown && userProgram && (
           <div className="glass-modal absolute right-0 mt-2 w-72 rounded-2xl p-4 border border-white/10 z-50">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
@@ -3150,6 +3237,7 @@ export default function Workouts() {
         )}
       </div>
     </div>
+      </div>
 
       {/* ── Workout timers ── */}
       <div className={`mt-3 transition-all ${
@@ -3158,6 +3246,7 @@ export default function Workouts() {
           : "px-4"
       }`}>
         {!timerRunning && secondsElapsed === 0 ? (
+          <div className="flex flex-col gap-2">
           <button
             onClick={startTimer}
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#86FF99]/10 border border-[#86FF99]/30 text-[#86FF99] font-semibold text-sm hover:bg-[#86FF99]/20 transition-colors"
@@ -3165,6 +3254,7 @@ export default function Workouts() {
             <Play size={16} />
             Start Workout
           </button>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             {/* Workout timer */}
@@ -3245,7 +3335,7 @@ export default function Workouts() {
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <div className="flex items-center gap-3">
-                    <MuscleIcon muscleGroup={exercise.muscleGroup} size={28} />
+                    <MuscleIcon muscleGroup={exercise.muscleGroup} size={44} />
                     <div>
                       <h4 className="text-white font-semibold text-base">
                         {exercise.name}
@@ -3463,11 +3553,21 @@ export default function Workouts() {
                   )}
                   <input
                     type="number"
-                    placeholder="Weight (kg)"
-                    value={set.weight}
+                    placeholder={`Weight (${weightUnit})`}
+                    value={(() => {
+                      const key = `${exercise.exerciseId}-${setIdx}`;
+                      return key in weightDisplayValues
+                        ? weightDisplayValues[key]
+                        : displaySetWeight(set.weight);
+                    })()}
                     disabled={setIdx > 0 && !exercise.workoutSets[setIdx - 1]?.completed}
                     onFocus={() => {
+                      const key = `${exercise.exerciseId}-${setIdx}`;
                       setSelectedExerciseId(exercise.exerciseId);
+                      setWeightDisplayValues((prev) => ({
+                        ...prev,
+                        [key]: displaySetWeight(set.weight),
+                      }));
                       weightAtFocusRef.current = {
                         exerciseId: exercise.exerciseId,
                         setIndex: setIdx,
@@ -3475,14 +3575,28 @@ export default function Workouts() {
                       };
                     }}
                     onChange={(e) => {
-                      updateSetData(
-                        exercise.exerciseId,
-                        setIdx,
-                        "weight",
-                        e.target.value,
-                      );
+                      const key = `${exercise.exerciseId}-${setIdx}`;
+                      setWeightDisplayValues((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }));
                     }}
                     onBlur={() => {
+                      const key = `${exercise.exerciseId}-${setIdx}`;
+                      const raw = weightDisplayValues[key];
+                      if (raw !== undefined) {
+                        updateSetData(
+                          exercise.exerciseId,
+                          setIdx,
+                          "weight",
+                          inputWeightToKg(raw),
+                        );
+                        setWeightDisplayValues((prev) => {
+                          const next = { ...prev };
+                          delete next[key];
+                          return next;
+                        });
+                      }
                       finalizeWeightChange(exercise.exerciseId, setIdx);
                     }}
                     className={`glass-input text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#8A93A7] text-sm ${
@@ -4140,7 +4254,7 @@ export default function Workouts() {
                       className="glass-subtile rounded-xl p-4 border border-white/10"
                     >
                       <div className="flex items-center gap-2 mb-3">
-                        <MuscleIcon muscleGroup={exercise.muscleGroup} size={20} />
+                        <MuscleIcon muscleGroup={exercise.muscleGroup} size={32} />
                         <h3 className="text-white font-semibold">{exercise.name}</h3>
                       </div>
 
@@ -4287,6 +4401,38 @@ export default function Workouts() {
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skip Workout Modal */}
+      {showSkipModal && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#1C1F26] border border-[#2F3544] rounded-2xl p-6 w-full max-w-sm">
+            <h2 className="text-white text-xl font-bold text-center mb-3">
+              Skip this session?
+            </h2>
+            <p className="text-[#A0AEC0] text-sm text-center mb-1">
+              This workout will be marked as missed and your programme will advance to the next day.
+            </p>
+            <p className="text-[#5E6272] text-xs text-center mb-6">
+              Your exercise history won't be affected.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowSkipModal(false)}
+                className="flex-1 py-3 bg-[#2A2E38] hover:bg-[#3A3E48] text-white rounded-xl font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={skipWorkout}
+                disabled={skippingWorkout}
+                className="flex-1 py-3 bg-[#FF6B6B] hover:bg-red-500 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+              >
+                {skippingWorkout ? "Skipping…" : "Skip Session"}
+              </button>
             </div>
           </div>
         </div>
@@ -4519,7 +4665,7 @@ export default function Workouts() {
                             }`}
                           >
                             <div className="flex items-center gap-3">
-                              <MuscleIcon muscleGroup={exercise.muscleGroup} size={24} />
+                              <MuscleIcon muscleGroup={exercise.muscleGroup} size={38} />
                               <div className="flex-1 min-w-0">
                                 <p className="text-white font-medium text-sm">
                                   {exercise.name}
@@ -4700,6 +4846,6 @@ export default function Workouts() {
         }
       `}</style>
       <BottomBar onLogout={handleLogout} />
-    </div>
+    </motion.div>
   );
 }

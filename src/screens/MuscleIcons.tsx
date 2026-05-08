@@ -8,7 +8,7 @@ export default function MuscleIcons() {
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const res = await fetch("http://localhost:4242/auth/exercises/all", {
+        const res = await fetch("/auth/exercises/all", {
           headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
         });
         if (!res.ok) throw new Error("Failed to fetch exercises");

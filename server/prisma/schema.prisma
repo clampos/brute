@@ -62,6 +62,9 @@ model Programme {
   bodyPartFocus String @map("body_part_focus") // Full Body, Upper Body, Lower Body, etc.
   progressionFocus ProgrammeProgressionFocus @default(MUSCLE_BUILDING) @map("progression_focus")
   description String?
+  isCustom    Boolean  @default(false) @map("is_custom")
+  userId      String?  @map("user_id")
+  experienceLevel String? @map("experience_level")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -95,6 +98,7 @@ model Exercise {
   workoutExercises     WorkoutExercise[]
   exerciseProgressions UserExerciseProgression[]
 
+  @@index([muscleGroup])
   @@map("exercises")
 }
 
@@ -115,6 +119,7 @@ model ProgrammeExercise {
   programme Programme @relation(fields: [programmeId], references: [id], onDelete: Cascade)
   exercise  Exercise  @relation(fields: [exerciseId], references: [id])
 
+  @@index([programmeId])
   @@map("programme_exercises")
 }
 
@@ -136,6 +141,7 @@ model UserProgram {
   workouts             Workout[]
   exerciseProgressions UserExerciseProgression[]
 
+  @@index([userId, status])
   @@map("user_programs")
 }
 
@@ -147,6 +153,7 @@ model Workout {
   completedAt   DateTime @map("completed_at")
   duration      Int?     // Duration in minutes
   notes         String?
+  skipped       Boolean  @default(false)
   perceivedDifficulty Int? @map("perceived_difficulty")
   startRecovery      String? @map("start_recovery")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -156,6 +163,7 @@ model Workout {
   userProgram UserProgram       @relation(fields: [userProgramId], references: [id], onDelete: Cascade)
   exercises   WorkoutExercise[]
 
+  @@index([userProgramId, completedAt])
   @@map("workouts")
 }
 
@@ -170,6 +178,8 @@ model WorkoutExercise {
   exercise Exercise      @relation(fields: [exerciseId], references: [id])
   sets     WorkoutSet[]
 
+  @@index([workoutId])
+  @@index([exerciseId])
   @@map("workout_exercises")
 }
 
@@ -221,6 +231,7 @@ model BodyweightEntry {
   
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  @@index([userId])
   @@map("bodyweight_entries")
 }
 
@@ -233,6 +244,7 @@ model BodyfatEntry {
   
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  @@index([userId])
   @@map("bodyfat_entries")
 }
 

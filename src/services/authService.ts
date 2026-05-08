@@ -4,7 +4,7 @@ import axios from 'axios';
 export async function login(email: string, password: string) {
   try {
     const normalizedEmail = email?.trim().toLowerCase();
-    const res = await axios.post("http://localhost:4242/auth/login", {
+    const res = await axios.post("/auth/login", {
       email: normalizedEmail,
       password,
     });
@@ -20,7 +20,7 @@ export async function fetchDashboard() {
   const token = localStorage.getItem("token");
   if (!token) throw new Error("No token");
 
-  const res = await fetch("http://localhost:4242/api/dashboard", {
+  const res = await fetch("/api/dashboard", {
     headers: {
       Authorization: `Bearer ${token}`,
     },

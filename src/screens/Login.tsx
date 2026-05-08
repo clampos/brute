@@ -42,7 +42,7 @@ export default function Login() {
 
     try {
       const response = await fetch(
-        "http://localhost:4242/auth/forgot-password",
+        "/auth/forgot-password",
         {
           method: "POST",
           headers: {

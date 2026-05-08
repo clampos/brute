@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { pageTransition, stagger, fadeUp, easeOut } from "../utils/animations";
+import CountUp from "../components/CountUp";
 import MuscleIcon from "../components/MuscleIcon";
 import TopBar from "../components/TopBar";
 import { Award } from "lucide-react";
@@ -42,7 +45,7 @@ export default function ExercisePRs() {
     const fetchPRs = async () => {
       try {
         const res = await fetch(
-          "http://localhost:4242/auth/metrics/personal-records",
+          "/auth/metrics/personal-records",
           {
             headers: { Authorization: `Bearer ${token}` },
           },
@@ -132,7 +135,12 @@ export default function ExercisePRs() {
   const resolvedPrediction = record.predictedOneRepMax || fallbackPrediction;
 
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Track Metrics"
         pageIcon={<Award size={18} />}
@@ -146,7 +154,12 @@ export default function ExercisePRs() {
       />
 
       <div className="mt-3 px-2">
-        <div className="bg-[#262A34] rounded-xl p-4 mb-4 border-l-4 border-[#00FFAD]">
+        <motion.div
+          className="bg-[#262A34] rounded-xl p-4 mb-4 border-l-4 border-[#00FFAD]"
+          initial={{ opacity: 0, x: -12 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        >
           <div className="flex items-center gap-4">
             <MuscleIcon muscleGroup={record.muscleGroup} size={48} />
             <div>
@@ -156,29 +169,37 @@ export default function ExercisePRs() {
               <div className="text-[#5E6272] text-sm">{record.muscleGroup}</div>
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        <div className="space-y-3">
+        <motion.div className="space-y-3" variants={stagger} initial="hidden" animate="show">
           {prs.length === 0 && (
             <div className="bg-[#262A34] p-6 rounded">No recorded PRs yet.</div>
           )}
 
           {prs.map((p) => (
-            <div
+            <motion.div
               key={p.reps}
+              variants={fadeUp}
+              transition={easeOut}
               className="bg-[#262A34] p-4 rounded flex justify-between items-center"
+              whileHover={{ x: 3 }}
             >
               <div>
                 <div className="text-sm text-[#9CA3AF]">{p.reps}RM</div>
-                <div className="text-white font-semibold">{p.entry.weight} kg</div>
+                <div className="text-white font-semibold"><CountUp to={p.entry.weight} decimals={1} duration={0.6} /> kg</div>
               </div>
               <div className="text-[#6B7280]">
                 {new Date(p.entry.date).toLocaleDateString()}
               </div>
-            </div>
+            </motion.div>
           ))}
 
-          <div className="bg-[#262A34] p-4 rounded border border-[#246BFD]/40">
+          <motion.div
+            variants={fadeUp}
+            transition={easeOut}
+            className="bg-[#262A34] p-4 rounded border border-[#246BFD]/40"
+            whileHover={{ y: -2, boxShadow: "0 6px 20px rgba(36,107,253,0.2)" }}
+          >
             <div className="flex justify-between items-start gap-4">
               <div>
                 <div className="text-sm text-[#60A5FA] uppercase tracking-wide">
@@ -187,7 +208,7 @@ export default function ExercisePRs() {
                 {resolvedPrediction ? (
                   <>
                     <div className="text-white font-semibold text-2xl mt-1">
-                      {resolvedPrediction.value.toFixed(1)} kg
+                      <CountUp to={resolvedPrediction.value} decimals={1} duration={0.8} /> kg
                     </div>
                     <div className="text-[#9CA3AF] text-sm mt-2">
                       Based on latest set at 10 reps or fewer: {resolvedPrediction.weight} kg x {resolvedPrediction.reps}
@@ -205,8 +226,8 @@ export default function ExercisePRs() {
                   : "No date"}
               </div>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </div>
 
       <BottomBar
@@ -215,6 +236,6 @@ export default function ExercisePRs() {
           navigate("/login");
         }}
       />
-    </div>
+    </motion.div>
   );
 }

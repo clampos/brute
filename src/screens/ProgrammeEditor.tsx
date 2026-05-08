@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { pageTransition, easeOut } from "../utils/animations";
 import {
   ArrowLeft,
   Plus,
@@ -11,6 +13,8 @@ import {
   Check,
   X,
   Save,
+  BarChart2,
+  RefreshCw,
 } from "lucide-react";
 import MuscleIcon from "../components/MuscleIcon";
 import logo from "../assets/logo.png";
@@ -34,6 +38,7 @@ type ProgrammeExercise = {
   sets: number;
   reps: string;
   exerciseId: string;
+  muscleGroup?: string;
   isSelected: boolean;
   strengthRole: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
 };
@@ -68,6 +73,7 @@ type ProgrammeResponse = {
   bodyPartFocus?: string;
   progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH";
   daysPerWeek?: number;
+  experienceLevel?: string;
   exercises?: ProgrammeExerciseResponse[];
   error?: string;
 };
@@ -90,13 +96,25 @@ export default function ProgrammeEditor() {
   const [progressionFocus, setProgressionFocus] = useState<
     "MUSCLE_BUILDING" | "STRENGTH"
   >("MUSCLE_BUILDING");
+  const [experienceLevel, setExperienceLevel] = useState<string>("intermediate");
   const [days, setDays] = useState<ProgrammeDay[]>([]);
   const [openDays, setOpenDays] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
   const [savingDay, setSavingDay] = useState<number | null>(null);
+  const [savedDay, setSavedDay] = useState<number | null>(null);
   const [submittingProgramme, setSubmittingProgramme] = useState(false);
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [replacingExercise, setReplacingExercise] = useState<{
+    dayNumber: number;
+    progExId: string;
+    muscleGroup: string;
+    currentExerciseId: string;
+  } | null>(null);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [replaceModalMuscleFilter, setReplaceModalMuscleFilter] = useState<string>("All");
+  const [replaceModalEquipmentFilter, setReplaceModalEquipmentFilter] = useState<string>("All");
 
   const toggleDay = (dayNumber: number) => {
     setOpenDays((prev) => ({
@@ -247,7 +265,7 @@ export default function ProgrammeEditor() {
     focus: string,
   ): Promise<Exercise[]> => {
     try {
-      const url = `http://localhost:4242/auth/exercises?muscleGroup=${encodeURIComponent(
+      const url = `/auth/exercises?muscleGroup=${encodeURIComponent(
         focus,
       )}`;
 
@@ -302,6 +320,7 @@ export default function ProgrammeEditor() {
                 sets: 3,
                 reps: "8-12",
                 exerciseId: exercise.id,
+                muscleGroup: exercise.muscleGroup,
                 isSelected: true,
                 strengthRole:
                   progressionFocus === "STRENGTH"
@@ -376,6 +395,68 @@ export default function ProgrammeEditor() {
     );
   };
 
+  const handleReplaceExercise = (
+    dayNumber: number,
+    progExId: string,
+    newExerciseId: string,
+  ) => {
+    const newEx = allExercises.find((e) => e.id === newExerciseId);
+    if (!newEx) return;
+
+    setDays((prev) =>
+      prev.map((day) =>
+        day.dayNumber !== dayNumber
+          ? day
+          : {
+              ...day,
+              exercises: day.exercises.map((ex) =>
+                ex.id !== progExId
+                  ? ex
+                  : {
+                      ...ex,
+                      name: newEx.name,
+                      exerciseId: newEx.id,
+                      muscleGroup: newEx.muscleGroup,
+                    },
+              ),
+              availableExercises: day.availableExercises.map((e) => ({
+                ...e,
+                isSelected:
+                  e.id === newExerciseId
+                    ? true
+                    : e.id === replacingExercise?.currentExerciseId
+                    ? false
+                    : e.isSelected,
+              })),
+              hasChanges: true,
+            },
+      ),
+    );
+    setReplacingExercise(null);
+    setShowReplaceModal(false);
+  };
+
+  const openReplaceModal = () => {
+    if (!replacingExercise) return;
+    setReplaceModalMuscleFilter(replacingExercise.muscleGroup || "All");
+    setReplaceModalEquipmentFilter("All");
+    setShowReplaceModal(true);
+  };
+
+  const closeReplaceModal = () => {
+    setShowReplaceModal(false);
+  };
+
+  // Lock body scroll when the full replace modal is open
+  useEffect(() => {
+    if (showReplaceModal) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [showReplaceModal]);
+
   const handleConfirmDay = async (dayNumber: number) => {
     setSavingDay(dayNumber);
 
@@ -392,7 +473,7 @@ export default function ProgrammeEditor() {
 
       // First, delete ALL existing exercises for this day from the database
       const deleteRes = await fetch(
-        `http://localhost:4242/auth/programmes/${programmeId}/exercises/day/${dayNumber}`,
+        `/auth/programmes/${programmeId}/exercises/day/${dayNumber}`,
         {
           method: "DELETE",
           headers: {
@@ -415,7 +496,7 @@ export default function ProgrammeEditor() {
 
       for (const exercise of exercisesToAdd) {
         const postRes = await fetch(
-          `http://localhost:4242/auth/programmes/${programmeId}/exercises`,
+          `/auth/programmes/${programmeId}/exercises`,
           {
             method: "POST",
             headers: {
@@ -470,7 +551,8 @@ export default function ProgrammeEditor() {
         ),
       );
 
-      alert(`Day ${dayNumber} saved with ${addedExercises.length} exercises!`);
+      setSavedDay(dayNumber);
+      setTimeout(() => setSavedDay(null), 2000);
     } catch (err) {
       console.error("Error confirming day:", err);
       setError("Failed to save exercises for this day");
@@ -479,26 +561,55 @@ export default function ProgrammeEditor() {
     }
   };
 
+  const handleConfirmAll = async () => {
+    const token = localStorage.getItem("token");
+    if (!token || !programmeId) return;
+
+    setConfirmingAll(true);
+    setError("");
+
+    try {
+      for (const day of days) {
+        // Delete all existing exercises for this day
+        await fetch(
+          `/auth/programmes/${programmeId}/exercises/day/${day.dayNumber}`,
+          { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        // Re-add current exercises
+        for (const exercise of day.exercises.filter((ex) => ex.isSelected)) {
+          const res = await fetch(
+            `/auth/programmes/${programmeId}/exercises`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                exerciseId: exercise.exerciseId,
+                dayNumber: day.dayNumber,
+                sets: exercise.sets,
+                reps: exercise.reps,
+                strengthRole: exercise.strengthRole,
+              }),
+            },
+          );
+          if (!res.ok) throw new Error(`Failed to save Day ${day.dayNumber}`);
+        }
+      }
+
+      // Mark all days as saved
+      setDays((prev) => prev.map((d) => ({ ...d, hasChanges: false })));
+      navigate("/programmes");
+    } catch (err: any) {
+      setError(err.message ?? "Failed to save programme");
+    } finally {
+      setConfirmingAll(false);
+    }
+  };
+
   const handleSubmitProgramme = () => {
-    // Check if there are any unsaved changes
-    const hasUnsavedChanges = days.some((day) => day.hasChanges);
-    if (hasUnsavedChanges) {
-      setError("Please confirm all days before going back");
-      return;
-    }
-
-    // Check if programme has any exercises
-    const totalExercises = days.reduce(
-      (sum, day) => sum + day.exercises.length,
-      0,
-    );
-    if (totalExercises === 0) {
-      setError("Please add at least one exercise to at least one day");
-      return;
-    }
-
-    // Simply navigate back to programmes page
-    // The actual "Start" happens in Programmes.tsx
     navigate("/programmes");
   };
 
@@ -510,45 +621,35 @@ export default function ProgrammeEditor() {
 
   // Get muscle groups to focus on based on body part focus
   const getMuscleGroupsForFocus = (focus: string): string[] => {
-    // Map high-level focuses to the actual muscleGroup values present in the DB seed
     switch (focus.toLowerCase()) {
       case "full body":
         return [
-          "Chest",
-          "Back",
-          "Shoulders",
-          "Quads",
-          "Hamstrings",
-          "Glutes",
-          "Biceps",
-          "Triceps",
-          "Forearms",
-          "Calves",
-          "Abs",
+          "Chest", "Back", "Shoulders", "Quads", "Hamstrings",
+          "Glutes", "Biceps", "Triceps", "Forearms", "Calves", "Abs",
         ];
       case "upper body":
-        return [
-          "Chest",
-          "Back",
-          "Shoulders",
-          "Biceps",
-          "Triceps",
-          "Forearms",
-        ];
+      case "upper":
+        return ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms"];
       case "lower body":
-        return [
-          "Quads",
-          "Hamstrings",
-          "Glutes",
-          "Calves",
-          "Abs",
-        ];
+      case "lower":
+        return ["Quads", "Hamstrings", "Glutes", "Calves", "Abs"];
       case "push":
         return ["Chest", "Shoulders", "Triceps"];
       case "pull":
         return ["Back", "Biceps", "Forearms"];
       case "legs":
         return ["Quads", "Hamstrings", "Glutes", "Calves"];
+      // Generated programme labels
+      case "upper / lower":
+        return [
+          "Chest", "Back", "Shoulders", "Biceps", "Triceps",
+          "Quads", "Hamstrings", "Glutes", "Calves",
+        ];
+      case "push / pull / legs":
+        return [
+          "Chest", "Back", "Shoulders", "Biceps", "Triceps",
+          "Quads", "Hamstrings", "Glutes", "Calves", "Abs",
+        ];
       default:
         return [focus];
     }
@@ -564,7 +665,7 @@ export default function ProgrammeEditor() {
         setError("");
 
         const res = await fetch(
-          `http://localhost:4242/auth/programmes/${programmeId}`,
+          `/auth/programmes/${programmeId}`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
@@ -581,6 +682,7 @@ export default function ProgrammeEditor() {
         const programmeProgressionFocus =
           data.progressionFocus || "MUSCLE_BUILDING";
         setProgressionFocus(programmeProgressionFocus);
+        if (data.experienceLevel) setExperienceLevel(data.experienceLevel);
 
         // Group current programme exercises by day
         const grouped: Record<number, ProgrammeExercise[]> = {};
@@ -696,6 +798,10 @@ export default function ProgrammeEditor() {
             // If the day already has exercises, still provide the available pool
             return {
               ...day,
+              exercises: day.exercises.map((ex) => ({
+                ...ex,
+                muscleGroup: uniquePool.find((a) => a.id === ex.exerciseId)?.muscleGroup || ex.muscleGroup || "",
+              })),
               availableExercises: uniquePool.map((ex) => ({
                 ...ex,
                 isSelected: day.exercises.some(
@@ -731,12 +837,82 @@ export default function ProgrammeEditor() {
     fetchProgramme();
   }, [programmeId]);
 
+  // Weekly sets per muscle group — recomputed live as exercises change
+  const weeklyVolume = useMemo(() => {
+    const vol: Record<string, number> = {};
+    for (const day of days) {
+      for (const ex of day.exercises) {
+        const mg =
+          ex.muscleGroup ||
+          allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup ||
+          "";
+        if (!mg) continue;
+        vol[mg] = (vol[mg] || 0) + ex.sets;
+      }
+    }
+    return vol;
+  }, [days, allExercises]);
+
+  // Hypertrophy volume guidance per muscle (sets/week), tiered by experience level
+  const volumeRangesByLevel: Record<string, Record<string, [number, number]>> = {
+    beginner: {
+      Chest:      [6,  12],
+      Back:       [6,  12],
+      Shoulders:  [6,  10],
+      Quads:      [6,  12],
+      Hamstrings: [6,  10],
+      Glutes:     [6,  10],
+      Biceps:     [4,  8],
+      Triceps:    [4,  8],
+      Calves:     [6,  10],
+      Abs:        [6,  10],
+    },
+    intermediate: {
+      Chest:      [10, 18],
+      Back:       [10, 18],
+      Shoulders:  [8,  18],
+      Quads:      [10, 18],
+      Hamstrings: [8,  14],
+      Glutes:     [8,  14],
+      Biceps:     [6,  12],
+      Triceps:    [6,  12],
+      Calves:     [8,  14],
+      Abs:        [8,  14],
+    },
+    advanced: {
+      Chest:      [14, 22],
+      Back:       [14, 22],
+      Shoulders:  [12, 22],
+      Quads:      [14, 22],
+      Hamstrings: [12, 20],
+      Glutes:     [12, 20],
+      Biceps:     [10, 16],
+      Triceps:    [10, 16],
+      Calves:     [12, 18],
+      Abs:        [12, 18],
+    },
+  };
+
+  const volumeRanges = volumeRangesByLevel[experienceLevel] ?? volumeRangesByLevel.intermediate;
+
+  const getVolumeStatus = (muscle: string, sets: number): "low" | "optimal" | "high" => {
+    const range = volumeRanges[muscle] ?? [10, 20];
+    if (sets < range[0]) return "low";
+    if (sets <= range[1]) return "optimal";
+    return "high";
+  };
+
   // Check if programme is ready to submit (no unsaved changes)
   const isReadyToSubmit =
     days.length > 0 && !days.some((day) => day.hasChanges);
 
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Programmes"
         pageIcon={null}
@@ -749,11 +925,17 @@ export default function ProgrammeEditor() {
         ]}
       />
 
-      {/* Programme Name */}
-      <div className="mt-3 mb-4 text-center">
-        <h3 className="text-white text-xl font-semibold">{displayName}</h3>
-        <p className="text-sm text-[#5E6272]">{description}</p>
-        <p className="text-xs text-[#FBA3FF] mt-1">{bodyFocus}</p>
+      {/* Programme Header */}
+      <div className="mt-3 mb-4 bg-[#1C1F26] border border-[#2F3544] rounded-2xl p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <h3 className="text-white text-lg font-bold leading-tight">{displayName}</h3>
+            {description && <p className="text-[#9CA3AF] text-xs mt-1">{description}</p>}
+          </div>
+          <span className="text-xs font-medium text-[#8EC5FF] bg-[#246BFD]/15 px-2 py-1 rounded-full whitespace-nowrap flex-shrink-0">
+            {bodyFocus}
+          </span>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -763,25 +945,76 @@ export default function ProgrammeEditor() {
         </div>
       )}
 
-      {/* Done Editing Button */}
+      {/* Weekly Volume Summary */}
       {!loading && (
-        <div className="mb-6 flex justify-center">
-          <button
-            onClick={handleSubmitProgramme}
-            disabled={submittingProgramme || !isReadyToSubmit}
-            className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 transition-all ${
-              submittingProgramme || !isReadyToSubmit
-                ? "bg-gray-600 text-gray-400 cursor-not-allowed"
-                : "bg-[#00FFAD] hover:bg-[#00E599] text-black"
+        <div className="mb-5 bg-[#1C1F26] border border-[#2F3544] rounded-2xl p-4">
+          <h4 className="text-white font-semibold text-sm mb-3 flex items-center gap-2">
+            <BarChart2 size={15} className="text-[#8EC5FF]" />
+            Weekly Volume
+          </h4>
+          <div className="space-y-2.5">
+            {Object.keys(volumeRanges)
+              .map((muscle) => {
+                const sets = weeklyVolume[muscle] ?? 0;
+                const status = getVolumeStatus(muscle, sets);
+                const range = volumeRanges[muscle]!;
+                const pct = Math.min((sets / range[1]) * 100, 100);
+                const barColor =
+                  status === "optimal" ? "bg-[#00FFAD]" :
+                  status === "low"     ? "bg-amber-400" :
+                                         "bg-red-400";
+                const textColor =
+                  status === "optimal" ? "text-[#00FFAD]" :
+                  status === "low"     ? "text-amber-400" :
+                                         "text-red-400";
+                const statusLabel =
+                  status === "optimal" ? "✓" :
+                  status === "low"     ? "↑" :
+                                         "↓";
+                return (
+                  <div key={muscle} className="flex items-center gap-3">
+                    <div className="w-24 text-[#9CA3AF] text-xs text-right flex-shrink-0">{muscle}</div>
+                    <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <motion.div
+                        className={`h-full rounded-full ${barColor}`}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${pct}%` }}
+                        transition={{ duration: 0.5, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
+                      />
+                    </div>
+                    <div className={`w-16 text-right text-xs flex-shrink-0 ${textColor}`}>
+                      {sets}s {statusLabel}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          <p className="text-[#4B5563] text-xs mt-3 border-t border-white/5 pt-3">
+            {experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1)} targets shown. Updates live as you edit.
+          </p>
+        </div>
+      )}
+
+      {/* Confirm Programme Button */}
+      {!loading && (
+        <div className="mb-6">
+          <motion.button
+            onClick={handleConfirmAll}
+            disabled={confirmingAll || days.length === 0}
+            whileHover={confirmingAll || days.length === 0 ? {} : { y: -2, boxShadow: "0 12px 40px rgba(36,107,253,0.5)" }}
+            whileTap={confirmingAll || days.length === 0 ? {} : { scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className={`w-full py-4 rounded-2xl font-bold text-base tracking-wide flex items-center justify-center transition-all duration-200 ${
+              confirmingAll || days.length === 0
+                ? "bg-white/5 text-[#5E6272] cursor-not-allowed border border-white/10"
+                : "bg-gradient-to-r from-[#246BFD] via-[#7B61FF] to-[#BE9EFF] text-white shadow-[0_8px_32px_rgba(36,107,253,0.35)] hover:opacity-95"
             }`}
           >
-            <Save size={16} />
-            {submittingProgramme
-              ? "Saving..."
-              : isReadyToSubmit
-                ? "Done Editing"
-                : "Confirm All Days First"}
-          </button>
+            {confirmingAll ? "Saving..." : "Confirm Programme"}
+          </motion.button>
+          <p className="text-[#5E6272] text-xs text-center mt-2">
+            Check you are happy with each day before confirming
+          </p>
         </div>
       )}
 
@@ -797,39 +1030,37 @@ export default function ProgrammeEditor() {
             return (
               <div key={day.dayNumber} className="space-y-2">
                 {/* Day Header */}
-                <div className="flex items-center justify-between">
-                  <div
-                    className="flex items-center gap-2 cursor-pointer"
-                    onClick={() => toggleDay(day.dayNumber)}
-                  >
-                    {isOpen ? (
-                      <ChevronDown className="text-green-500 w-4 h-4" />
-                    ) : (
-                      <ChevronRight className="text-green-500 w-4 h-4" />
-                    )}
-                    <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                      Day {day.dayNumber}
-                    </h2>
-                    {day.hasChanges && (
-                      <div className="w-2 h-2 bg-orange-500 rounded-full ml-2"></div>
-                    )}
-                  </div>
-
-                  {/* Confirm Day Button */}
-                  {isOpen && day.hasChanges && (
-                    <button
-                      onClick={() => handleConfirmDay(day.dayNumber)}
-                      disabled={isSaving}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                        isSaving
-                          ? "bg-gray-600 text-gray-400 cursor-not-allowed"
-                          : "bg-green-600 hover:bg-green-700 text-white"
-                      }`}
-                    >
-                      {isSaving ? "Saving..." : "Confirm Day"}
-                    </button>
-                  )}
-                </div>
+                {(() => {
+                  const totalSets = day.exercises.reduce((s, ex) => s + ex.sets, 0);
+                  const setsColor =
+                    totalSets > 30 ? "text-red-400" :
+                    totalSets > 25 ? "text-amber-400" :
+                    totalSets > 0  ? "text-[#00FFAD]" :
+                                     "text-[#5E6272]";
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div
+                        className="flex items-center gap-2 cursor-pointer"
+                        onClick={() => toggleDay(day.dayNumber)}
+                      >
+                        {isOpen ? (
+                          <ChevronDown className="text-green-500 w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="text-green-500 w-4 h-4" />
+                        )}
+                        <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
+                          Day {day.dayNumber}
+                        </h2>
+                        {day.hasChanges && (
+                          <div className="w-2 h-2 bg-amber-400 rounded-full ml-1" title="Unsaved changes"></div>
+                        )}
+                      </div>
+                      <span className={`text-xs font-semibold ${setsColor}`}>
+                        {totalSets} sets
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {/* Exercise Content */}
                 {isOpen && (
@@ -840,82 +1071,131 @@ export default function ProgrammeEditor() {
                         <h4 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
                           Selected Exercises ({day.exercises.length})
                         </h4>
-                        {day.exercises.map((ex) => (
-                          <div
-                            key={ex.id}
-                            className={`border rounded-xl px-4 py-3 flex items-center justify-between transition-all ${
-                              ex.id.startsWith("temp-")
-                                ? "bg-[#1A1D23] border-orange-500/50"
-                                : "bg-[#1C1F26] border-[#2F3544]"
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <MuscleIcon
-                                muscleGroup={
-                                  allExercises.find(
-                                    (a) => a.id === ex.exerciseId,
-                                  )?.muscleGroup || ""
-                                }
-                                size={28}
-                              />
-                              <div className="flex-1 text-center">
-                                <p className="font-semibold text-white flex items-center justify-center gap-2">
-                                  {ex.name}
-                                  {ex.id.startsWith("temp-") && (
-                                    <span className="text-xs text-orange-400">
-                                      (unsaved)
-                                    </span>
-                                  )}
-                                </p>
-                                <div className="flex justify-center gap-3 text-sm mt-1">
-                                  <span className="text-[#00FFAD]">
-                                    {ex.sets} sets
-                                  </span>
-                                  <span className="text-[#5E6272]">
-                                    {ex.reps} reps
-                                  </span>
-                                </div>
-                                {progressionFocus === "STRENGTH" && (
-                                  <div className="mt-2 flex items-center justify-center gap-2">
-                                    <span className="text-xs text-[#9CA3AF]">
-                                      Role
-                                    </span>
-                                    <select
-                                      value={ex.strengthRole}
-                                      onChange={(event) =>
-                                        handleStrengthRoleChange(
-                                          day.dayNumber,
-                                          ex.id,
-                                          event.target.value as
-                                            | "MAIN_LIFT"
-                                            | "SUPPLEMENTAL"
-                                            | "ACCESSORY",
-                                        )
-                                      }
-                                      className="bg-[#111318] border border-[#2F3544] text-white text-xs rounded px-2 py-1"
-                                    >
-                                      <option value="MAIN_LIFT">Main Lift</option>
-                                      <option value="SUPPLEMENTAL">
-                                        Supplemental
-                                      </option>
-                                      <option value="ACCESSORY">Accessory</option>
-                                    </select>
+                        {day.exercises.map((ex) => {
+                          const isReplacing =
+                            replacingExercise?.progExId === ex.id &&
+                            replacingExercise?.dayNumber === day.dayNumber;
+
+                          const replacementOptions = isReplacing
+                            ? allExercises.filter(
+                                (a) =>
+                                  a.muscleGroup === replacingExercise.muscleGroup &&
+                                  a.id !== ex.exerciseId &&
+                                  !day.exercises.some((e) => e.exerciseId === a.id),
+                              ).slice(0, 6)
+                            : [];
+
+                          return (
+                            <div key={ex.id}>
+                              <div className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 flex items-center justify-between transition-all">
+                                <div className="flex items-center gap-3">
+                                  <MuscleIcon
+                                    muscleGroup={
+                                      allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup || ex.muscleGroup || ""
+                                    }
+                                    size={44}
+                                  />
+                                  <div className="flex-1 text-center">
+                                    <p className="font-semibold text-white flex items-center justify-center gap-2">
+                                      {ex.name}
+                                    </p>
+                                    <div className="flex justify-center gap-3 text-sm mt-1">
+                                      <span className="text-[#00FFAD]">{ex.sets} sets</span>
+                                      <span className="text-[#5E6272]">{ex.reps} reps</span>
+                                    </div>
+                                    {progressionFocus === "STRENGTH" && (
+                                      <div className="mt-2 flex items-center justify-center gap-2">
+                                        <span className="text-xs text-[#9CA3AF]">Role</span>
+                                        <select
+                                          value={ex.strengthRole}
+                                          onChange={(event) =>
+                                            handleStrengthRoleChange(
+                                              day.dayNumber,
+                                              ex.id,
+                                              event.target.value as "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY",
+                                            )
+                                          }
+                                          className="bg-[#111318] border border-[#2F3544] text-white text-xs rounded px-2 py-1"
+                                        >
+                                          <option value="MAIN_LIFT">Main Lift</option>
+                                          <option value="SUPPLEMENTAL">Supplemental</option>
+                                          <option value="ACCESSORY">Accessory</option>
+                                        </select>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
+                                </div>
+                                <div className="flex items-center gap-2 ml-3">
+                                  <button
+                                    onClick={() =>
+                                      setReplacingExercise(
+                                        isReplacing
+                                          ? null
+                                          : {
+                                              dayNumber: day.dayNumber,
+                                              progExId: ex.id,
+                                              muscleGroup:
+                                                allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup ||
+                                                ex.muscleGroup ||
+                                                "",
+                                              currentExerciseId: ex.exerciseId,
+                                            },
+                                      )
+                                    }
+                                    className={`p-1 rounded-lg transition-colors ${
+                                      isReplacing
+                                        ? "text-[#8EC5FF] bg-[#246BFD]/20"
+                                        : "text-[#5E6272] hover:text-[#8EC5FF]"
+                                    }`}
+                                    title="Replace exercise"
+                                  >
+                                    <RefreshCw size={15} />
+                                  </button>
+                                  <XCircle
+                                    className="text-[#5E6272] w-5 h-5 cursor-pointer hover:text-red-400 transition-colors"
+                                    onClick={() =>
+                                      handleRemoveExercise(ex.id, ex.exerciseId, day.dayNumber)
+                                    }
+                                  />
+                                </div>
                               </div>
+
+                              {/* Inline replace picker */}
+                              {isReplacing && (
+                                <div className="mt-2 space-y-1.5">
+                                  {replacementOptions.length === 0 ? (
+                                    <p className="text-[#5E6272] text-xs text-center py-3">No other exercises available for this muscle group</p>
+                                  ) : (
+                                    <>
+                                      {replacementOptions.map((alt) => (
+                                        <button
+                                          key={alt.id}
+                                          onClick={() =>
+                                            handleReplaceExercise(day.dayNumber, ex.id, alt.id)
+                                          }
+                                          className="w-full flex items-center gap-3 px-3 py-2.5 bg-[#1C1F26] border border-[#2F3544] rounded-xl hover:border-[#246BFD]/50 hover:bg-[#246BFD]/8 transition-all"
+                                        >
+                                          <MuscleIcon muscleGroup={alt.muscleGroup} size={36} />
+                                          <span className="text-sm text-[#9CA3AF] hover:text-white text-left flex-1 font-medium">
+                                            {alt.name}
+                                          </span>
+                                          <RefreshCw size={13} className="text-[#246BFD] flex-shrink-0" />
+                                        </button>
+                                      ))}
+                                      <button
+                                        onClick={openReplaceModal}
+                                        className="w-full py-2.5 px-3 rounded-xl border border-[#2F3544] bg-white/4 hover:bg-white/8 hover:border-[#3F4554] text-xs text-[#8EC5FF] font-semibold tracking-wide transition-all flex items-center justify-center gap-2"
+                                      >
+                                        <Plus size={13} />
+                                        View all exercises
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <XCircle
-                              className="text-red-500 w-5 h-5 ml-3 cursor-pointer hover:text-red-400 transition-colors"
-                              onClick={() =>
-                                handleRemoveExercise(
-                                  ex.id,
-                                  ex.exerciseId,
-                                  day.dayNumber,
-                                )
-                              }
-                            />
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
 
@@ -941,7 +1221,7 @@ export default function ProgrammeEditor() {
                                 >
                                   <MuscleIcon
                                     muscleGroup={ex.muscleGroup}
-                                    size={20}
+                                    size={36}
                                   />
                                   <div className="flex-1 text-center">
                                     <p className="font-semibold text-[#9CA3AF]">
@@ -988,7 +1268,7 @@ export default function ProgrammeEditor() {
                                 >
                                   <MuscleIcon
                                     muscleGroup={ex.muscleGroup}
-                                    size={20}
+                                    size={36}
                                   />
                                   <div className="flex-1 text-center">
                                     <p className="font-semibold text-[#9CA3AF]">
@@ -1027,7 +1307,104 @@ export default function ProgrammeEditor() {
         </div>
       )}
 
+      {/* Full Replace Exercise Modal */}
+      {showReplaceModal && replacingExercise && (() => {
+        const uniqueMuscleGroups = ["All", ...Array.from(new Set(allExercises.map((e) => e.muscleGroup).filter(Boolean))).sort()];
+        const uniqueEquipment = ["All", ...Array.from(new Set(allExercises.map((e) => e.equipment || "").filter(Boolean))).sort()];
+
+        const filtered = allExercises.filter((e) => {
+          const muscleMatch = replaceModalMuscleFilter === "All" || e.muscleGroup === replaceModalMuscleFilter;
+          const equipMatch = replaceModalEquipmentFilter === "All" || (e.equipment || "") === replaceModalEquipmentFilter;
+          const notCurrentExercise = e.id !== replacingExercise.currentExerciseId;
+          const day = days.find((d) => d.dayNumber === replacingExercise.dayNumber);
+          const notAlreadyInDay = !day?.exercises.some(
+            (ex) => ex.exerciseId === e.id && ex.exerciseId !== replacingExercise.currentExerciseId,
+          );
+          return muscleMatch && equipMatch && notCurrentExercise && notAlreadyInDay;
+        });
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#1C1F26] border border-[#2F3544] rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+              {/* Header */}
+              <div className="flex-shrink-0 flex items-center justify-between px-5 pt-5 pb-3 border-b border-[#2F3544]">
+                <div>
+                  <h2 className="text-white font-bold text-lg">Replace Exercise</h2>
+                  <p className="text-[#5E6272] text-xs mt-0.5">Tap to swap in</p>
+                </div>
+                <button
+                  onClick={closeReplaceModal}
+                  className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[#9CA3AF] hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Muscle group filter chips */}
+              <div className="flex-shrink-0 flex gap-2 px-4 py-3 overflow-x-auto scrollbar-hide border-b border-[#2F3544]">
+                {uniqueMuscleGroups.map((group) => (
+                  <button
+                    key={group}
+                    onClick={() => setReplaceModalMuscleFilter(group)}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      replaceModalMuscleFilter === group
+                        ? "bg-[#246BFD] text-white"
+                        : "bg-white/8 text-[#9CA3AF] hover:text-white"
+                    }`}
+                  >
+                    {group}
+                  </button>
+                ))}
+              </div>
+
+              {/* Equipment filter chips */}
+              <div className="flex-shrink-0 flex gap-2 px-4 py-2.5 overflow-x-auto scrollbar-hide border-b border-[#2F3544]">
+                {uniqueEquipment.map((eq) => (
+                  <button
+                    key={eq}
+                    onClick={() => setReplaceModalEquipmentFilter(eq)}
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-xs transition-colors ${
+                      replaceModalEquipmentFilter === eq
+                        ? "bg-[#2F3544] text-white"
+                        : "text-[#5E6272] hover:text-white"
+                    }`}
+                  >
+                    {eq}
+                  </button>
+                ))}
+              </div>
+
+              {/* Exercise list */}
+              <div className="flex-1 overflow-y-auto divide-y divide-[#1F2330]">
+                {filtered.length === 0 ? (
+                  <p className="text-[#5E6272] text-sm text-center py-10">No exercises match these filters</p>
+                ) : (
+                  filtered.map((exercise) => (
+                    <button
+                      key={exercise.id}
+                      onClick={() => {
+                        handleReplaceExercise(replacingExercise.dayNumber, replacingExercise.progExId, exercise.id);
+                      }}
+                      className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
+                    >
+                      <MuscleIcon muscleGroup={exercise.muscleGroup} size={44} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{exercise.name}</p>
+                        <p className="text-[#5E6272] text-xs mt-0.5">
+                          {exercise.muscleGroup}{exercise.equipment ? ` · ${exercise.equipment}` : ""}
+                        </p>
+                      </div>
+                      <RefreshCw size={15} className="text-[#246BFD] flex-shrink-0" />
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <BottomBar onLogout={handleLogout} />
-    </div>
+    </motion.div>
   );
 }

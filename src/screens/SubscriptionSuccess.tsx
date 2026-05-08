@@ -27,7 +27,7 @@ export default function SubscriptionSuccess() {
         );
 
         const res = await fetch(
-          `http://localhost:4242/auth/token?email=${encodeURIComponent(email)}`
+          `/auth/token?email=${encodeURIComponent(email)}`
         );
 
         const responseData = await res.json();

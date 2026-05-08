@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { pageTransition } from "../utils/animations";
 import { Plus, Dumbbell, MoreHorizontal } from "lucide-react";
 import TopBar from "../components/TopBar";
 import logo from "../assets/logo.png";
@@ -42,7 +44,7 @@ export default function CreateProgramme() {
 
     const fetchProgrammes = async () => {
       try {
-        const res = await fetch("http://localhost:4242/auth/programmes", {
+        const res = await fetch("/auth/programmes", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;
@@ -86,7 +88,7 @@ export default function CreateProgramme() {
         progressionFocus,
       };
 
-      const res = await fetch("http://localhost:4242/auth/programmes", {
+      const res = await fetch("/auth/programmes", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -115,7 +117,12 @@ export default function CreateProgramme() {
   };
 
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
@@ -299,6 +306,6 @@ export default function CreateProgramme() {
           navigate("/login");
         }}
       />
-    </div>
+    </motion.div>
   );
 }

@@ -12,6 +12,9 @@ import {
   Edit2,
   Trash2,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { pageTransition, stagger, fadeUp, easeOut } from "../utils/animations";
+import CountUp from "../components/CountUp";
 import MuscleIcon from "../components/MuscleIcon";
 import TopBar from "../components/TopBar";
 import { Link } from "react-router-dom";
@@ -110,37 +113,19 @@ export default function Metrics() {
       }
 
       try {
-        // Fetch bodyweight history
-        const bodyweightRes = await fetch(
-          "http://localhost:4242/auth/metrics/bodyweight",
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-        if (bodyweightRes.ok) {
-          const data = await bodyweightRes.json();
-          setBodyweightHistory(data);
-        }
+        const headers = { Authorization: `Bearer ${token}` };
 
-        // Fetch bodyfat history
-        const bodyfatRes = await fetch(
-          "http://localhost:4242/auth/metrics/bodyfat",
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-        if (bodyfatRes.ok) {
-          const data = await bodyfatRes.json();
-          setBodyfatHistory(data);
-        }
+        // All three are independent — fetch in parallel
+        const [bodyweightRes, bodyfatRes, prsRes] = await Promise.all([
+          fetch("/auth/metrics/bodyweight",        { headers }),
+          fetch("/auth/metrics/bodyfat",           { headers }),
+          fetch("/auth/metrics/personal-records",  { headers }),
+        ]);
 
-        // Fetch personal records
-        const prsRes = await fetch(
-          "http://localhost:4242/auth/metrics/personal-records",
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        if (bodyweightRes.ok) setBodyweightHistory(await bodyweightRes.json());
+
+        if (bodyfatRes.ok) setBodyfatHistory(await bodyfatRes.json());
+
         if (prsRes.ok) {
           const data = await prsRes.json();
           // Keep exercises that have either an exact PR entry or a predicted 1RM.
@@ -218,7 +203,7 @@ export default function Metrics() {
     const token = localStorage.getItem("token");
     try {
       const response = await fetch(
-        "http://localhost:4242/auth/metrics/bodyweight",
+        "/auth/metrics/bodyweight",
         {
           method: "POST",
           headers: {
@@ -252,7 +237,7 @@ export default function Metrics() {
     const token = localStorage.getItem("token");
     try {
       const response = await fetch(
-        "http://localhost:4242/auth/metrics/bodyfat",
+        "/auth/metrics/bodyfat",
         {
           method: "POST",
           headers: {
@@ -286,7 +271,7 @@ export default function Metrics() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:4242/auth/metrics/bodyweight/${id}`,
+        `/auth/metrics/bodyweight/${id}`,
         {
           method: "DELETE",
           headers: {
@@ -309,7 +294,7 @@ export default function Metrics() {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:4242/auth/metrics/bodyfat/${id}`,
+        `/auth/metrics/bodyfat/${id}`,
         {
           method: "DELETE",
           headers: {
@@ -344,7 +329,7 @@ export default function Metrics() {
       const weight = parseFloat(newBodyweight);
 
       const response = await fetch(
-        `http://localhost:4242/auth/metrics/bodyweight/${editingBodyweightId}`,
+        `/auth/metrics/bodyweight/${editingBodyweightId}`,
         {
           method: "PUT",
           headers: {
@@ -378,7 +363,7 @@ export default function Metrics() {
       const bodyfat = parseFloat(newBodyfat);
 
       const response = await fetch(
-        `http://localhost:4242/auth/metrics/bodyfat/${editingBodyfatId}`,
+        `/auth/metrics/bodyfat/${editingBodyfatId}`,
         {
           method: "PUT",
           headers: {
@@ -740,7 +725,12 @@ export default function Metrics() {
   };
 
   return (
-    <div className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32">
+    <motion.div
+      className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageTransition}
+    >
       <TopBar
         title="Track Metrics"
         pageIcon={<Award size={18} />}
@@ -754,37 +744,29 @@ export default function Metrics() {
 
       {/* Tab Navigation */}
       <div className="flex justify-around mt-4 mb-4">
-        <button
-          onClick={() => setActiveTab("bodyweight")}
-          className={`px-4 py-2 rounded-full font-medium text-sm ${
-            activeTab === "bodyweight"
-              ? "bg-[#246BFD] text-white"
-              : "text-[#5E6272] bg-transparent"
-          }`}
-        >
-          Bodyweight
-        </button>
-        <button
-          onClick={() => setActiveTab("bodyfat")}
-          className={`px-4 py-2 rounded-full font-medium text-sm ${
-            activeTab === "bodyfat"
-              ? "bg-[#246BFD] text-white"
-              : "text-[#5E6272] bg-transparent"
-          }`}
-        >
-          Body Fat
-        </button>
-        <button
-          onClick={() => setActiveTab("prs")}
-          className={`px-4 py-2 rounded-full font-medium text-sm ${
-            activeTab === "prs"
-              ? "bg-[#246BFD] text-white"
-              : "text-[#5E6272] bg-transparent"
-          }`}
-        >
-          PRs
-        </button>
+        {(["bodyweight", "bodyfat", "prs"] as const).map((tab) => (
+          <motion.button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            whileTap={{ scale: 0.93 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className={`px-4 py-2 rounded-full font-medium text-sm ${
+              activeTab === tab ? "bg-[#246BFD] text-white" : "text-[#5E6272] bg-transparent"
+            }`}
+          >
+            {tab === "bodyweight" ? "Bodyweight" : tab === "bodyfat" ? "Body Fat" : "PRs"}
+          </motion.button>
+        ))}
       </div>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, x: 10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -10 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        >
 
       {/* Bodyweight Tab */}
       {activeTab === "bodyweight" && (
@@ -810,22 +792,28 @@ export default function Metrics() {
 
           {/* Current Stats Card */}
           {bodyweightHistory.length > 0 && (
-            <div className="bg-[#262A34] rounded-xl p-6">
+            <motion.div
+              className="bg-[#262A34] rounded-xl p-6"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(0,255,173,0.1)" }}
+            >
               <h3 className="text-white font-semibold text-lg mb-4">
                 Current Bodyweight
               </h3>
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-4xl font-bold text-white">
-                  {unitSystem === "metric"
-                    ? bodyweightHistory[0].weight
-                    : imperialWeightType === "stone"
-                      ? (() => {
-                          const { stone, lbs } = kgToStone(
-                            bodyweightHistory[0].weight,
-                          );
-                          return `${stone} st ${lbs}`;
-                        })()
-                      : kgToLbs(bodyweightHistory[0].weight)}
+                  {unitSystem === "metric" ? (
+                    <CountUp to={bodyweightHistory[0].weight} decimals={1} duration={0.7} />
+                  ) : imperialWeightType === "stone" ? (
+                    (() => {
+                      const { stone, lbs } = kgToStone(bodyweightHistory[0].weight);
+                      return `${stone} st ${lbs}`;
+                    })()
+                  ) : (
+                    <CountUp to={kgToLbs(bodyweightHistory[0].weight) as number} decimals={1} duration={0.7} />
+                  )}
                 </span>
                 <span className="text-xl text-[#5E6272]">
                   {getWeightUnit()}
@@ -855,7 +843,7 @@ export default function Metrics() {
                   <span className="text-[#5E6272]">from last entry</span>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* Line Graph */}
@@ -869,18 +857,29 @@ export default function Metrics() {
 
           {/* Add New Entry Button */}
           {!showAddBodyweight && (
-            <button
+            <motion.button
               onClick={() => setShowAddBodyweight(true)}
+              whileHover={{ y: -2, boxShadow: "0 6px 20px rgba(36,107,253,0.3)" }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: "spring", stiffness: 400, damping: 25 }}
               className="w-full bg-[#246BFD] hover:bg-blue-700 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
             >
               <Plus size={18} />
               Add Bodyweight Entry
-            </button>
+            </motion.button>
           )}
 
           {/* Add Entry Form */}
-          {showAddBodyweight && (
-            <div className="bg-[#262A34] rounded-xl p-4">
+          <AnimatePresence>
+            {showAddBodyweight && (
+              <motion.div
+                className="bg-[#262A34] rounded-xl p-4"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                style={{ overflow: "hidden" }}
+              >
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-white font-semibold">Add Bodyweight</h4>
                 <button onClick={() => setShowAddBodyweight(false)}>
@@ -952,8 +951,9 @@ export default function Metrics() {
                   </button>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
 
           {/* History */}
           <div className="bg-[#262A34] rounded-xl p-4">
@@ -1094,8 +1094,16 @@ export default function Metrics() {
           )}
 
           {/* Add Entry Form */}
-          {showAddBodyfat && (
-            <div className="bg-[#262A34] rounded-xl p-4">
+          <AnimatePresence>
+            {showAddBodyfat && (
+              <motion.div
+                className="bg-[#262A34] rounded-xl p-4"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                style={{ overflow: "hidden" }}
+              >
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-white font-semibold">Add Body Fat</h4>
                 <button onClick={() => setShowAddBodyfat(false)}>
@@ -1120,8 +1128,9 @@ export default function Metrics() {
                   Save
                 </button>
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
 
           {/* History */}
           <div className="bg-[#262A34] rounded-xl p-4">
@@ -1204,7 +1213,7 @@ export default function Metrics() {
 
       {/* Personal Records Tab */}
       {activeTab === "prs" && (
-        <div className="space-y-4">
+        <motion.div className="space-y-4" variants={stagger} initial="hidden" animate="show">
           {personalRecords.length > 0 ? (
             personalRecords.map((pr) => {
               const top = Object.values(pr.prs || {})
@@ -1215,15 +1224,20 @@ export default function Metrics() {
               const predictedOneRepMax = pr.predictedOneRepMax?.value;
 
               return (
+                <motion.div key={pr.exerciseId} variants={fadeUp} transition={easeOut}>
                 <Link
-                  key={pr.exerciseId}
                   to={`/metrics/pr/${pr.exerciseId}`}
                   className="block"
                 >
-                  <div className="bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD] hover:opacity-90">
+                  <motion.div
+                    className="bg-[#262A34] rounded-xl p-4 border-l-4 border-[#00FFAD]"
+                    whileHover={{ y: -3, boxShadow: "0 6px 24px rgba(0,255,173,0.15)" }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                  >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <MuscleIcon muscleGroup={pr.muscleGroup} size={28} />
+                        <MuscleIcon muscleGroup={pr.muscleGroup} size={44} />
                         <h4 className="text-white font-semibold">
                           {pr.exerciseName}
                         </h4>
@@ -1246,8 +1260,9 @@ export default function Metrics() {
                         </div>
                       )}
                     </div>
-                  </div>
+                  </motion.div>
                 </Link>
+                </motion.div>
               );
             })
           ) : (
@@ -1261,10 +1276,13 @@ export default function Metrics() {
               </p>
             </div>
           )}
-        </div>
+        </motion.div>
       )}
 
+        </motion.div>
+      </AnimatePresence>
+
       <BottomBar onLogout={handleLogout} />
-    </div>
+    </motion.div>
   );
 }
