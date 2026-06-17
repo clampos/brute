@@ -10,17 +10,26 @@ import {
 } from "./email";
 import { prisma } from "./prisma";
 import { authenticateToken } from "./authMiddleware";
+import { computeSignals, computeRecommendation, computeProgrammeStats, nextLevel, prevLevel } from "./programmeSequencing";
 import { generateUniqueReferralCode } from "./utils/referralUtils";
 import { sendPasswordResetEmail } from "../server/email";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { randomUUID } from "crypto";
 import {
   ProgressiveOverloadService,
   WorkoutData,
 } from "./utils/progressiveOverloadService";
 import { RollingWindowStreakService } from "./utils/rollingWindowStreakService";
 import { getSuggestedReps } from "./utils/repAdjustmentService";
+import strengthRouter, {
+  prescribeForState,
+  getOrInitLiftState,
+  getActiveStrengthProgram,
+  advanceState,
+} from "./strength/strengthRouter";
+import { upsertLiftState } from "./strength/trainingMaxService";
 
 // Extend Express Request to include user property
 declare global {
@@ -1770,6 +1779,15 @@ router.delete(
         return res.status(403).json({ error: "You can only delete your own custom programmes" });
       }
 
+      // Check for any UserProgram records referencing this programme (would violate FK constraint)
+      const linkedProgram = await prisma.userProgram.findFirst({ where: { programmeId: id } });
+      if (linkedProgram) {
+        if (linkedProgram.status === "ACTIVE") {
+          return res.status(409).json({ error: "This programme is currently active. End the programme before deleting it." });
+        }
+        return res.status(409).json({ error: "This programme has workout history and cannot be deleted." });
+      }
+
       await prisma.programme.delete({ where: { id } });
 
       res.status(204).send();
@@ -1962,31 +1980,36 @@ router.get(
         JSON.stringify(whereClause),
       );
 
-      const exercises = await prisma.exercise.findMany({
-        where: whereClause,
-        orderBy: {
-          name: "asc",
-        },
-        select: {
-          id: true,
-          name: true,
-          muscleGroup: true,
-          category: true,
-          equipment: true,
-          isSelected: true,
-          movementPattern: true,
-          defaultRepMin: true,
-          defaultRepMax: true,
-          complementaryExerciseIds: true,
-          replacementExerciseIds: true,
-          isCustom: true,
-          createdByUserId: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+      const userId = (req as any).user?.userId;
+      const [exercises, favouriteRows] = await Promise.all([
+        prisma.exercise.findMany({
+          where: whereClause,
+          orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            muscleGroup: true,
+            category: true,
+            equipment: true,
+            isSelected: true,
+            movementPattern: true,
+            defaultRepMin: true,
+            defaultRepMax: true,
+            complementaryExerciseIds: true,
+            replacementExerciseIds: true,
+            isCustom: true,
+            createdByUserId: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        }),
+        userId
+          ? prisma.$queryRaw<{ exerciseId: string }[]>`SELECT exercise_id as exerciseId FROM user_favorite_exercises WHERE user_id = ${userId}`
+          : Promise.resolve([]),
+      ]);
+      const favouriteIds = new Set(favouriteRows.map((r: any) => r.exerciseId));
 
-      res.json(exercises);
+      res.json(exercises.map((ex) => ({ ...ex, isFavourited: favouriteIds.has(ex.id) })));
     } catch (error) {
       // error may be unknown; prefer Error stack when available
       console.error(
@@ -2374,6 +2397,59 @@ router.post(
 
       const streak = await RollingWindowStreakService.onWorkoutLogged(userId);
 
+      // ── STRENGTH session logging ───────────────────────────────────────────
+      try {
+        const strengthProgForSession = await getActiveStrengthProgram(userId);
+        if (strengthProgForSession) {
+          const BIG4_EXERCISE_IDS_SET = new Set([
+            "quads_barbell_squat", "chest_barbell_bench", "back_deadlift", "shoulders_ohp",
+          ]);
+          for (const ex of workoutData) {
+            if (!BIG4_EXERCISE_IDS_SET.has(ex.exerciseId)) continue;
+            const completedSets = ex.sets.filter(s => s.completed !== false);
+            if (completedSets.length === 0) continue;
+
+            const repsPerSet = completedSets.map(s => s.reps);
+            const weightsUsed = completedSets.map(s => s.weight);
+            // AMRAP is always the 3rd main set (index 2) on 5/3/1 weeks 1-3.
+            // Do NOT use the last set — FSL sets follow the main work.
+            const amrapReps = repsPerSet[2] ?? null;
+
+            const state = await getOrInitLiftState(
+              userId, strengthProgForSession.userProgramId, ex.exerciseId,
+              strengthProgForSession.experienceLevel ?? "intermediate",
+            );
+
+            // Log the session
+            const now = new Date().toISOString();
+            const logId = randomUUID();
+            await prisma.$executeRaw`
+              INSERT INTO strength_session_log
+                (id, user_id, user_program_id, workout_id, exercise_id, programme_type,
+                 cycle_week, cycle_number, sets_completed, reps_per_set, weights_used,
+                 amrap_reps, target_weight, target_reps, hit_target, created_at)
+              VALUES (
+                ${logId}, ${userId}, ${strengthProgForSession.userProgramId}, ${result.workoutId},
+                ${ex.exerciseId}, ${state.programmeType},
+                ${state.cycleWeek ?? 1}, ${state.cycleNumber ?? 1},
+                ${completedSets.length}, ${JSON.stringify(repsPerSet)}, ${JSON.stringify(weightsUsed)},
+                ${amrapReps}, ${weightsUsed[0] ?? 0}, ${repsPerSet[0] ?? 0},
+                ${repsPerSet.every(r => r >= 5) ? 1 : 0}, ${now}
+              )
+            `;
+
+            // Advance lift state
+            const updates = advanceState(state, repsPerSet, state.programmeType === "531" ? amrapReps : null, ex.exerciseId);
+            if (Object.keys(updates).length > 0) {
+              await upsertLiftState({ ...state, ...updates }, prisma);
+            }
+          }
+        }
+      } catch (strengthErr) {
+        console.error("Strength session logging error (non-fatal):", strengthErr);
+      }
+      // ── end STRENGTH session logging ──────────────────────────────────────
+
       let normalizedPerceivedDifficulty: number | null = null;
       if (perceivedDifficulty !== undefined && perceivedDifficulty !== null) {
         const parsedDifficulty = parseInt(perceivedDifficulty, 10);
@@ -2456,6 +2532,7 @@ router.post(
         workoutId: result.workoutId,
         recommendations: result.recommendations,
         weeklySummary: result.weeklySummary,
+        programCompleted: result.isProgramCompleted ?? false,
         streak,
         message: "Workout saved successfully",
       });
@@ -2999,6 +3076,64 @@ router.get(
         : [];
       const dayNumberParam = req.query.dayNumber as string | undefined;
       const dayNumber = dayNumberParam ? parseInt(dayNumberParam, 10) : undefined;
+
+      // ── STRENGTH bypass ───────────────────────────────────────────────────
+      const strengthProg = await getActiveStrengthProgram(userId);
+      if (strengthProg) {
+        const BIG4_SET = new Set([
+          "quads_barbell_squat", "chest_barbell_bench", "back_deadlift", "shoulders_ohp",
+        ]);
+
+        // Big 4 lifts → strength prescription (5/3/1 / linear / double)
+        const big4Recs = await Promise.all(
+          exerciseIds.filter(id => BIG4_SET.has(id)).map(async (exerciseId) => {
+            const state = await getOrInitLiftState(
+              userId, strengthProg.userProgramId, exerciseId, strengthProg.experienceLevel ?? "intermediate",
+            );
+            const prescription = prescribeForState(state, exerciseId);
+            // Use last non-FSL set weight as the headline weight
+            const mainSet = prescription.sets.filter(s => !s.isFSL).slice(-1)[0];
+            const setRecs = prescription.sets.map(s => ({
+              setNumber:         s.setNumber,
+              recommendedWeight: s.targetWeight,
+              recommendedReps:   s.isAmrap ? "AMRAP" : String(s.targetReps),
+              isAmrap:           s.isAmrap,
+              isFSL:             s.isFSL ?? false,
+            }));
+            return {
+              exerciseId,
+              recommendedWeight: mainSet?.targetWeight ?? 0,
+              setRecommendations: setRecs,
+              reasoning: prescription.progressionNote,
+              progressionType: `strength_${prescription.programmeType.toLowerCase()}`,
+              strengthMeta: {
+                isAmrapWeek: prescription.isAmrapWeek,
+                cycleWeek:   prescription.cycleWeek,
+                cycleNumber: prescription.cycleNumber,
+                trainingMax: prescription.trainingMax,
+                sets:        prescription.sets,
+              },
+            };
+          }),
+        );
+
+        // Accessories → normal progressive overload (history-based weight suggestions)
+        const accessoryIds = exerciseIds.filter(id => !BIG4_SET.has(id));
+        let accessoryRecs: any[] = [];
+        if (accessoryIds.length > 0) {
+          const accSetCounts = accessoryIds.map(id => setCounts[exerciseIds.indexOf(id)] ?? 3);
+          const accSetLayouts = accessoryIds.map(id => setLayouts[exerciseIds.indexOf(id)] ?? []);
+          accessoryRecs = await ProgressiveOverloadService.getProgressionRecommendations(
+            userId, accessoryIds, accSetCounts, accSetLayouts,
+          );
+        }
+
+        // Merge back into original order
+        const recMap: Record<string, any> = {};
+        for (const r of [...big4Recs, ...accessoryRecs]) recMap[r.exerciseId] = r;
+        return res.json({ recommendations: exerciseIds.map(id => recMap[id]).filter(Boolean) });
+      }
+      // ── end STRENGTH bypass ───────────────────────────────────────────────
 
       const recommendations =
         await ProgressiveOverloadService.getProgressionRecommendations(
@@ -4598,14 +4733,17 @@ router.post(
   authenticateToken,
   async (req: Request, res: Response): Promise<any> => {
     const userId = (req as any).user?.userId;
-    const { goal, experienceLevel, daysPerWeek, equipment, programmeName, priorityMuscle = "fullBody" } = req.body;
+    const { goal, experienceLevel, daysPerWeek, equipment, programmeName, priorityMuscle = "fullBody", weeks: weeksOverride } = req.body;
 
     if (!goal || !experienceLevel || !daysPerWeek || !equipment) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    if (goal !== "MUSCLE_BUILDING") {
-      return res.status(400).json({ error: "Only Muscle Building goal is supported currently" });
+    const isStrength = goal === "STRENGTH";
+    const isFatLoss = goal === "FAT_LOSS";
+
+    if (!isStrength && !isFatLoss && goal !== "MUSCLE_BUILDING") {
+      return res.status(400).json({ error: "Invalid goal" });
     }
 
     const days = Number(daysPerWeek);
@@ -4617,13 +4755,31 @@ router.post(
     const weeksMap: Record<string, number> = { beginner: 8, intermediate: 12, advanced: 16 };
     const weeks = weeksMap[experienceLevel] ?? 12;
 
-    // Sets per role by experience
-    const setsMap: Record<string, { main: number; supplemental: number; accessory: number }> = {
-      beginner:     { main: 3, supplemental: 3, accessory: 3 },
-      intermediate: { main: 4, supplemental: 3, accessory: 3 },
-      advanced:     { main: 4, supplemental: 4, accessory: 4 },
-    };
+    // Sets per role by experience — fat loss uses slightly less total volume
+    const setsMap: Record<string, { main: number; supplemental: number; accessory: number }> = isFatLoss
+      ? {
+          beginner:     { main: 3, supplemental: 3, accessory: 2 },
+          intermediate: { main: 3, supplemental: 3, accessory: 3 },
+          advanced:     { main: 4, supplemental: 3, accessory: 3 },
+        }
+      : {
+          beginner:     { main: 3, supplemental: 3, accessory: 3 },
+          intermediate: { main: 4, supplemental: 3, accessory: 3 },
+          advanced:     { main: 4, supplemental: 4, accessory: 4 },
+        };
     const setConfig = setsMap[experienceLevel] ?? setsMap.intermediate;
+
+    // Rep range transformer — fat loss shifts all ranges upward for more metabolic stimulus
+    function adaptReps(reps: string): string {
+      if (!isFatLoss) return reps;
+      const repMap: Record<string, string> = {
+        "6-10":  "10-15",
+        "8-12":  "12-15",
+        "10-15": "15-20",
+        "12-20": "15-25",
+      };
+      return repMap[reps] ?? reps;
+    }
 
     // Equipment whitelist
     const equipmentMap: Record<string, string[] | null> = {
@@ -4666,11 +4822,13 @@ router.post(
     const dayTemplates: Record<DayType, Slot[]> = {
       FullBody: [
         { muscleVariants: ["Quadriceps", "Quads", "Legs"], isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
-        { muscleVariants: ["Hamstrings", "Glutes"],        isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Hamstrings"],                  isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
         { muscleVariants: ["Chest", "Pectorals"],          isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
         { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
         { muscleVariants: ["Shoulders", "Deltoids"],       isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Biceps"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Triceps"],                     isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Calves"],                      isCompound: false, role: "ACCESSORY",     reps: "12-20" },
       ],
       Upper: [
         { muscleVariants: ["Chest", "Pectorals"],          isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
@@ -4682,7 +4840,7 @@ router.post(
       ],
       Lower: [
         { muscleVariants: ["Quadriceps", "Quads", "Legs"], isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
-        { muscleVariants: ["Hamstrings", "Glutes"],        isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Hamstrings"],                  isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
         { muscleVariants: ["Quadriceps", "Quads"],         isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Hamstrings"],                  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Glutes"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
@@ -4694,16 +4852,17 @@ router.post(
         { muscleVariants: ["Chest", "Pectorals"],          isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Shoulders", "Deltoids"],       isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Triceps"],                     isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Triceps"],                     isCompound: false, role: "ACCESSORY",     reps: "10-15" },
       ],
       Pull: [
         { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
         { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: true,  role: "SUPPLEMENTAL",  reps: "8-12" },
-        { muscleVariants: ["Back", "Lats", "Upper Back"],  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
+        { muscleVariants: ["Biceps"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Biceps"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
       ],
       Legs: [
         { muscleVariants: ["Quadriceps", "Quads", "Legs"], isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
-        { muscleVariants: ["Hamstrings", "Glutes"],        isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
+        { muscleVariants: ["Hamstrings"],                  isCompound: true,  role: "MAIN_LIFT",     reps: "6-10" },
         { muscleVariants: ["Glutes"],                      isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Quadriceps", "Quads"],         isCompound: false, role: "ACCESSORY",     reps: "10-15" },
         { muscleVariants: ["Hamstrings"],                  isCompound: false, role: "ACCESSORY",     reps: "10-15" },
@@ -4724,11 +4883,15 @@ router.post(
 
     try {
       // Fetch all exercises (optionally filtered by equipment)
-      const allExercises = await prisma.exercise.findMany({
-        where: equipmentWhitelist
-          ? { equipment: { in: equipmentWhitelist } }
-          : undefined,
-      });
+      const [allExercises, favouriteRows] = await Promise.all([
+        prisma.exercise.findMany({
+          where: equipmentWhitelist
+            ? { equipment: { in: equipmentWhitelist } }
+            : undefined,
+        }),
+        userId ? prisma.$queryRaw<{ exerciseId: string }[]>`SELECT exercise_id as exerciseId FROM user_favorite_exercises WHERE user_id = ${userId}` : Promise.resolve([]),
+      ]);
+      const favouriteIds = new Set(favouriteRows.map((r: any) => r.exerciseId));
 
       // Index by lowercase muscleGroup
       const byMuscle: Record<string, any[]> = {};
@@ -4753,8 +4916,128 @@ router.post(
         const pool = preferred.length > 0 ? preferred : fallback;
         if (pool.length === 0) return null;
 
+        // Favourited exercises get priority — pick any favourite first if available
+        const favourites = pool.filter((ex) => favouriteIds.has(ex.id));
+        if (favourites.length > 0) {
+          return favourites[Math.floor(Math.random() * favourites.length)];
+        }
+
         return pool[Math.floor(Math.random() * pool.length)];
       }
+
+      // ── STRENGTH programme generation ──────────────────────────────────────
+      if (isStrength) {
+        // Use caller-supplied weeks (from goal preview) if provided, rounded up to
+        // the nearest 4-week block to keep 5/3/1 cycles whole. Fall back to
+        // experience-level defaults.
+        const defaultWeeksMap: Record<string, number> = { beginner: 8, intermediate: 12, advanced: 16 };
+        const rawWeeks = weeksOverride ? Number(weeksOverride) : (defaultWeeksMap[experienceLevel] ?? 12);
+        const strengthWeeks = Math.max(4, Math.ceil(rawWeeks / 4) * 4);
+        type SRow = { exerciseId: string; dayNumber: number; orderIndex: number; sets: number; reps: string; strengthRole: string };
+        const strengthRows: SRow[] = [];
+        const addRow = (exerciseId: string, dayNumber: number, orderIndex: number, sets: number, reps: string, role: string) =>
+          strengthRows.push({ exerciseId, dayNumber, orderIndex, sets, reps, strengthRole: role });
+
+        if (days >= 4) {
+          // ── 4-day: Squat / Bench / Deadlift / OHP ──────────────────────────
+          // Day 1 — Squat
+          addRow("quads_barbell_squat",      1, 0, 3, "5",      "MAIN_LIFT");
+          addRow("hamstrings_rdl",           1, 1, 4, "8-10",   "ACCESSORY");  // primary — hamstring ✓
+          addRow("quads_leg_press",          1, 2, 3, "10-12",  "ACCESSORY");  // secondary — quad ✓
+          addRow("hamstrings_leg_curl",      1, 3, 3, "12-15",  "ACCESSORY");  // isolation — hamstring ✓
+          addRow("abs_plank",                1, 4, 3, "30-60s", "ACCESSORY");  // core (session 1)
+
+          // Day 2 — Bench Press
+          addRow("chest_barbell_bench",      2, 0, 3, "5",      "MAIN_LIFT");
+          addRow("chest_incline_db",         2, 1, 4, "8-10",   "ACCESSORY");  // primary — chest
+          addRow("triceps_close_grip_bench", 2, 2, 3, "10-12",  "ACCESSORY");  // secondary — tricep ✓
+          addRow("triceps_pushdown",         2, 3, 3, "12-15",  "ACCESSORY");  // isolation — tricep ✓
+          addRow("back_face_pull",           2, 4, 3, "15",     "ACCESSORY");  // rear delt ✓
+
+          // Day 3 — Deadlift
+          addRow("back_deadlift",            3, 0, 3, "5",      "MAIN_LIFT");
+          addRow("back_barbell_row",         3, 1, 4, "8-10",   "SUPPLEMENTAL"); // primary — back
+          addRow("hamstrings_seated_curl",   3, 2, 3, "10-12",  "ACCESSORY");    // secondary — hamstring ✓
+          addRow("quads_leg_extension",      3, 3, 3, "12-15",  "ACCESSORY");    // isolation — quad ✓
+          addRow("abs_hanging_leg_raise",    3, 4, 3, "10-15",  "ACCESSORY");    // core (session 2)
+
+          // Day 4 — Overhead Press
+          addRow("shoulders_ohp",            4, 0, 3, "5",      "MAIN_LIFT");
+          addRow("back_db_row",              4, 1, 4, "8-10",   "SUPPLEMENTAL"); // primary — back
+          addRow("triceps_skull_crusher",    4, 2, 3, "10-12",  "ACCESSORY");    // secondary — tricep ✓
+          addRow("shoulders_lateral_raise",  4, 3, 3, "12-15",  "ACCESSORY");    // isolation — shoulders
+          addRow("shoulders_reverse_fly",    4, 4, 3, "15",     "ACCESSORY");    // rear delt ✓
+
+          // Extra days 5-6 mirror days 1-2
+          for (let d = 5; d <= Math.min(days, 6); d++) {
+            const mirror = ((d - 1) % 4) + 1;
+            strengthRows.filter(r => r.dayNumber === mirror)
+              .forEach(r => addRow(r.exerciseId, d, r.orderIndex, r.sets, r.reps, r.strengthRole));
+          }
+        } else {
+          // ── 3-day full-body ─────────────────────────────────────────────────
+          // Day 1 — Squat + Bench
+          addRow("quads_barbell_squat",      1, 0, 3, "5",      "MAIN_LIFT");
+          addRow("chest_barbell_bench",      1, 1, 3, "5",      "MAIN_LIFT");
+          addRow("hamstrings_rdl",           1, 2, 4, "8-10",   "ACCESSORY");  // hamstring ✓
+          addRow("triceps_pushdown",         1, 3, 3, "10-12",  "ACCESSORY");  // tricep ✓
+          addRow("chest_incline_db",         1, 4, 3, "12-15",  "ACCESSORY");  // chest secondary
+          addRow("back_face_pull",           1, 5, 3, "15",     "ACCESSORY");  // rear delt ✓
+          addRow("abs_plank",                1, 6, 3, "30-60s", "ACCESSORY");  // core (session 1)
+
+          // Day 2 — Deadlift + OHP
+          addRow("back_deadlift",            2, 0, 3, "5",      "MAIN_LIFT");
+          addRow("shoulders_ohp",            2, 1, 3, "5",      "MAIN_LIFT");
+          addRow("back_barbell_row",         2, 2, 4, "8-10",   "SUPPLEMENTAL");// back
+          addRow("quads_leg_press",          2, 3, 3, "10-12",  "ACCESSORY");   // quad ✓
+          addRow("triceps_skull_crusher",    2, 4, 3, "10-12",  "ACCESSORY");   // tricep ✓
+          addRow("shoulders_reverse_fly",    2, 5, 3, "15",     "ACCESSORY");   // rear delt ✓
+
+          // Day 3 — Squat + Bench (variation)
+          addRow("quads_barbell_squat",      3, 0, 3, "5",      "MAIN_LIFT");
+          addRow("chest_barbell_bench",      3, 1, 3, "5",      "MAIN_LIFT");
+          addRow("hamstrings_seated_curl",   3, 2, 4, "8-10",   "ACCESSORY");   // hamstring ✓
+          addRow("quads_leg_extension",      3, 3, 3, "10-12",  "ACCESSORY");   // quad ✓
+          addRow("shoulders_lateral_raise",  3, 4, 3, "12-15",  "ACCESSORY");   // shoulder isolation
+          addRow("back_face_pull",           3, 5, 3, "15",     "ACCESSORY");   // rear delt ✓
+          addRow("abs_hanging_leg_raise",    3, 6, 3, "10-15",  "ACCESSORY");   // core (session 2)
+        }
+
+        const capLevel = experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1);
+        const strengthName = programmeName || `Strength Programme · ${days} Days`;
+        const strengthDesc = `${capLevel} strength programme built around the Big 4 lifts. ${days} days/week, ${strengthWeeks} weeks.`;
+
+        const programme = await prisma.programme.create({
+          data: {
+            name:             strengthName,
+            daysPerWeek:      days,
+            weeks:            strengthWeeks,
+            bodyPartFocus:    "fullBody",
+            progressionFocus: "STRENGTH",
+            description:      strengthDesc,
+            isCustom:         true,
+            userId,
+            experienceLevel,
+          },
+        });
+
+        if (strengthRows.length > 0) {
+          await prisma.programmeExercise.createMany({
+            data: strengthRows.map(row => ({
+              programmeId:  programme.id,
+              exerciseId:   row.exerciseId,
+              dayNumber:    row.dayNumber,
+              orderIndex:   row.orderIndex,
+              sets:         row.sets,
+              reps:         row.reps,
+              strengthRole: row.strengthRole as any,
+            })),
+          });
+        }
+
+        return res.status(201).json(programme);
+      }
+      // ── end STRENGTH programme generation ─────────────────────────────────
 
       // Extra slots injected per day type when a priority muscle is set
       const priorityExtraSlots: Record<string, { dayTypes: DayType[]; slots: Slot[] }> = {
@@ -4798,10 +5081,23 @@ router.post(
         },
       };
 
-      // MRV (Maximum Recoverable Volume) — weekly set cap per muscle; prevents accessory slots
-      // from piling on the same muscle across many days
-      const mrvByLevel: Record<string, number> = { beginner: 15, intermediate: 20, advanced: 25 };
-      const mrv = mrvByLevel[experienceLevel] ?? 20;
+      // Per-muscle MEV/MRV targets by goal × experience level
+      const perMuscleMevMrv: Record<string, Record<string, Record<string, [number, number]>>> = {
+        MUSCLE_BUILDING: {
+          beginner:     { Chest:[10,15], Back:[12,18], Quads:[10,15], Hamstrings:[8,12],  Glutes:[8,12],  Shoulders:[10,15], Biceps:[8,12],  Triceps:[8,12],  Calves:[8,12],  Abs:[6,10]  },
+          intermediate: { Chest:[12,20], Back:[14,22], Quads:[12,20], Hamstrings:[10,16], Glutes:[10,16], Shoulders:[12,20], Biceps:[10,16], Triceps:[10,16], Calves:[10,14], Abs:[8,12]  },
+          advanced:     { Chest:[16,25], Back:[18,28], Quads:[15,25], Hamstrings:[12,20], Glutes:[12,20], Shoulders:[16,24], Biceps:[12,20], Triceps:[12,20], Calves:[12,18], Abs:[10,16] },
+        },
+        FAT_LOSS: {
+          beginner:     { Chest:[8,12],  Back:[10,14], Quads:[8,12],  Hamstrings:[6,10],  Glutes:[6,10],  Shoulders:[8,12],  Biceps:[6,10],  Triceps:[6,10],  Calves:[6,10],  Abs:[5,8]   },
+          intermediate: { Chest:[10,15], Back:[12,16], Quads:[10,15], Hamstrings:[8,12],  Glutes:[8,12],  Shoulders:[10,15], Biceps:[8,12],  Triceps:[8,12],  Calves:[8,12],  Abs:[6,10]  },
+          advanced:     { Chest:[12,18], Back:[14,20], Quads:[12,18], Hamstrings:[10,15], Glutes:[10,15], Shoulders:[12,18], Biceps:[10,15], Triceps:[10,15], Calves:[10,14], Abs:[8,12]  },
+        },
+      };
+      const goalKey = isFatLoss ? "FAT_LOSS" : "MUSCLE_BUILDING";
+      const muscleTargets = perMuscleMevMrv[goalKey][experienceLevel] ?? perMuscleMevMrv[goalKey].intermediate;
+      const getMev = (m: string) => muscleTargets[m]?.[0] ?? 10;
+      const getMrv = (m: string) => muscleTargets[m]?.[1] ?? 20;
 
       // Normalise a slot's muscleVariants to a single tracking key
       function primaryMuscleKey(variants: string[]): string {
@@ -4820,6 +5116,9 @@ router.post(
 
       // Tracks weekly direct sets per muscle group across all days (for MRV check)
       const weeklyMuscleSetsSoFar: Record<string, number> = {};
+
+      // Per-day set cap — scales inversely with frequency (full-body 3-day needs more per session)
+      const MAX_SETS_PER_DAY = days <= 3 ? 42 : days <= 4 ? 38 : days <= 5 ? 34 : 36;
 
       // Build programme exercise rows
       const programmeExerciseRows: Array<{
@@ -4843,11 +5142,9 @@ router.post(
             ? extraPriority.slots
             : [];
 
-        const slots    = [...dayTemplates[dayType], ...extraSlots];
+        const slots    = [...dayTemplates[dayType], ...extraSlots].map((s) => ({ ...s, reps: adaptReps(s.reps) }));
         const usedToday = new Set<string>();
 
-        // Per-day set cap — keep workouts manageable
-        const MAX_SETS_PER_DAY = 27;
         const getDaySets = (dayNum: number) =>
           programmeExerciseRows
             .filter((r) => r.dayNumber === dayNum)
@@ -4858,18 +5155,22 @@ router.post(
 
           // Skip accessories if day is already at/above the cap
           const currentDaySets = getDaySets(i + 1);
-          const setsCount =
+          const rawSets =
             slot.role === "MAIN_LIFT"
               ? setConfig.main
               : slot.role === "SUPPLEMENTAL"
               ? setConfig.supplemental
               : setConfig.accessory;
+          // For accessories, step down to 3 sets when day is getting full (>75% cap) but still has room for 3
+          const setsCount = (slot.role === "ACCESSORY" && rawSets > 3 && currentDaySets + rawSets > MAX_SETS_PER_DAY * 0.75)
+            ? 3
+            : rawSets;
 
           if (slot.role === "ACCESSORY" && currentDaySets + setsCount > MAX_SETS_PER_DAY) continue;
 
           // MRV cap — skip accessory slots if this muscle already has enough weekly volume
           const muscleKey = primaryMuscleKey(slot.muscleVariants);
-          if (slot.role === "ACCESSORY" && (weeklyMuscleSetsSoFar[muscleKey] ?? 0) + setsCount > mrv) continue;
+          if (slot.role === "ACCESSORY" && (weeklyMuscleSetsSoFar[muscleKey] ?? 0) + setsCount > getMrv(muscleKey)) continue;
 
           const ex = pickExercise(slot, usedToday);
           if (!ex) continue;
@@ -4891,11 +5192,8 @@ router.post(
       }
 
       // ── MEV enforcement ────────────────────────────────────────────────────
-      // Ensure every major muscle group hits its Minimum Effective Volume
-      const mevByLevel: Record<string, number> = { beginner: 10, intermediate: 12, advanced: 16 };
-      const mev = mevByLevel[experienceLevel] ?? 12;
-
-      const majorMuscles = ["Chest", "Back", "Shoulders", "Quads", "Hamstrings", "Glutes", "Biceps", "Triceps"];
+      // Ensure every major muscle hits MEV; priority muscles are pushed toward MRV.
+      const majorMuscles = ["Chest", "Back", "Shoulders", "Quads", "Hamstrings", "Glutes", "Biceps", "Triceps", "Calves"];
 
       // Synonyms: maps canonical name → possible DB muscleGroup values (lowercase)
       const muscleSynonyms: Record<string, string[]> = {
@@ -4907,6 +5205,7 @@ router.post(
         Glutes:     ["glutes", "glute"],
         Biceps:     ["biceps"],
         Triceps:    ["triceps"],
+        Calves:     ["calves", "calf"],
       };
 
       // Days relevant to each major muscle
@@ -4919,45 +5218,26 @@ router.post(
         Glutes:     ["Legs", "Lower", "FullBody"],
         Biceps:     ["Pull", "Upper", "FullBody"],
         Triceps:    ["Push", "Upper", "FullBody"],
+        Calves:     ["Legs", "Lower", "FullBody"],
       };
 
-      // Secondary muscle contributions: primary → { secondary: fraction of sets credited }
-      // e.g. bench press (Chest) contributes 0.5 × sets to Triceps and 0.5 × sets to Shoulders
-      const secondaryContributions: Record<string, Record<string, number>> = {
-        Chest:      { Triceps: 0.5, Shoulders: 0.5 },
-        Back:       { Biceps: 0.5, Hamstrings: 0.4, Glutes: 0.3 }, // rows/pull-ups → biceps; deadlift → posterior chain
-        Shoulders:  { Triceps: 0.5, Chest: 0.3 },
-        Quads:      { Glutes: 0.5, Hamstrings: 0.3 },
-        Hamstrings: { Glutes: 0.5 },
-        Glutes:     { Hamstrings: 0.3, Quads: 0.2 }, // hip thrust → hamstrings; step-ups → quads
-        Triceps:    { Shoulders: 0.3, Chest: 0.3 },  // close-grip bench + dips hit chest too
+      // Priority muscle → which canonical muscles to push toward MRV (not just MEV)
+      const priorityToCanonicals: Record<string, string[]> = {
+        chest:     ["Chest"],
+        back:      ["Back"],
+        shoulders: ["Shoulders"],
+        arms:      ["Biceps", "Triceps"],
+        legs:      ["Quads", "Hamstrings"],
+        glutes:    ["Glutes"],
       };
+      const priorityCanonicals = priorityToCanonicals[priorityMuscle] ?? [];
 
-      // Calculate current weekly sets per canonical muscle (primary + secondary credit)
-      const weeklySetsByMuscle: Record<string, number> = {};
-      for (const row of programmeExerciseRows) {
-        const ex = allExercises.find((e) => e.id === row.exerciseId);
-        if (!ex) continue;
-        const mgLower = (ex.muscleGroup ?? "").toLowerCase().trim();
-        const canonical = majorMuscles.find((m) =>
-          muscleSynonyms[m].some((s) => mgLower === s || mgLower.includes(s)),
-        );
-        if (!canonical) continue;
-        // Primary muscle gets full sets
-        weeklySetsByMuscle[canonical] = (weeklySetsByMuscle[canonical] ?? 0) + row.sets;
-        // Secondary muscles get fractional credit — compounds only (e.g. bench → triceps/shoulders)
-        if (ex.category === "Compound") {
-          const secondaries = secondaryContributions[canonical] ?? {};
-          for (const [secMuscle, fraction] of Object.entries(secondaries)) {
-            weeklySetsByMuscle[secMuscle] = (weeklySetsByMuscle[secMuscle] ?? 0) + row.sets * fraction;
-          }
-        }
-      }
-
-      // For each muscle below MEV, add extra accessory sets
+      // For each muscle below its target, add extra accessory sets
       for (const muscle of majorMuscles) {
-        let currentSets = weeklySetsByMuscle[muscle] ?? 0;
-        if (currentSets >= mev) continue;
+        let currentSets = weeklyMuscleSetsSoFar[muscle] ?? 0;
+        // Priority muscles aim for MRV; others just need to reach MEV
+        const targetSets = priorityCanonicals.includes(muscle) ? getMrv(muscle) : getMev(muscle);
+        if (currentSets >= targetSets) continue;
 
         const relevantDayTypes = muscleRelevantDays[muscle] ?? ["FullBody"];
         const variants = [muscle, ...muscleSynonyms[muscle].map((s) => s.charAt(0).toUpperCase() + s.slice(1))];
@@ -4970,47 +5250,51 @@ router.post(
         if (applicableDayIndices.length === 0) continue;
 
         let round = 0;
-        while (currentSets < mev) {
-          // Pick the applicable day with the fewest sets (load-balance MEV additions)
+        while (currentSets < targetSets) {
+          // Pick the applicable day with the fewest sets (load-balance additions)
           const dayIdx = applicableDayIndices.reduce((best, idx) => {
             const bestSets = programmeExerciseRows.filter((r) => r.dayNumber === best + 1).reduce((s, r) => s + r.sets, 0);
             const idxSets  = programmeExerciseRows.filter((r) => r.dayNumber === idx  + 1).reduce((s, r) => s + r.sets, 0);
             return idxSets < bestSets ? idx : best;
           });
+
+          // Guard: don't exceed per-day set cap; step down to 3 if day is getting full
+          const dayCurrentSets = programmeExerciseRows.filter((r) => r.dayNumber === dayIdx + 1).reduce((s, r) => s + r.sets, 0);
+          const newSets = (setConfig.accessory > 3 && dayCurrentSets + setConfig.accessory > MAX_SETS_PER_DAY * 0.75) ? 3 : setConfig.accessory;
+          if (dayCurrentSets + newSets > MAX_SETS_PER_DAY) break;
+
           round++;
 
           const usedInDay = new Set(
             programmeExerciseRows.filter((r) => r.dayNumber === dayIdx + 1).map((r) => r.exerciseId),
           );
 
-          const extraSlot: Slot = { muscleVariants: variants, isCompound: false, role: "ACCESSORY", reps: "10-15" };
-          const ex = pickExercise(extraSlot, usedInDay);
-          if (!ex) break; // no more distinct exercises available
+          const extraSlot: Slot = { muscleVariants: variants, isCompound: false, role: "ACCESSORY", reps: adaptReps("10-15") };
+          // Try unique first; fall back to any available exercise (allow repeats) if pool exhausted
+          const ex = pickExercise(extraSlot, usedInDay) ?? pickExercise(extraSlot, new Set());
+          if (!ex) break; // no exercises exist at all for this muscle
 
-          const newSets = setConfig.accessory;
           programmeExerciseRows.push({
             exerciseId:   ex.id,
             dayNumber:    dayIdx + 1,
             orderIndex:   programmeExerciseRows.filter((r) => r.dayNumber === dayIdx + 1).length,
             sets:         newSets,
-            reps:         "10-15",
+            reps:         adaptReps("10-15"),
             strengthRole: "ACCESSORY",
           });
 
           currentSets += newSets;
-          weeklySetsByMuscle[muscle] = currentSets;
+          weeklyMuscleSetsSoFar[muscle] = currentSets;
 
-          if (round > applicableDayIndices.length * 4) break; // safety — avoid infinite loop if exercises exhausted
+          if (round > applicableDayIndices.length * 6) break; // safety valve
         }
       }
       // ── end MEV enforcement ────────────────────────────────────────────────
 
       // Auto-generate name
-      const baseNames: Record<string, string> = {
-        beginner:     "Starter Build",
-        intermediate: "Mass Protocol",
-        advanced:     "Elite Mass",
-      };
+      const baseNames: Record<string, string> = isFatLoss
+        ? { beginner: "Fat Loss Starter", intermediate: "Fat Loss Protocol", advanced: "Fat Loss Elite" }
+        : { beginner: "Starter Build",    intermediate: "Mass Protocol",     advanced: "Elite Mass" };
       const priorityLabels: Record<string, string> = {
         fullBody:  "",
         chest:     "Chest-Focused",
@@ -5020,20 +5304,24 @@ router.post(
         legs:      "Leg-Focused",
         glutes:    "Glute-Focused",
       };
-      const baseName      = baseNames[experienceLevel] ?? "Hypertrophy Programme";
+      const baseName      = baseNames[experienceLevel] ?? (isFatLoss ? "Fat Loss Programme" : "Hypertrophy Programme");
       const priorityPart  = priorityLabels[priorityMuscle] ? `${priorityLabels[priorityMuscle]} ` : "";
       const generatedName = programmeName || `${priorityPart}${baseName} · ${days} Days`;
+      const capLevel = experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1);
+      const description = isFatLoss
+        ? `${priorityPart}${capLevel} fat loss programme. Higher rep ranges, controlled volume. ${days} days/week, ${weeks} weeks.`
+        : `${priorityPart}${capLevel} hypertrophy programme. ${days} days/week, ${weeks} weeks.`;
 
       // Create programme
       const programme = await prisma.programme.create({
         data: {
-          name:              generatedName,
-          daysPerWeek:       days,
+          name:             generatedName,
+          daysPerWeek:      days,
           weeks,
           bodyPartFocus,
-          progressionFocus:  "MUSCLE_BUILDING",
-          description: `${priorityPart}${experienceLevel} hypertrophy programme. ${days} days/week, ${weeks} weeks.`,
-          isCustom: true,
+          progressionFocus: isFatLoss ? "FAT_LOSS" : "MUSCLE_BUILDING",
+          description,
+          isCustom:         true,
           userId,
           experienceLevel,
         },
@@ -5060,5 +5348,156 @@ router.post(
     }
   }
 );
+
+// GET /auth/user-programs/:id/completion-summary
+router.get(
+  "/user-programs/:id/completion-summary",
+  authenticateToken,
+  async (req: Request, res: Response): Promise<any> => {
+    const { id } = req.params;
+    const userId = (req as any).user.userId;
+
+    try {
+      const userProgram = await prisma.userProgram.findFirst({
+        where: { id, userId },
+        include: { programme: true, user: true },
+      });
+
+      if (!userProgram) {
+        return res.status(404).json({ error: "User program not found" });
+      }
+
+      // Always recompute signals (never serve stale cached data)
+      const signals = await computeSignals(id, prisma);
+      const recommendation = computeRecommendation(signals);
+
+      const expLevel = signals.experienceLevel;
+      let targetLevel = expLevel;
+      if (recommendation === "ADVANCE") targetLevel = nextLevel(expLevel);
+      else if (recommendation === "STEP_BACK") targetLevel = prevLevel(expLevel);
+
+      // Match on daysPerWeek + progressionFocus (experienceLevel column is unpopulated on existing programmes)
+      const currentDays = userProgram.programme.daysPerWeek;
+      const targetDays = recommendation === "ADVANCE"
+        ? Math.min(currentDays + 1, 5)
+        : recommendation === "STEP_BACK"
+          ? Math.max(currentDays - 1, 3)
+          : currentDays;
+
+      const nextProgramme = await prisma.programme.findFirst({
+        where: {
+          isCustom: false,
+          daysPerWeek: targetDays,
+          progressionFocus: userProgram.programme.progressionFocus,
+          id: { not: userProgram.programmeId },
+        },
+      }) ?? await prisma.programme.findFirst({
+        where: {
+          isCustom: false,
+          progressionFocus: userProgram.programme.progressionFocus,
+          id: { not: userProgram.programmeId },
+        },
+      }) ?? await prisma.programme.findFirst({
+        where: {
+          isCustom: false,
+          id: { not: userProgram.programmeId },
+        },
+      });
+
+      // Suggested params for the AI programme generator
+      const suggestedGenerateParams = {
+        goal: userProgram.programme.progressionFocus ?? "MUSCLE_BUILDING",
+        experienceLevel: targetLevel,
+        daysPerWeek: targetDays,
+        priorityMuscle: "fullBody",
+      };
+
+      // Delete existing record so we always write a fresh one
+      await prisma.userMacroCycle.deleteMany({ where: { userId, userProgramId: id } });
+      const cycleCount = await prisma.userMacroCycle.count({ where: { userId } });
+
+      const macroCycle = await prisma.userMacroCycle.create({
+        data: {
+          userId,
+          userProgramId: id,
+          cycleNumber: cycleCount + 1,
+          completionRate: signals.completionRate,
+          progressionRate: signals.progressionRate,
+          avgRpe: signals.avgRpe,
+          goalMet: signals.goalMet,
+          recommendation,
+          recommendedProgrammeId: nextProgramme?.id ?? null,
+        },
+      });
+
+      // Auto-upgrade experience level if advancing
+      if (recommendation === "ADVANCE" && expLevel !== "advanced") {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { currentExperienceLevel: targetLevel },
+        });
+      }
+
+      const stats = await computeProgrammeStats(id, prisma);
+
+      const recommendedProgramme = nextProgramme ?? null;
+
+      return res.json({
+        signals: {
+          completionRate: macroCycle.completionRate,
+          progressionRate: macroCycle.progressionRate,
+          avgRpe: macroCycle.avgRpe,
+          goalMet: macroCycle.goalMet,
+        },
+        recommendation: macroCycle.recommendation,
+        nextProgramme: recommendedProgramme,
+        suggestedGenerateParams,
+        stats,
+        programmeName: userProgram.programme.name,
+        programmeWeeks: userProgram.programme.weeks,
+      });
+    } catch (err) {
+      console.error("Completion summary error:", err);
+      return res.status(500).json({ error: "Failed to compute completion summary" });
+    }
+  }
+);
+
+// ── Exercise library ─────────────────────────────────────────────────────────
+
+// ── Favourite exercises ───────────────────────────────────────────────────────
+
+// GET /auth/exercises/favourites  → [exerciseId, ...]
+router.get("/exercises/favourites", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.userId;
+    const rows = await prisma.$queryRaw<{ exerciseId: string }[]>`SELECT exercise_id as exerciseId FROM user_favorite_exercises WHERE user_id = ${userId}`;
+    return res.json(rows.map((r) => r.exerciseId));
+  } catch (err) {
+    console.error("Get favourites error:", err);
+    return res.status(500).json({ error: "Failed to fetch favourites" });
+  }
+});
+
+// POST /auth/exercises/:id/favourite  → toggle; returns { favourited: boolean }
+router.post("/exercises/:id/favourite", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.userId;
+    const exerciseId = req.params.id;
+    const existing = await prisma.$queryRaw<{ id: number }[]>`SELECT 1 as id FROM user_favorite_exercises WHERE user_id = ${userId} AND exercise_id = ${exerciseId} LIMIT 1`;
+    if (existing.length > 0) {
+      await prisma.$executeRaw`DELETE FROM user_favorite_exercises WHERE user_id = ${userId} AND exercise_id = ${exerciseId}`;
+      return res.json({ favourited: false });
+    } else {
+      await prisma.$executeRaw`INSERT INTO user_favorite_exercises (user_id, exercise_id, created_at) VALUES (${userId}, ${exerciseId}, datetime('now'))`;
+      return res.json({ favourited: true });
+    }
+  } catch (err) {
+    console.error("Toggle favourite error:", err);
+    return res.status(500).json({ error: "Failed to toggle favourite" });
+  }
+});
+
+router.use("/strength", strengthRouter);
 
 export default router;

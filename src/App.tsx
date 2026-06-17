@@ -20,6 +20,10 @@ const Workouts           = lazy(() => import("./screens/Workouts.tsx"));
 const Metrics            = lazy(() => import("./screens/Metrics.tsx"));
 const ExercisePRs        = lazy(() => import("./screens/ExercisePRs.tsx"));
 const MuscleIcons        = lazy(() => import("./screens/MuscleIcons.tsx"));
+const ExerciseLibrary    = lazy(() => import("./screens/ExerciseLibrary.tsx"));
+const Strength           = lazy(() => import("./screens/Strength.tsx"));
+const StrengthGoalCreate = lazy(() => import("./screens/StrengthGoalCreate.tsx"));
+const StrengthGoalDetail = lazy(() => import("./screens/StrengthGoalDetail.tsx"));
 
 // Minimal fallback — invisible so it doesn't flash a loading state
 const Fallback = () => <div className="min-h-screen bg-[#0B0F1A]" />;
@@ -43,6 +47,10 @@ export default function App() {
           <Route path="/workouts" element={<ProtectedRoute><Workouts /></ProtectedRoute>} />
           <Route path="/metrics" element={<ProtectedRoute><Metrics /></ProtectedRoute>} />
           <Route path="/metrics/pr/:exerciseId" element={<ProtectedRoute><ExercisePRs /></ProtectedRoute>} />
+          <Route path="/exercises" element={<ProtectedRoute><ExerciseLibrary /></ProtectedRoute>} />
+          <Route path="/strength" element={<ProtectedRoute><Strength /></ProtectedRoute>} />
+          <Route path="/strength/goals/new" element={<ProtectedRoute><StrengthGoalCreate /></ProtectedRoute>} />
+          <Route path="/strength/goals/:id" element={<ProtectedRoute><StrengthGoalDetail /></ProtectedRoute>} />
           <Route path="/debug/muscle-icons" element={<ProtectedRoute><MuscleIcons /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

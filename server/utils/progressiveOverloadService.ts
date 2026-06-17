@@ -116,6 +116,8 @@ export interface WeeklySummary {
   }>;
   isEndOfWeek: boolean;
   weeklySetsByMuscleGroup?: Record<string, number>;
+  experienceLevel?: string;
+  progressionFocus?: string;
 }
 
 export class ProgressiveOverloadService {
@@ -189,6 +191,7 @@ export class ProgressiveOverloadService {
     userId: string,
     exerciseId: string,
     weeks: number = 3,
+    programLength: number = 999,
   ): Promise<PerformanceHistory[]> {
     const workouts = await prisma.workout.findMany({
       where: {
@@ -196,6 +199,7 @@ export class ProgressiveOverloadService {
           userId,
           status: "ACTIVE",
         },
+        weekNumber: { lte: programLength }, // exclude deload week
         exercises: {
           some: {
             exerciseId,
@@ -263,6 +267,7 @@ export class ProgressiveOverloadService {
   private static async getLastWorkoutSetsForExercise(
     userId: string,
     exerciseId: string,
+    programLength: number = 999,
   ): Promise<WorkoutSetHistory[]> {
     const workout = await prisma.workout.findFirst({
       where: {
@@ -270,6 +275,7 @@ export class ProgressiveOverloadService {
           userId,
           status: "ACTIVE",
         },
+        weekNumber: { lte: programLength }, // exclude deload week
         exercises: {
           some: {
             exerciseId,
@@ -317,6 +323,7 @@ export class ProgressiveOverloadService {
     currentRPE: number,
     sets: number,
     progressionType: ProgressionRecommendation["progressionType"],
+    repRangeMax: number = 15,
   ): SetProgressionRecommendation {
     let recommendedWeight = previousSet.weight;
     // Drive per-set progression from what the user actually achieved last session.
@@ -356,7 +363,7 @@ export class ProgressiveOverloadService {
       recommendedReps = previousSet.reps;
     } else if (progressionType === "NORMAL") {
       recommendedWeight = previousSet.weight;
-      recommendedReps = Math.min(previousSet.reps + 1, this.REP_CAP);
+      recommendedReps = Math.min(previousSet.reps + 1, repRangeMax);
     }
 
     recommendedWeight = this.roundToNearestIncrement(recommendedWeight, 2.5);
@@ -373,6 +380,7 @@ export class ProgressiveOverloadService {
     currentSetDefinitions: SetDefinition[],
     currentRPE: number,
     progressionType: ProgressionRecommendation["progressionType"],
+    repRangeMax: number = 15,
   ): SetProgressionRecommendation[] {
     if (previousSets.length === 0) {
       // No hardcoded load/reps for a brand new exercise; guide by RPE only.
@@ -421,6 +429,7 @@ export class ProgressiveOverloadService {
         currentRPE,
         currentSetDefinitions.length,
         progressionType,
+        repRangeMax,
       );
 
       return {
@@ -618,14 +627,16 @@ export class ProgressiveOverloadService {
       });
     };
 
-    if (history.length === 0 || lastWorkoutSets.length === 0) {
+    if (currentWeek === 1 || history.length === 0 || lastWorkoutSets.length === 0) {
       return {
         exerciseId,
         recommendedWeight: 0,
         recommendedReps: repRange.min,
         recommendedRPE: currentRPE,
         progressionType: "INITIAL",
-        reasoning: `First session: pick a weight you can hit ${repRange.min}–${repRange.max} reps with good form.`,
+        reasoning: currentWeek === 1
+          ? `Week 1: pick a weight you can hit ${repRange.min}–${repRange.max} reps with good form.`
+          : `First session: pick a weight you can hit ${repRange.min}–${repRange.max} reps with good form.`,
         setRecommendations: [],
         volumeSuggestion: null,
       };
@@ -1098,8 +1109,8 @@ export class ProgressiveOverloadService {
           setCount,
         );
 
-        const history = await this.getPerformanceHistory(userId, exerciseId, 3);
-        const lastWorkoutSets = await this.getLastWorkoutSetsForExercise(userId, exerciseId);
+        const history = await this.getPerformanceHistory(userId, exerciseId, 3, programLength);
+        const lastWorkoutSets = await this.getLastWorkoutSetsForExercise(userId, exerciseId, programLength);
 
         const strengthMeta = isStrengthFocus
           ? strengthExerciseMetaMap.get(exerciseId)
@@ -1161,14 +1172,18 @@ export class ProgressiveOverloadService {
         // ── Strength supplemental / accessory path (generic) ─────────────────
         const lowerBodyGroupsStr = ["Quads", "Hamstrings", "Glutes", "Back", "quads", "hamstrings", "glutes", "back"];
         const strengthWeightIncrement = lowerBodyGroupsStr.includes(muscleGroup) ? 5 : 2.5;
-        if (history.length === 0 || lastWorkoutSets.length === 0) {
+        const strengthPe = programmeExerciseMap.get(exerciseId);
+        const strengthRepRange = this.parseRepRange(strengthPe?.reps ?? "8-12");
+        if (currentWeek === 1 || history.length === 0 || lastWorkoutSets.length === 0) {
           recommendations.push({
             exerciseId,
             recommendedWeight: 0,
             recommendedReps: 0,
             recommendedRPE: currentRPE,
             progressionType: "INITIAL",
-            reasoning: `Week ${currentWeek} setup: choose a load that lands around RPE ${currentRPE}.`,
+            reasoning: currentWeek === 1
+              ? `Week 1: pick a weight you can hit ${strengthRepRange.min}–${strengthRepRange.max} reps with good form.`
+              : `Week ${currentWeek} setup: choose a load that lands around RPE ${currentRPE}.`,
             setRecommendations: [],
           });
           continue;
@@ -1229,16 +1244,16 @@ export class ProgressiveOverloadService {
           recommendedReps = this.REP_FAIL;
           progressionType = "FAILURE";
           reasoning = `Rep count too low (<${this.REP_FAIL}). Reducing weight 10%, resetting to ${this.REP_FAIL} reps.`;
-        } else if (progressionType === "NORMAL" && lastReps >= this.REP_CAP) {
+        } else if (progressionType === "NORMAL" && lastReps >= strengthRepRange.max) {
           recommendedWeight = this.roundToNearestIncrement(currentWeight * (1 + this.WEIGHT_INCREASE_PERCENT), strengthWeightIncrement);
           recommendedReps = this.calculateVolumePreservingReps(
             currentWeight, lastReps, recommendedWeight, setCount,
           );
           progressionType = "REP_CAP";
-          reasoning = `Rep cap reached (≥${this.REP_CAP}). Increasing weight 5%.`;
+          reasoning = `Rep cap reached (≥${strengthRepRange.max}). Increasing weight 5%.`;
         } else if (progressionType === "NORMAL") {
           recommendedWeight = currentWeight;
-          recommendedReps = Math.min(lastReps + 1, this.REP_CAP);
+          recommendedReps = Math.min(lastReps + 1, strengthRepRange.max);
           reasoning = `[Strength ${strengthMeta?.role?.toLowerCase() ?? "accessory"}] Add +1 rep. Target RPE ${currentRPE}.`;
         }
 
@@ -1248,7 +1263,7 @@ export class ProgressiveOverloadService {
         }
 
         const setRecommendations = this.buildSetRecommendations(
-          lastWorkoutSets, currentSetDefinitions, currentRPE, progressionType,
+          lastWorkoutSets, currentSetDefinitions, currentRPE, progressionType, strengthRepRange.max,
         );
         const topRecommendation = setRecommendations[0] || {
           setNumber: 1, recommendedWeight, recommendedReps,
@@ -1336,6 +1351,7 @@ export class ProgressiveOverloadService {
     workoutId: string;
     recommendations: ProgressionRecommendation[];
     weeklySummary?: WeeklySummary;
+    isProgramCompleted?: boolean;
   }> {
     try {
       // Get user program details
@@ -1550,12 +1566,15 @@ export class ProgressiveOverloadService {
         exerciseIds,
         workout.id,
         isEndOfWeek,
+        userProgram.programme.experienceLevel ?? "intermediate",
+        userProgram.programme.progressionFocus ?? "MUSCLE_BUILDING",
       );
 
       return {
         workoutId: workout.id,
         recommendations,
         weeklySummary,
+        isProgramCompleted,
       };
     } catch (error) {
       console.error("Error saving workout:", error);
@@ -1573,6 +1592,8 @@ export class ProgressiveOverloadService {
     exerciseIds: string[],
     currentWorkoutId: string,
     isEndOfWeek: boolean,
+    experienceLevel: string = "intermediate",
+    progressionFocus: string = "MUSCLE_BUILDING",
   ): Promise<WeeklySummary> {
     try {
       const currentWorkout = await prisma.workout.findUnique({
@@ -2035,6 +2056,9 @@ export class ProgressiveOverloadService {
         }
         summary.weeklySetsByMuscleGroup = setsByMuscle;
       }
+
+      summary.experienceLevel = experienceLevel;
+      summary.progressionFocus = progressionFocus;
 
       return summary;
     } catch (error) {

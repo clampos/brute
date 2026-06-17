@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import logo from "../assets/logo.png";
 import BottomBar from "../components/BottomBar";
 import TopBar from "../components/TopBar";
+import ProgrammeCompletionSummary from "./ProgrammeCompletionSummary";
 import {
   Dumbbell,
   CheckCircle,
@@ -15,12 +16,15 @@ import {
   Trash2,
   Pencil,
   Check,
+  Flame,
+  Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { modalOverlay, modalPanel, spring, pageTransition, stagger, fadeUp, easeOut } from "../utils/animations";
 
 export default function Programmes() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [firstName, setFirstName] = useState("John");
   const [surname, setSurname] = useState("Doe");
   const [loading, setLoading] = useState(true);
@@ -29,7 +33,7 @@ export default function Programmes() {
   const [activeUserProgram, setActiveUserProgram] = useState<any>(null);
   const [filterTab, setFilterTab] = useState<"all" | "previous">("all");
   const [progressionFocusTab, setProgressionFocusTab] = useState<
-    "MUSCLE_BUILDING" | "STRENGTH"
+    "MUSCLE_BUILDING" | "STRENGTH" | "FAT_LOSS"
   >("MUSCLE_BUILDING");
   const [previousPrograms, setPreviousPrograms] = useState<any[]>([]);
   const [showWarningModal, setShowWarningModal] = useState(false);
@@ -59,6 +63,8 @@ export default function Programmes() {
   const [generatePriorityMuscle, setGeneratePriorityMuscle] = useState<string>("fullBody");
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [showCompletionSummary, setShowCompletionSummary] = useState(false);
+  const [completionSummaryData, setCompletionSummaryData] = useState<any>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -102,6 +108,29 @@ export default function Programmes() {
             (up: any) => up.status === "COMPLETED",
           );
           setPreviousPrograms(completed);
+
+          // Show completion summary for the most recently completed programme not yet seen
+          const recentlyCompleted = completed
+            .slice()
+            .sort((a: any, b: any) => new Date(b.endDate ?? b.updatedAt).getTime() - new Date(a.endDate ?? a.updatedAt).getTime())[0];
+
+          if (recentlyCompleted && !localStorage.getItem(`completion_seen_${recentlyCompleted.id}`)) {
+            // Mark as seen immediately so navigating away without interacting doesn't re-trigger
+            localStorage.setItem(`completion_seen_${recentlyCompleted.id}`, "1");
+            try {
+              const summaryRes = await fetch(`/auth/user-programs/${recentlyCompleted.id}/completion-summary`, { headers });
+              if (summaryRes.ok) {
+                const summaryData = await summaryRes.json();
+                // Only show if the user actually completed at least 2 workouts — ignore abandoned programmes
+                if (summaryData.stats?.totalWorkoutsCompleted >= 2) {
+                  setCompletionSummaryData(summaryData);
+                  setShowCompletionSummary(true);
+                }
+              }
+            } catch {
+              // Non-critical: silently ignore
+            }
+          }
         }
 
         if (!progRes.ok) throw new Error("Failed to fetch programmes");
@@ -117,6 +146,16 @@ export default function Programmes() {
 
     fetchData();
   }, []);
+
+  // Auto-open generate modal if navigated here with openGenerate state
+  useEffect(() => {
+    if ((location.state as any)?.openGenerate) {
+      setShowGenerateModal(true);
+      setGenerateStep(1);
+      // Clear the state so back-navigation doesn't re-trigger
+      window.history.replaceState({}, "");
+    }
+  }, [location.state]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -377,6 +416,55 @@ export default function Programmes() {
   };
 
   return (
+    <>
+      {showCompletionSummary && completionSummaryData && (
+        <ProgrammeCompletionSummary
+          data={completionSummaryData}
+          onStartNextProgramme={(programmeId) => {
+            setShowCompletionSummary(false);
+            const recentlyCompleted = previousPrograms
+              .slice()
+              .sort((a: any, b: any) => new Date(b.endDate ?? b.updatedAt).getTime() - new Date(a.endDate ?? a.updatedAt).getTime())[0];
+            if (recentlyCompleted) {
+              localStorage.setItem(`completion_seen_${recentlyCompleted.id}`, "1");
+            }
+            handleStartProgramme(programmeId);
+          }}
+          onGenerateProgramme={(params) => {
+            setShowCompletionSummary(false);
+            const recentlyCompleted = previousPrograms
+              .slice()
+              .sort((a: any, b: any) => new Date(b.endDate ?? b.updatedAt).getTime() - new Date(a.endDate ?? a.updatedAt).getTime())[0];
+            if (recentlyCompleted) {
+              localStorage.setItem(`completion_seen_${recentlyCompleted.id}`, "1");
+            }
+            setGenerateGoal(params.goal);
+            setGenerateLevel(params.experienceLevel);
+            setGenerateDays(params.daysPerWeek);
+            setGeneratePriorityMuscle(params.priorityMuscle);
+            setGenerateStep(1);
+            setShowGenerateModal(true);
+          }}
+          onBrowseProgrammes={() => {
+            setShowCompletionSummary(false);
+            const recentlyCompleted = previousPrograms
+              .slice()
+              .sort((a: any, b: any) => new Date(b.endDate ?? b.updatedAt).getTime() - new Date(a.endDate ?? a.updatedAt).getTime())[0];
+            if (recentlyCompleted) {
+              localStorage.setItem(`completion_seen_${recentlyCompleted.id}`, "1");
+            }
+          }}
+          onDismiss={() => {
+            setShowCompletionSummary(false);
+            const recentlyCompleted = previousPrograms
+              .slice()
+              .sort((a: any, b: any) => new Date(b.endDate ?? b.updatedAt).getTime() - new Date(a.endDate ?? a.updatedAt).getTime())[0];
+            if (recentlyCompleted) {
+              localStorage.setItem(`completion_seen_${recentlyCompleted.id}`, "1");
+            }
+          }}
+        />
+      )}
     <motion.div
       className="min-h-screen text-[#5E6272] flex flex-col p-4 pb-32"
       initial={{ opacity: 0, y: 8 }}
@@ -387,10 +475,11 @@ export default function Programmes() {
         title="Programmes"
         pageIcon={<Dumbbell size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/dashboard") },
-          { label: "Workouts", onClick: () => navigate("/workouts") },
-          { label: "Track Metrics", onClick: () => navigate("/metrics") },
-          { label: "Settings", onClick: () => navigate("/settings") },
+          { label: "Dashboard",        onClick: () => navigate("/dashboard") },
+          { label: "Workouts",         onClick: () => navigate("/workouts") },
+          { label: "Track Metrics",    onClick: () => navigate("/metrics") },
+          { label: "Exercise Library", onClick: () => navigate("/exercises") },
+          { label: "Settings",         onClick: () => navigate("/settings") },
         ]}
       />
 
@@ -471,26 +560,56 @@ export default function Programmes() {
         </div>
 
         {filterTab === "all" && (
-          <div className="flex gap-3 mt-3 w-full">
+          <div className="flex gap-2 mt-3 w-full">
+            {/* Muscle Building */}
             <button
               onClick={() => setProgressionFocusTab("MUSCLE_BUILDING")}
-              className={`flex-1 glass-pressable border rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+              style={progressionFocusTab === "MUSCLE_BUILDING" ? { boxShadow: "0 0 16px rgba(36,107,253,0.45)" } : {}}
+              className={`flex-1 glass-pressable relative overflow-hidden rounded-xl px-2 py-3 text-xs font-semibold transition-all duration-200 flex flex-col items-center gap-1 border ${
                 progressionFocusTab === "MUSCLE_BUILDING"
-                  ? "bg-[#246BFD]/20 border-[#246BFD]/60 text-white"
-                  : "text-[#9CA3AF] border-[#2F3544]"
+                  ? "bg-gradient-to-b from-[#246BFD]/30 to-[#246BFD]/10 border-[#246BFD]/70 text-white"
+                  : "bg-[#0E1826]/60 border-[#1E2A3A] text-[#6B7280]"
               }`}
             >
-              Muscle Building
+              {progressionFocusTab === "MUSCLE_BUILDING" && (
+                <span className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#246BFD] to-transparent" />
+              )}
+              <Dumbbell size={14} className={progressionFocusTab === "MUSCLE_BUILDING" ? "text-[#246BFD]" : "text-[#4B5563]"} />
+              <span>Muscle</span>
             </button>
+
+            {/* Fat Loss */}
+            <button
+              onClick={() => setProgressionFocusTab("FAT_LOSS")}
+              style={progressionFocusTab === "FAT_LOSS" ? { boxShadow: "0 0 16px rgba(249,115,22,0.45)" } : {}}
+              className={`flex-1 glass-pressable relative overflow-hidden rounded-xl px-2 py-3 text-xs font-semibold transition-all duration-200 flex flex-col items-center gap-1 border ${
+                progressionFocusTab === "FAT_LOSS"
+                  ? "bg-gradient-to-b from-[#F97316]/30 to-[#F97316]/10 border-[#F97316]/70 text-white"
+                  : "bg-[#0E1826]/60 border-[#1E2A3A] text-[#6B7280]"
+              }`}
+            >
+              {progressionFocusTab === "FAT_LOSS" && (
+                <span className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#F97316] to-transparent" />
+              )}
+              <Flame size={14} className={progressionFocusTab === "FAT_LOSS" ? "text-[#F97316]" : "text-[#4B5563]"} />
+              <span>Fat Loss</span>
+            </button>
+
+            {/* Strength */}
             <button
               onClick={() => setProgressionFocusTab("STRENGTH")}
-              className={`flex-1 glass-pressable border rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+              style={progressionFocusTab === "STRENGTH" ? { boxShadow: "0 0 16px rgba(234,179,8,0.45)" } : {}}
+              className={`flex-1 glass-pressable relative overflow-hidden rounded-xl px-2 py-3 text-xs font-semibold transition-all duration-200 flex flex-col items-center gap-1 border ${
                 progressionFocusTab === "STRENGTH"
-                  ? "bg-[#246BFD]/20 border-[#246BFD]/60 text-white"
-                  : "text-[#9CA3AF] border-[#2F3544]"
+                  ? "bg-gradient-to-b from-[#EAB308]/30 to-[#EAB308]/10 border-[#EAB308]/70 text-white"
+                  : "bg-[#0E1826]/60 border-[#1E2A3A] text-[#6B7280]"
               }`}
             >
-              Strength
+              {progressionFocusTab === "STRENGTH" && (
+                <span className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-[#EAB308] to-transparent" />
+              )}
+              <Zap size={14} className={progressionFocusTab === "STRENGTH" ? "text-[#EAB308]" : "text-[#4B5563]"} />
+              <span>Strength</span>
             </button>
           </div>
         )}
@@ -533,6 +652,19 @@ export default function Programmes() {
         ) : (
           // All Programmes View — sub-tabs for My vs Brute
           <div>
+            {/* Strength Hub link — shown only on STRENGTH tab */}
+            {progressionFocusTab === "STRENGTH" && (
+              <button
+                onClick={() => navigate("/strength")}
+                className="w-full mb-4 flex items-center justify-between px-4 py-3 rounded-xl bg-gradient-to-r from-[#EAB308]/20 to-[#EAB308]/5 border border-[#EAB308]/40 text-white"
+              >
+                <div className="flex items-center gap-2">
+                  <Zap size={16} className="text-[#EAB308]" />
+                  <span className="text-sm font-semibold">Open Strength Hub</span>
+                </div>
+                <ChevronRight size={16} className="text-[#EAB308]" />
+              </button>
+            )}
             {/* Source sub-tabs */}
             <div className="flex gap-2 mb-4">
               <button
@@ -667,7 +799,7 @@ export default function Programmes() {
               bruteProgs.length === 0 ? (
                 <div className="w-full bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-10 flex justify-center items-center">
                   <p className="text-[#5E6272] font-semibold text-lg">
-                    {progressionFocusTab === "STRENGTH" ? "No strength programmes yet" : "No muscle-building programmes yet"}
+                    {progressionFocusTab === "STRENGTH" ? "No strength programmes yet" : progressionFocusTab === "FAT_LOSS" ? "No fat loss programmes yet" : "No muscle-building programmes yet"}
                   </p>
                 </div>
               ) : (
@@ -922,11 +1054,18 @@ export default function Programmes() {
                     <div className="text-[#8EC5FF] text-xs mt-1">Hypertrophy-focused training to build size and mass</div>
                   </button>
                   <button
-                    disabled
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-left opacity-50 cursor-not-allowed"
+                    onClick={() => { setGenerateGoal("FAT_LOSS"); setGenerateStep(2); }}
+                    className="w-full bg-[#F97316]/20 border border-[#F97316]/60 rounded-xl px-4 py-4 text-left hover:bg-[#F97316]/30 transition-colors"
+                  >
+                    <div className="text-white font-semibold">Fat Loss</div>
+                    <div className="text-[#FDB97D] text-xs mt-1">Higher rep, moderate volume training to burn fat and preserve muscle</div>
+                  </button>
+                  <button
+                    onClick={() => { setGenerateGoal("STRENGTH"); setGenerateStep(2); }}
+                    className="w-full bg-[#EAB308]/20 border border-[#EAB308]/60 rounded-xl px-4 py-4 text-left hover:bg-[#EAB308]/30 transition-colors"
                   >
                     <div className="text-white font-semibold">Strength</div>
-                    <div className="text-[#9CA3AF] text-xs mt-1">Coming soon</div>
+                    <div className="text-[#FDE68A] text-xs mt-1">5/3/1 wave loading and linear progression to build maximal strength</div>
                   </button>
                 </div>
               </div>
@@ -980,7 +1119,7 @@ export default function Programmes() {
                   ))}
                 </div>
                 <button
-                  onClick={() => setGenerateStep(4)}
+                  onClick={() => setGenerateStep(generateGoal === "STRENGTH" ? 5 : 4)}
                   className="mt-4 w-full bg-[#246BFD] hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors"
                 >
                   Continue
@@ -1078,7 +1217,7 @@ export default function Programmes() {
                     </>
                   )}
                 </button>
-                <button onClick={() => setGenerateStep(4)} className="mt-3 text-[#9CA3AF] text-sm hover:text-white transition-colors">← Back</button>
+                <button onClick={() => setGenerateStep(generateGoal === "STRENGTH" ? 3 : 4)} className="mt-3 text-[#9CA3AF] text-sm hover:text-white transition-colors">← Back</button>
               </div>
             )}
           </motion.div>
@@ -1088,5 +1227,6 @@ export default function Programmes() {
 
       <BottomBar onLogout={handleLogout} />
     </motion.div>
+    </>
   );
 }

@@ -735,10 +735,11 @@ export default function Metrics() {
         title="Track Metrics"
         pageIcon={<Award size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/dashboard") },
-          { label: "Programmes", onClick: () => navigate("/programmes") },
-          { label: "Workouts", onClick: () => navigate("/workouts") },
-          { label: "Settings", onClick: () => navigate("/settings") },
+          { label: "Dashboard",        onClick: () => navigate("/dashboard") },
+          { label: "Programmes",       onClick: () => navigate("/programmes") },
+          { label: "Workouts",         onClick: () => navigate("/workouts") },
+          { label: "Exercise Library", onClick: () => navigate("/exercises") },
+          { label: "Settings",         onClick: () => navigate("/settings") },
         ]}
       />
 

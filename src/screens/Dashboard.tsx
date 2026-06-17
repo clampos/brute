@@ -274,6 +274,7 @@ export default function Dashboard() {
   const [tileData, setTileData] = useState<TileData | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const hasFetchedStats = useRef(false);
+  const [strengthGoals, setStrengthGoals] = useState<any[]>([]);
 
   const navItems = ["overview", "performance"];
 
@@ -392,6 +393,15 @@ export default function Dashboard() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch("/auth/strength/goals", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.goals) setStrengthGoals(data.goals.filter((g: any) => g.status === "ACTIVE")); })
+      .catch(() => {});
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("installPromptDismissed");
@@ -468,10 +478,11 @@ export default function Dashboard() {
           </button>
         }
         menuItems={[
-          { label: "Programmes", onClick: () => navigate("/programmes") },
-          { label: "Workouts", onClick: () => navigate("/workouts") },
-          { label: "Track Metrics", onClick: () => navigate("/metrics") },
-          { label: "Settings", onClick: () => navigate("/settings") },
+          { label: "Programmes",       onClick: () => navigate("/programmes") },
+          { label: "Workouts",         onClick: () => navigate("/workouts") },
+          { label: "Track Metrics",    onClick: () => navigate("/metrics") },
+          { label: "Exercise Library", onClick: () => navigate("/exercises") },
+          { label: "Settings",         onClick: () => navigate("/settings") },
         ]}
       />
 
@@ -619,6 +630,40 @@ export default function Dashboard() {
                 </p>
               )}
             </motion.div>
+          )}
+
+          {/* Strength Goals */}
+          {strengthGoals.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-[#5E6272] uppercase tracking-widest font-semibold">Strength Goals</p>
+              {strengthGoals.map((goal: any) => {
+                const progress = Math.min(
+                  ((goal.currentTm - goal.startTm) / Math.max(goal.targetWeight - goal.startTm, 1)) * 100,
+                  100,
+                );
+                return (
+                  <motion.div
+                    key={goal.id}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => navigate(`/strength/goals/${goal.id}`)}
+                    className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-white">{goal.liftName}</span>
+                      <span className="text-xs text-[#EAB308] font-semibold">
+                        {goal.currentTm} → {goal.targetWeight}kg
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-[#2F3544] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#EAB308] to-[#F59E0B]"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
           )}
 
           {/* Quick Action Tiles */}

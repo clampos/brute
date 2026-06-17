@@ -48,10 +48,15 @@ model User {
   streak_freeze_available  Boolean  @default(true)
   last_workout_at          DateTime?
 
+  fitnessGoal            String?  // "MUSCLE_BUILDING" | "STRENGTH" | "FAT_LOSS" | "GENERAL_FITNESS"
+  currentExperienceLevel String?  // "beginner" | "intermediate" | "advanced"
+
   userPrograms         UserProgram[]
   bodyweightEntries    BodyweightEntry[]
   bodyfatEntries       BodyfatEntry[]
   exerciseProgressions UserExerciseProgression[]
+  userMacroCycles      UserMacroCycle[]
+  favoriteExercises    UserFavoriteExercise[]
 }
 
 model Programme {
@@ -97,6 +102,7 @@ model Exercise {
   programmeExercises   ProgrammeExercise[]
   workoutExercises     WorkoutExercise[]
   exerciseProgressions UserExerciseProgression[]
+  favoritedBy          UserFavoriteExercise[]
 
   @@index([muscleGroup])
   @@map("exercises")
@@ -248,6 +254,41 @@ model BodyfatEntry {
   @@map("bodyfat_entries")
 }
 
+model UserMacroCycle {
+  id                     String   @id @default(cuid())
+  userId                 String   @map("user_id")
+  userProgramId          String?  @map("user_program_id")
+  cycleNumber            Int      @default(1) @map("cycle_number")
+
+  completionRate         Float?   @map("completion_rate")
+  progressionRate        Float?   @map("progression_rate")
+  avgRpe                 Float?   @map("avg_rpe")
+  goalMet                Boolean? @map("goal_met")
+
+  recommendation         String?
+  recommendedProgrammeId String?  @map("recommended_programme_id")
+
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_macro_cycles")
+}
+
+model UserFavoriteExercise {
+  userId     String   @map("user_id")
+  exerciseId String   @map("exercise_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@id([userId, exerciseId])
+  @@map("user_favorite_exercises")
+}
+
 enum UserProgramStatus {
   ACTIVE
   COMPLETED
@@ -258,6 +299,7 @@ enum UserProgramStatus {
 enum ProgrammeProgressionFocus {
   MUSCLE_BUILDING
   STRENGTH
+  FAT_LOSS
 }
 
 enum StrengthExerciseRole {

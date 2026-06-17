@@ -15,12 +15,25 @@ import {
   Save,
   BarChart2,
   RefreshCw,
+  Heart,
 } from "lucide-react";
 import MuscleIcon from "../components/MuscleIcon";
 import logo from "../assets/logo.png";
 import icon from "../assets/icon_placeholder.png";
 import TopBar from "../components/TopBar";
 import BottomBar from "../components/BottomBar";
+
+function getDayFocusLabel(bodyPartFocus: string, dayNumber: number, totalDays: number): string {
+  const bpf = (bodyPartFocus ?? "").toLowerCase();
+  if (bpf.includes("push") || bpf.includes("pull") || bpf.includes("legs")) {
+    return ["Push", "Pull", "Legs"][(dayNumber - 1) % 3] + " Focus";
+  }
+  if (bpf.includes("upper") || bpf.includes("lower")) {
+    if (totalDays === 5 && dayNumber === 5) return "Full Body";
+    return dayNumber % 2 === 1 ? "Upper Body" : "Lower Body";
+  }
+  return "Full Body";
+}
 
 type Exercise = {
   isSelected: boolean;
@@ -71,7 +84,7 @@ type ProgrammeResponse = {
   name: string;
   description?: string;
   bodyPartFocus?: string;
-  progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH";
+  progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH" | "FAT_LOSS";
   daysPerWeek?: number;
   experienceLevel?: string;
   exercises?: ProgrammeExerciseResponse[];
@@ -94,7 +107,7 @@ export default function ProgrammeEditor() {
   const [bodyFocus, setBodyFocus] = useState("Full Body");
   const [description, setDescription] = useState("");
   const [progressionFocus, setProgressionFocus] = useState<
-    "MUSCLE_BUILDING" | "STRENGTH"
+    "MUSCLE_BUILDING" | "STRENGTH" | "FAT_LOSS"
   >("MUSCLE_BUILDING");
   const [experienceLevel, setExperienceLevel] = useState<string>("intermediate");
   const [days, setDays] = useState<ProgrammeDay[]>([]);
@@ -102,6 +115,7 @@ export default function ProgrammeEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
+  const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
   const [savingDay, setSavingDay] = useState<number | null>(null);
   const [savedDay, setSavedDay] = useState<number | null>(null);
   const [submittingProgramme, setSubmittingProgramme] = useState(false);
@@ -456,6 +470,34 @@ export default function ProgrammeEditor() {
     }
     return () => { document.body.style.overflow = ""; };
   }, [showReplaceModal]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch("/auth/exercises/favourites", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((ids: string[]) => setFavouriteIds(new Set(ids)))
+      .catch(() => {});
+  }, []);
+
+  const toggleFavourite = async (exerciseId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    setFavouriteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(exerciseId)) next.delete(exerciseId); else next.add(exerciseId);
+      return next;
+    });
+    try {
+      await fetch(`/auth/exercises/${exerciseId}/favourite`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      setFavouriteIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(exerciseId)) next.delete(exerciseId); else next.add(exerciseId);
+        return next;
+      });
+    }
+  };
 
   const handleConfirmDay = async (dayNumber: number) => {
     setSavingDay(dayNumber);
@@ -853,46 +895,46 @@ export default function ProgrammeEditor() {
     return vol;
   }, [days, allExercises]);
 
-  // Hypertrophy volume guidance per muscle (sets/week), tiered by experience level
-  const volumeRangesByLevel: Record<string, Record<string, [number, number]>> = {
-    beginner: {
-      Chest:      [6,  12],
-      Back:       [6,  12],
-      Shoulders:  [6,  10],
-      Quads:      [6,  12],
-      Hamstrings: [6,  10],
-      Glutes:     [6,  10],
-      Biceps:     [4,  8],
-      Triceps:    [4,  8],
-      Calves:     [6,  10],
-      Abs:        [6,  10],
+  // Volume guidance per muscle (sets/week) [MEV, MRV], tiered by experience level and goal
+  const volumeTableByGoal: Record<string, Record<string, Record<string, [number, number]>>> = {
+    MUSCLE_BUILDING: {
+      beginner: {
+        Chest:      [10, 15], Back:       [12, 18], Quads:      [10, 15],
+        Hamstrings: [8,  12], Glutes:     [8,  12], Shoulders:  [10, 15],
+        Biceps:     [8,  12], Triceps:    [8,  12], Calves:     [8,  12], Abs: [6, 10],
+      },
+      intermediate: {
+        Chest:      [12, 20], Back:       [14, 22], Quads:      [12, 20],
+        Hamstrings: [10, 16], Glutes:     [10, 16], Shoulders:  [12, 20],
+        Biceps:     [10, 16], Triceps:    [10, 16], Calves:     [10, 14], Abs: [8, 12],
+      },
+      advanced: {
+        Chest:      [16, 25], Back:       [18, 28], Quads:      [15, 25],
+        Hamstrings: [12, 20], Glutes:     [12, 20], Shoulders:  [16, 24],
+        Biceps:     [12, 20], Triceps:    [12, 20], Calves:     [12, 18], Abs: [10, 16],
+      },
     },
-    intermediate: {
-      Chest:      [10, 18],
-      Back:       [10, 18],
-      Shoulders:  [8,  18],
-      Quads:      [10, 18],
-      Hamstrings: [8,  14],
-      Glutes:     [8,  14],
-      Biceps:     [6,  12],
-      Triceps:    [6,  12],
-      Calves:     [8,  14],
-      Abs:        [8,  14],
-    },
-    advanced: {
-      Chest:      [14, 22],
-      Back:       [14, 22],
-      Shoulders:  [12, 22],
-      Quads:      [14, 22],
-      Hamstrings: [12, 20],
-      Glutes:     [12, 20],
-      Biceps:     [10, 16],
-      Triceps:    [10, 16],
-      Calves:     [12, 18],
-      Abs:        [12, 18],
+    FAT_LOSS: {
+      beginner: {
+        Chest:      [8,  12], Back:       [10, 14], Quads:      [8,  12],
+        Hamstrings: [6,  10], Glutes:     [6,  10], Shoulders:  [8,  12],
+        Biceps:     [6,  10], Triceps:    [6,  10], Calves:     [6,  10], Abs: [5, 8],
+      },
+      intermediate: {
+        Chest:      [10, 15], Back:       [12, 16], Quads:      [10, 15],
+        Hamstrings: [8,  12], Glutes:     [8,  12], Shoulders:  [10, 15],
+        Biceps:     [8,  12], Triceps:    [8,  12], Calves:     [8,  12], Abs: [6, 10],
+      },
+      advanced: {
+        Chest:      [12, 18], Back:       [14, 20], Quads:      [12, 18],
+        Hamstrings: [10, 15], Glutes:     [10, 15], Shoulders:  [12, 18],
+        Biceps:     [10, 15], Triceps:    [10, 15], Calves:     [10, 14], Abs: [8, 12],
+      },
     },
   };
 
+  const goalKey = progressionFocus === "FAT_LOSS" ? "FAT_LOSS" : "MUSCLE_BUILDING";
+  const volumeRangesByLevel = volumeTableByGoal[goalKey];
   const volumeRanges = volumeRangesByLevel[experienceLevel] ?? volumeRangesByLevel.intermediate;
 
   const getVolumeStatus = (muscle: string, sets: number): "low" | "optimal" | "high" => {
@@ -917,11 +959,12 @@ export default function ProgrammeEditor() {
         title="Programmes"
         pageIcon={null}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/dashboard") },
-          { label: "Programmes", onClick: () => navigate("/programmes") },
-          { label: "Workouts", onClick: () => navigate("/workouts") },
-          { label: "Track Metrics", onClick: () => navigate("/metrics") },
-          { label: "Settings", onClick: () => navigate("/settings") },
+          { label: "Dashboard",        onClick: () => navigate("/dashboard") },
+          { label: "Programmes",       onClick: () => navigate("/programmes") },
+          { label: "Workouts",         onClick: () => navigate("/workouts") },
+          { label: "Track Metrics",    onClick: () => navigate("/metrics") },
+          { label: "Exercise Library", onClick: () => navigate("/exercises") },
+          { label: "Settings",         onClick: () => navigate("/settings") },
         ]}
       />
 
@@ -982,15 +1025,16 @@ export default function ProgrammeEditor() {
                         transition={{ duration: 0.5, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
                       />
                     </div>
-                    <div className={`w-16 text-right text-xs flex-shrink-0 ${textColor}`}>
-                      {sets}s {statusLabel}
+                    <div className={`w-24 text-right text-xs flex-shrink-0 ${textColor}`}>
+                      {sets}s <span className="text-[#4B5563]">/ {range[0]}–{range[1]}</span> {statusLabel}
                     </div>
                   </div>
                 );
               })}
           </div>
           <p className="text-[#4B5563] text-xs mt-3 border-t border-white/5 pt-3">
-            {experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1)} targets shown. Updates live as you edit.
+            {experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1)}{" "}
+            {progressionFocus === "FAT_LOSS" ? "fat loss" : "muscle building"} targets shown (sets / MEV–MRV). Updates live as you edit.
           </p>
         </div>
       )}
@@ -1049,7 +1093,7 @@ export default function ProgrammeEditor() {
                           <ChevronRight className="text-green-500 w-4 h-4" />
                         )}
                         <h2 className="text-xs text-[#5E6272] font-semibold tracking-widest uppercase">
-                          Day {day.dayNumber}
+                          Day {day.dayNumber} · {getDayFocusLabel(bodyFocus, day.dayNumber, days.length)}
                         </h2>
                         {day.hasChanges && (
                           <div className="w-2 h-2 bg-amber-400 rounded-full ml-1" title="Unsaved changes"></div>
@@ -1126,6 +1170,16 @@ export default function ProgrammeEditor() {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 ml-3">
+                                  <button
+                                    onClick={() => toggleFavourite(ex.exerciseId)}
+                                    className="p-1 rounded-lg transition-colors"
+                                    title={favouriteIds.has(ex.exerciseId) ? "Remove from favourites" : "Add to favourites"}
+                                  >
+                                    <Heart
+                                      size={15}
+                                      className={favouriteIds.has(ex.exerciseId) ? "text-pink-500 fill-pink-500" : "text-[#5E6272] hover:text-pink-400"}
+                                    />
+                                  </button>
                                   <button
                                     onClick={() =>
                                       setReplacingExercise(

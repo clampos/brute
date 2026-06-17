@@ -18,6 +18,7 @@ import {
   X,
   Share2,
   SkipForward,
+  Heart,
 } from "lucide-react";
 import html2canvas from "html2canvas";
 import BullseyeIcon from "../assets/Icons/Bullseye Icon.svg";
@@ -31,6 +32,18 @@ import {
   kgToLbs,
   lbsToKg,
 } from "../utils/unitConversions";
+
+function getDayFocusLabel(bodyPartFocus: string, dayNumber: number, daysPerWeek: number): string {
+  const bpf = (bodyPartFocus ?? "").toLowerCase();
+  if (bpf.includes("push") || bpf.includes("pull") || bpf.includes("legs")) {
+    return ["Push", "Pull", "Legs"][(dayNumber - 1) % 3] + " Focus";
+  }
+  if (bpf.includes("upper") || bpf.includes("lower")) {
+    if (daysPerWeek === 5 && dayNumber === 5) return "Full Body";
+    return dayNumber % 2 === 1 ? "Upper Body" : "Lower Body";
+  }
+  return "Full Body";
+}
 
 type WorkoutSet = {
   weight: string;
@@ -49,6 +62,7 @@ type WorkoutExercise = {
   sets: number;
   reps: string;
   exerciseId: string;
+  isBodyweight?: boolean;
   strengthRole?: "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY";
   workoutSets: WorkoutSet[];
   notes?: string | null;
@@ -62,8 +76,16 @@ type WorkoutExercise = {
     setRecommendations?: {
       setNumber: number;
       recommendedWeight: number;
-      recommendedReps: number;
+      recommendedReps: number | string;
+      isAmrap?: boolean;
+      isFSL?: boolean;
     }[];
+    strengthMeta?: {
+      isAmrapWeek: boolean;
+      cycleWeek: number;
+      cycleNumber: number;
+      trainingMax: number;
+    };
   };
 };
 
@@ -74,7 +96,7 @@ type UserProgram = {
     name: string;
     description?: string;
     bodyPartFocus: string;
-    progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH";
+    progressionFocus?: "MUSCLE_BUILDING" | "STRENGTH" | "FAT_LOSS";
     daysPerWeek: number;
     weeks: number;
     exercises: ProgrammeExercise[];
@@ -94,6 +116,7 @@ type ProgrammeExercise = {
     id: string;
     name: string;
     muscleGroup: string;
+    equipment?: string | null;
   };
 };
 
@@ -183,6 +206,8 @@ export default function Workouts() {
 
   // Unit system
   const [unitSystem] = useState<UnitSystem>(getUnitPreference);
+  // User's current bodyweight in kg (for bodyweight exercise pre-fill)
+  const [userBodyweightKg, setUserBodyweightKg] = useState<number | null>(null);
   // Raw typed string per weight input — key is `${exerciseId}-${setIdx}`
   const [weightDisplayValues, setWeightDisplayValues] = useState<Record<string, string>>({});
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -204,6 +229,7 @@ export default function Workouts() {
     null,
   );
   const [workoutCompleted, setWorkoutCompleted] = useState(false);
+  const [programmeJustCompleted, setProgrammeJustCompleted] = useState(false);
   const [showLeavingModal, setShowLeavingModal] = useState(false);
   const [nextLocation, setNextLocation] = useState<string | null>(null);
   const [showExerciseHistoryModal, setShowExerciseHistoryModal] = useState(false);
@@ -275,6 +301,39 @@ export default function Workouts() {
     });
   const summaryShareRef = useRef<HTMLDivElement>(null);
   const summaryShareCaptureRef = useRef<HTMLDivElement>(null);
+
+  // Favourite exercises
+  const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch("/auth/exercises/favourites", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((ids: string[]) => setFavouriteIds(new Set(ids)))
+      .catch(() => {});
+  }, []);
+
+  const toggleFavourite = async (exerciseId: string) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    // Optimistic update
+    setFavouriteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(exerciseId)) next.delete(exerciseId); else next.add(exerciseId);
+      return next;
+    });
+    try {
+      await fetch(`/auth/exercises/${exerciseId}/favourite`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      // Revert on failure
+      setFavouriteIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(exerciseId)) next.delete(exerciseId); else next.add(exerciseId);
+        return next;
+      });
+    }
+  };
   const isMuscleBuildingProgramme =
     userProgram?.programme?.progressionFocus !== "STRENGTH";
 
@@ -1856,17 +1915,67 @@ export default function Workouts() {
         {weeklySummary.isEndOfWeek && weeklySummary.weeklySetsByMuscleGroup &&
           Object.keys(weeklySummary.weeklySetsByMuscleGroup).length > 0 && (
           <div className="glass-subtile p-3 rounded-lg border border-[#86FF99]/20">
-            <p className="text-[#86FF99] text-sm font-semibold mb-2">Weekly volume</p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              {(Object.entries(weeklySummary.weeklySetsByMuscleGroup as Record<string, number>))
-                .sort((a, b) => b[1] - a[1])
-                .map(([muscle, sets]) => (
-                  <p key={muscle} className="text-sm">
-                    <span className="text-[#A0AEC0]">{muscle}</span>
-                    <span className="text-white font-semibold"> {sets} sets</span>
+            <p className="text-[#86FF99] text-sm font-semibold mb-1">Weekly volume</p>
+            {(() => {
+              const level = weeklySummary.experienceLevel ?? "intermediate";
+              const isFatLoss = weeklySummary.progressionFocus === "FAT_LOSS";
+              const goalKey = isFatLoss ? "FAT_LOSS" : "MUSCLE_BUILDING";
+              const muscleTable: Record<string, Record<string, Record<string, [number, number]>>> = {
+                MUSCLE_BUILDING: {
+                  beginner:     { Chest:[10,15], Back:[12,18], Quads:[10,15], Hamstrings:[8,12],  Glutes:[8,12],  Shoulders:[10,15], Biceps:[8,12],  Triceps:[8,12],  Calves:[8,12]  },
+                  intermediate: { Chest:[12,20], Back:[14,22], Quads:[12,20], Hamstrings:[10,16], Glutes:[10,16], Shoulders:[12,20], Biceps:[10,16], Triceps:[10,16], Calves:[10,14] },
+                  advanced:     { Chest:[16,25], Back:[18,28], Quads:[15,25], Hamstrings:[12,20], Glutes:[12,20], Shoulders:[16,24], Biceps:[12,20], Triceps:[12,20], Calves:[12,18] },
+                },
+                FAT_LOSS: {
+                  beginner:     { Chest:[8,12],  Back:[10,14], Quads:[8,12],  Hamstrings:[6,10],  Glutes:[6,10],  Shoulders:[8,12],  Biceps:[6,10],  Triceps:[6,10],  Calves:[6,10]  },
+                  intermediate: { Chest:[10,15], Back:[12,16], Quads:[10,15], Hamstrings:[8,12],  Glutes:[8,12],  Shoulders:[10,15], Biceps:[8,12],  Triceps:[8,12],  Calves:[8,12]  },
+                  advanced:     { Chest:[12,18], Back:[14,20], Quads:[12,18], Hamstrings:[10,15], Glutes:[10,15], Shoulders:[12,18], Biceps:[10,15], Triceps:[10,15], Calves:[10,14] },
+                },
+              };
+              const targets = muscleTable[goalKey][level] ?? muscleTable[goalKey].intermediate;
+              const capLevel = level.charAt(0).toUpperCase() + level.slice(1);
+              return (
+                <>
+                  <p className="text-[#5E6272] text-xs mb-2">
+                    {capLevel} {isFatLoss ? "fat loss" : "muscle building"} targets (sets / MEV–MRV)
                   </p>
-                ))}
-            </div>
+                  <div className="flex flex-col gap-1.5">
+                    {(Object.entries(weeklySummary.weeklySetsByMuscleGroup as Record<string, number>))
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([muscle, sets]) => {
+                        const range = targets[muscle] ?? [10, 20];
+                        const [mev, mrv] = range;
+                        const pct = Math.min((sets / mrv) * 100, 100);
+                        const mevPct = (mev / mrv) * 100;
+                        const color = sets < mev ? "#F87171" : sets <= mrv ? "#86FF99" : "#FFC857";
+                        return (
+                          <div key={muscle}>
+                            <div className="flex items-center justify-between mb-0.5">
+                              <span className="text-[#A0AEC0] text-xs">{muscle}</span>
+                              <span className="text-xs font-semibold" style={{ color }}>
+                                {sets}s <span className="text-[#5E6272] font-normal">/ {mev}–{mrv}</span>
+                                {sets < mev && <span className="text-[#5E6272] font-normal"> · below target</span>}
+                                {sets > mrv && <span className="text-[#5E6272] font-normal"> · above MRV</span>}
+                              </span>
+                            </div>
+                            <div className="relative h-1.5 rounded-full bg-white/10 overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${pct}%`, backgroundColor: color }}
+                              />
+                              {/* MEV marker */}
+                              <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-white/30"
+                                style={{ left: `${mevPct}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -2207,6 +2316,10 @@ export default function Workouts() {
 
       const result = await response.json();
 
+      if (result.programCompleted) {
+        setProgrammeJustCompleted(true);
+      }
+
       // Show weekly summary if available, or mark as completed
       if (result.weeklySummary) {
         persistHistoryCacheForExercises(
@@ -2246,6 +2359,13 @@ export default function Workouts() {
   };
 
   const advanceToNextDay = async (statusOverride?: RecoveryAdjustmentStatus) => {
+    // Programme was completed when the last workout was saved — go straight to Programmes
+    if (programmeJustCompleted) {
+      localStorage.removeItem("workoutSession");
+      navigate("/programmes");
+      return;
+    }
+
     try {
       localStorage.removeItem("workoutSession");
       const response = await fetch(
@@ -2260,6 +2380,11 @@ export default function Workouts() {
       );
 
       if (!response.ok) {
+        // 404 means no active programme — it was completed during workout save
+        if (response.status === 404) {
+          navigate("/programmes");
+          return;
+        }
         throw new Error("Failed to advance to next day");
       }
 
@@ -2346,6 +2471,7 @@ export default function Workouts() {
             reps: exercise.reps,
             notes: exercise.notes,
             exerciseId: exercise.exercise.id,
+            isBodyweight: exercise.exercise.equipment?.toLowerCase() === "bodyweight",
             workoutSets: initialSets,
           };
         },
@@ -2640,14 +2766,23 @@ export default function Workouts() {
       isDeload && setRecommendations.length > 0
         ? Math.max(1, setRecommendations.length)
         : baseWorkoutSets.length;
-    const workoutSets = isDeload
+    let workoutSets = isDeload
       ? baseWorkoutSets.slice(0, targetSetCount)
       : baseWorkoutSets;
 
-    // The backend recommendations endpoint applies any active recovery/progression
-    // adjustment multiplier authoritatively (server-side expiry computed from DB).
-    // Do NOT re-apply locally from client state — that causes the multiplier to
-    // persist past expiry when client state lags behind the server.
+    // For strength prescriptions that include FSL sets, expand workoutSets to
+    // match the full prescription length so all sets are rendered and pre-filled.
+    const isStrengthRec = !!(recommendation as any).strengthMeta;
+    if (isStrengthRec && setRecommendations.length > workoutSets.length) {
+      const extra = setRecommendations.length - workoutSets.length;
+      workoutSets = [
+        ...workoutSets,
+        ...Array.from({ length: extra }, (): WorkoutSet => ({
+          weight: "", reps: "", completed: false, isDropSet: false,
+        })),
+      ];
+    }
+
     const effectiveRecommendation = recommendation;
 
     let recommendationIndex = 0;
@@ -2665,10 +2800,14 @@ export default function Workouts() {
         const recommendedWeight =
           setRecommendation && setRecommendation.recommendedWeight > 0
             ? String(setRecommendation.recommendedWeight)
-            : "";
+            : exercise.isBodyweight && userBodyweightKg
+              ? String(userBodyweightKg)
+              : "";
+        const rawReps = setRecommendation?.recommendedReps;
         const recommendedReps =
-          setRecommendation && setRecommendation.recommendedReps > 0
-            ? String(setRecommendation.recommendedReps)
+          rawReps !== undefined && rawReps !== null && rawReps !== "AMRAP" &&
+          Number(rawReps) > 0
+            ? String(rawReps)
             : "";
 
         return {
@@ -2815,44 +2954,66 @@ export default function Workouts() {
         setLoading(true);
         setError("");
 
-        // Check if there's a saved session first
-        const savedSession = localStorage.getItem("workoutSession");
-        if (savedSession) {
-          try {
-            const session = JSON.parse(savedSession);
-            setUserProgram(session.userProgram);
-            setTodayExercises(session.todayExercises);
-            if (session.workoutStartTime) {
-              setWorkoutStartTime(new Date(session.workoutStartTime));
-            }
-            setTimerRunning(session.timerRunning);
-            setSecondsElapsed(session.secondsElapsed);
-            setLoading(false);
-            return; // Exit early - don't fetch fresh data
-          } catch (err) {
-            console.error("Failed to restore workout session:", err);
-            // Fall through to fetch fresh data
-          }
-        }
-
-        const [response, adjustmentStatus] = await Promise.all([
+        const [response, adjustmentStatus, profileRes] = await Promise.all([
           fetch("/auth/user-programs", {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("token")}`,
             },
           }),
           fetchRecoveryAdjustmentStatus(recoveryAdjustmentStatus),
+          fetch("/auth/user/profile", {
+            headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          }),
         ]);
 
         if (!response.ok) {
           throw new Error("Failed to fetch user program");
         }
 
-        const userPrograms = await response.json();
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          if (profile.bodyweight) setUserBodyweightKg(profile.bodyweight);
+        }
 
+        const userPrograms = await response.json();
         const activeProgram =
           userPrograms.find((up: any) => up.status === "ACTIVE") ||
           userPrograms[0];
+
+        // Check if there's a saved session that belongs to the current programme+day
+        const savedSession = localStorage.getItem("workoutSession");
+        if (savedSession) {
+          try {
+            const session = JSON.parse(savedSession);
+            const sessionMatchesCurrentDay =
+              session.userProgram?.id === activeProgram?.id &&
+              session.userProgram?.currentWeek === activeProgram?.currentWeek &&
+              session.userProgram?.currentDay === activeProgram?.currentDay;
+
+            if (sessionMatchesCurrentDay) {
+              // Fetch fresh programme data so any rename is reflected immediately
+              const freshProgRes = await fetch(`/auth/programmes/${activeProgram.programmeId}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+              });
+              const freshProg = freshProgRes.ok ? await freshProgRes.json() : session.userProgram.programme;
+              setUserProgram({ ...session.userProgram, programme: freshProg });
+              setTodayExercises(session.todayExercises);
+              if (session.workoutStartTime) {
+                setWorkoutStartTime(new Date(session.workoutStartTime));
+              }
+              setTimerRunning(session.timerRunning);
+              setSecondsElapsed(session.secondsElapsed);
+              setLoading(false);
+              return; // Restored a valid matching session
+            } else {
+              // Stale cache — discard it
+              localStorage.removeItem("workoutSession");
+            }
+          } catch (err) {
+            console.error("Failed to restore workout session:", err);
+            localStorage.removeItem("workoutSession");
+          }
+        }
 
         if (!activeProgram) {
           setError(
@@ -2932,6 +3093,7 @@ export default function Workouts() {
               strengthRole: exercise.strengthRole,
               notes: exercise.notes,
               exerciseId: exercise.exercise.id,
+              isBodyweight: exercise.exercise.equipment?.toLowerCase() === "bodyweight",
               workoutSets: initialSets,
             };
           },
@@ -3094,11 +3256,12 @@ export default function Workouts() {
         title="Workouts"
         pageIcon={<Calendar size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => safeNavigate("/dashboard") },
-          { label: "Programmes", onClick: () => safeNavigate("/programmes") },
-          { label: "Track Metrics", onClick: () => safeNavigate("/metrics") },
-          { label: "Settings", onClick: () => safeNavigate("/settings") },
-          { label: "End Programme", onClick: () => setShowEndProgrammeModal(true) },
+          { label: "Dashboard",        onClick: () => safeNavigate("/dashboard") },
+          { label: "Programmes",       onClick: () => safeNavigate("/programmes") },
+          { label: "Track Metrics",    onClick: () => safeNavigate("/metrics") },
+          { label: "Exercise Library", onClick: () => safeNavigate("/exercises") },
+          { label: "Settings",         onClick: () => safeNavigate("/settings") },
+          { label: "End Programme",    onClick: () => setShowEndProgrammeModal(true) },
         ]}
       />
 
@@ -3110,6 +3273,9 @@ export default function Workouts() {
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-xs text-[#A0AEC0] uppercase tracking-wide">
               Week {userProgram?.currentWeek || 1} · Day {userProgram?.currentDay || 1}
+              {userProgram && (
+                <> · {getDayFocusLabel(userProgram.programme.bodyPartFocus, userProgram.currentDay, userProgram.programme.daysPerWeek)}</>
+              )}
             </span>
             {userProgram?.programme.bodyPartFocus && (
               <span className="text-[10px] text-[#FBA3FF] bg-[#FBA3FF]/10 px-1.5 py-0.5 rounded-full">
@@ -3140,101 +3306,108 @@ export default function Workouts() {
               <Calendar size={16} />
             </button>
 
-            {showProgrammeCalendarDropdown && userProgram && (
-          <div className="glass-modal absolute right-0 mt-2 w-72 rounded-2xl p-4 border border-white/10 z-50">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <p className="text-white font-semibold">Programme Calendar</p>
-                <p className="text-xs text-[#A0AEC0] mt-1">
-                  {userProgram.programme.weeks + 1} weeks total (including
-                  deload)
-                </p>
-              </div>
+            {showProgrammeCalendarDropdown && userProgram && (() => {
+              const isStrength = userProgram.programme.progressionFocus === "STRENGTH";
+              const CYCLE_LABELS = ["5/5/5+", "3/3/3+", "5/3/1+", "Deload"];
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => adjustProgrammeWeeks(-1)}
-                  disabled={updatingProgrammeWeeks}
-                  className="glass-button p-1.5 rounded-md text-[#A0AEC0] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label="Decrease programme by one week"
-                  title="Remove 1 week"
-                >
-                  <Minus size={14} />
-                </button>
-                <button
-                  onClick={() => adjustProgrammeWeeks(1)}
-                  disabled={updatingProgrammeWeeks}
-                  className="glass-button p-1.5 rounded-md text-[#A0AEC0] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  aria-label="Increase programme by one week"
-                  title="Add 1 week"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-            </div>
+              // For strength: one row per programme week with cycle label
+              // For others: RPE-based rows including synthetic deload week
+              const weekRows = isStrength
+                ? Array.from({ length: userProgram.programme.weeks }, (_, i) => {
+                    const weekNumber = i + 1;
+                    const cycleWeek = ((weekNumber - 1) % 4) + 1;
+                    return { weekNumber, cycleLabel: CYCLE_LABELS[cycleWeek - 1], isDeload: cycleWeek === 4 };
+                  })
+                : getProgrammeRPEByWeek(userProgram.programme.weeks).map((rpe, i) => ({
+                    weekNumber: i + 1,
+                    rpe,
+                    isDeload: i + 1 === userProgram.programme.weeks + 1,
+                  }));
 
-            <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
-              {getProgrammeRPEByWeek(userProgram.programme.weeks).map(
-                (rpe, index) => {
-                  const weekNumber = index + 1;
-                  const isDeloadWeek =
-                    weekNumber === userProgram.programme.weeks + 1;
-
-                  return (
-                    <div
-                      key={weekNumber}
-                      className="glass-subtile rounded-xl px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm text-white font-medium">
-                          Week {weekNumber}
-                          {isDeloadWeek ? " (Deload)" : ""}
-                        </p>
-                        <p className="text-xs text-[#C6B5FF] font-semibold">
-                          RPE {rpe}
-                        </p>
+              return (
+                <div className="glass-modal absolute right-0 mt-2 w-72 rounded-2xl p-4 border border-white/10 z-50">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <p className="text-white font-semibold">Programme Calendar</p>
+                      <p className="text-xs text-[#A0AEC0] mt-1">
+                        {isStrength
+                          ? `${userProgram.programme.weeks} weeks · 5/3/1`
+                          : `${userProgram.programme.weeks + 1} weeks total (including deload)`}
+                      </p>
+                    </div>
+                    {/* Week adjustment only meaningful for non-strength programmes */}
+                    {!isStrength && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => adjustProgrammeWeeks(-1)}
+                          disabled={updatingProgrammeWeeks}
+                          className="glass-button p-1.5 rounded-md text-[#A0AEC0] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <button
+                          onClick={() => adjustProgrammeWeeks(1)}
+                          disabled={updatingProgrammeWeeks}
+                          className="glass-button p-1.5 rounded-md text-[#A0AEC0] hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Plus size={14} />
+                        </button>
                       </div>
+                    )}
+                  </div>
 
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {Array.from(
-                          { length: userProgram.programme.daysPerWeek },
-                          (_, dayIndex) => {
+                  <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                    {weekRows.map((row) => (
+                      <div key={row.weekNumber} className="glass-subtile rounded-xl px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-white font-medium">
+                            Week {row.weekNumber}
+                            {row.isDeload ? " (Deload)" : ""}
+                          </p>
+                          {isStrength ? (
+                            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                              row.isDeload
+                                ? "text-[#5E6272] bg-[#2F3544]"
+                                : "text-[#EAB308] bg-[#EAB308]/15"
+                            }`}>
+                              {(row as any).cycleLabel}
+                            </span>
+                          ) : (
+                            <p className="text-xs text-[#C6B5FF] font-semibold">
+                              RPE {(row as any).rpe}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {Array.from({ length: userProgram.programme.daysPerWeek }, (_, dayIndex) => {
                             const dayNumber = dayIndex + 1;
-                            const completed = isWorkoutDayCompleted(
-                              weekNumber,
-                              dayNumber,
-                            );
-
+                            const completed = isWorkoutDayCompleted(row.weekNumber, dayNumber);
                             return completed ? (
                               <button
-                                key={`${weekNumber}-${dayNumber}`}
+                                key={`${row.weekNumber}-${dayNumber}`}
                                 type="button"
-                                onClick={() =>
-                                  openReadOnlyWorkoutForDay(weekNumber, dayNumber)
-                                }
+                                onClick={() => openReadOnlyWorkoutForDay(row.weekNumber, dayNumber)}
                                 className="text-[11px] px-2 py-1 rounded-md font-semibold bg-green-500/25 text-green-300 border border-green-400/40 hover:bg-green-500/35 transition-colors"
-                                title={`View completed workout for Week ${weekNumber}, Day ${dayNumber}`}
                               >
                                 Day {dayNumber}
                               </button>
                             ) : (
                               <div
-                                key={`${weekNumber}-${dayNumber}`}
+                                key={`${row.weekNumber}-${dayNumber}`}
                                 className="text-[11px] px-2 py-1 rounded-md font-semibold bg-red-500/20 text-red-300 border border-red-400/40"
                               >
                                 Day {dayNumber}
                               </div>
                             );
-                          },
-                        )}
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  );
-                },
-              )}
-            </div>
-          </div>
-        )}
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
       </div>
     </div>
       </div>
@@ -3359,7 +3532,7 @@ export default function Workouts() {
                     </div>
                   </div>
 
-                  {exercise.recommendation && (
+                  {exercise.recommendation && !exercise.recommendation.strengthMeta && (
                     <div className="glass-subtile mt-2 p-2 rounded-lg">
                       <button
                         onClick={() => {
@@ -3405,6 +3578,17 @@ export default function Workouts() {
                       exerciseMenuRefs.current.set(exercise.exerciseId, el);
                   }}
                 >
+                  <button
+                    onClick={() => toggleFavourite(exercise.exerciseId)}
+                    className="p-1 transition-colors"
+                    aria-label={favouriteIds.has(exercise.exerciseId) ? "Unfavourite exercise" : "Favourite exercise"}
+                    title={favouriteIds.has(exercise.exerciseId) ? "Remove from favourites" : "Add to favourites"}
+                  >
+                    <Heart
+                      size={18}
+                      className={favouriteIds.has(exercise.exerciseId) ? "text-pink-500 fill-pink-500" : "text-[#4B5563]"}
+                    />
+                  </button>
                   <button
                     onClick={() => openExerciseHistory(exercise)}
                     className="text-[#9CA3AF] hover:text-white p-1 transition-colors"
@@ -3490,7 +3674,7 @@ export default function Workouts() {
                 return (
                 <div
                   key={setIdx}
-                  className={`flex items-center gap-2 mt-3 overflow-visible ${
+                  className={`flex items-center gap-2 overflow-visible ${exercise.isBodyweight && userBodyweightKg && setIdx > 0 ? "mt-6" : "mt-3"} ${
                     isDropRow ? "ml-5" : ""
                   }`}
                 >
@@ -3551,65 +3735,93 @@ export default function Workouts() {
                       Drop Set
                     </span>
                   )}
+                  {(() => {
+                    const key = `${exercise.exerciseId}-${setIdx}`;
+                    const isDisabled = setIdx > 0 && !exercise.workoutSets[setIdx - 1]?.completed;
+                    const disabledClass = isDisabled ? "opacity-50 cursor-not-allowed" : "";
+                    const bwKg = exercise.isBodyweight && userBodyweightKg ? userBodyweightKg : null;
+
+                    if (bwKg !== null) {
+                      // Bodyweight exercise: input shows additional weight only; total = BW + additional
+                      const totalKg = parseFloat(set.weight || String(bwKg));
+                      const additionalKg = Math.max(0, totalKg - bwKg);
+                      const displayAdditional = additionalKg > 0 ? displaySetWeight(String(additionalKg)) : "";
+                      const editingAdditional = key in weightDisplayValues ? weightDisplayValues[key] : displayAdditional;
+                      const liveTotalKg = bwKg + parseFloat(inputWeightToKg(editingAdditional || "0") || "0");
+                      const displayBW = displaySetWeight(String(bwKg));
+                      const displayTotal = displaySetWeight(String(Math.round(liveTotalKg * 100) / 100));
+
+                      return (
+                        <div className={`w-2/5 relative flex items-center gap-1 ${disabledClass}`}>
+                          <span className="text-white/30 text-xs whitespace-nowrap flex-shrink-0">{displayBW}+</span>
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={editingAdditional}
+                            disabled={isDisabled}
+                            onFocus={() => {
+                              setSelectedExerciseId(exercise.exerciseId);
+                              setWeightDisplayValues((prev) => ({ ...prev, [key]: displayAdditional }));
+                              weightAtFocusRef.current = { exerciseId: exercise.exerciseId, setIndex: setIdx, weight: set.weight || String(bwKg) };
+                            }}
+                            onChange={(e) => {
+                              setWeightDisplayValues((prev) => ({ ...prev, [key]: e.target.value }));
+                            }}
+                            onBlur={() => {
+                              const raw = weightDisplayValues[key];
+                              if (raw !== undefined) {
+                                const additionalInKg = parseFloat(inputWeightToKg(raw || "0") || "0");
+                                const totalKgStored = Math.round((bwKg + additionalInKg) * 100) / 100;
+                                updateSetData(exercise.exerciseId, setIdx, "weight", String(totalKgStored));
+                                setWeightDisplayValues((prev) => { const next = { ...prev }; delete next[key]; return next; });
+                              }
+                              finalizeWeightChange(exercise.exerciseId, setIdx);
+                            }}
+                            className="glass-input text-white rounded-md px-2 py-1 flex-1 min-w-0 placeholder:text-[#8A93A7] text-sm"
+                            style={{ MozAppearance: "textfield" }}
+                            inputMode="decimal"
+                          />
+                          <span className="absolute -bottom-4 left-0 text-white/30 text-[10px] whitespace-nowrap">Total: {displayTotal}{weightUnit}</span>
+                        </div>
+                      );
+                    }
+
+                    // Standard (non-bodyweight) exercise
+                    return (
+                      <input
+                        type="number"
+                        placeholder={`Weight (${weightUnit})`}
+                        value={key in weightDisplayValues ? weightDisplayValues[key] : displaySetWeight(set.weight)}
+                        disabled={isDisabled}
+                        onFocus={() => {
+                          setSelectedExerciseId(exercise.exerciseId);
+                          setWeightDisplayValues((prev) => ({ ...prev, [key]: displaySetWeight(set.weight) }));
+                          weightAtFocusRef.current = { exerciseId: exercise.exerciseId, setIndex: setIdx, weight: set.weight };
+                        }}
+                        onChange={(e) => {
+                          setWeightDisplayValues((prev) => ({ ...prev, [key]: e.target.value }));
+                        }}
+                        onBlur={() => {
+                          const raw = weightDisplayValues[key];
+                          if (raw !== undefined) {
+                            updateSetData(exercise.exerciseId, setIdx, "weight", inputWeightToKg(raw));
+                            setWeightDisplayValues((prev) => { const next = { ...prev }; delete next[key]; return next; });
+                          }
+                          finalizeWeightChange(exercise.exerciseId, setIdx);
+                        }}
+                        className={`glass-input text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#8A93A7] text-sm ${disabledClass}`}
+                        style={{ MozAppearance: "textfield" }}
+                        inputMode="decimal"
+                      />
+                    );
+                  })()}
                   <input
                     type="number"
-                    placeholder={`Weight (${weightUnit})`}
-                    value={(() => {
-                      const key = `${exercise.exerciseId}-${setIdx}`;
-                      return key in weightDisplayValues
-                        ? weightDisplayValues[key]
-                        : displaySetWeight(set.weight);
-                    })()}
-                    disabled={setIdx > 0 && !exercise.workoutSets[setIdx - 1]?.completed}
-                    onFocus={() => {
-                      const key = `${exercise.exerciseId}-${setIdx}`;
-                      setSelectedExerciseId(exercise.exerciseId);
-                      setWeightDisplayValues((prev) => ({
-                        ...prev,
-                        [key]: displaySetWeight(set.weight),
-                      }));
-                      weightAtFocusRef.current = {
-                        exerciseId: exercise.exerciseId,
-                        setIndex: setIdx,
-                        weight: set.weight,
-                      };
-                    }}
-                    onChange={(e) => {
-                      const key = `${exercise.exerciseId}-${setIdx}`;
-                      setWeightDisplayValues((prev) => ({
-                        ...prev,
-                        [key]: e.target.value,
-                      }));
-                    }}
-                    onBlur={() => {
-                      const key = `${exercise.exerciseId}-${setIdx}`;
-                      const raw = weightDisplayValues[key];
-                      if (raw !== undefined) {
-                        updateSetData(
-                          exercise.exerciseId,
-                          setIdx,
-                          "weight",
-                          inputWeightToKg(raw),
-                        );
-                        setWeightDisplayValues((prev) => {
-                          const next = { ...prev };
-                          delete next[key];
-                          return next;
-                        });
-                      }
-                      finalizeWeightChange(exercise.exerciseId, setIdx);
-                    }}
-                    className={`glass-input text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#8A93A7] text-sm ${
-                      setIdx > 0 && !exercise.workoutSets[setIdx - 1]?.completed
-                        ? "opacity-50 cursor-not-allowed"
-                        : ""
-                    }`}
-                    style={{ MozAppearance: "textfield" }}
-                    inputMode="decimal"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Reps"
+                    placeholder={
+                      exercise.recommendation?.setRecommendations?.[setIdx]?.isAmrap
+                        ? "Max reps"
+                        : "Reps"
+                    }
                     value={set.reps}
                     disabled={setIdx > 0 && !exercise.workoutSets[setIdx - 1]?.completed}
                     onChange={(e) => {
@@ -3631,18 +3843,24 @@ export default function Workouts() {
                     inputMode="numeric"
                   />
                   {(() => {
-                    const repsIcon = getSetRepIcon(
-                      set,
-                      getTargetRepsForSet(exercise, setIdx),
-                    );
+                    const setRec = exercise.recommendation?.setRecommendations?.[setIdx];
+                    const isAmrap = setRec?.isAmrap ?? false;
+                    const isFSL = setRec?.isFSL ?? false;
+                    const repsIcon = (isAmrap || isFSL)
+                      ? null
+                      : getSetRepIcon(set, getTargetRepsForSet(exercise, setIdx));
                     return (
                       <div className="w-7 flex justify-center items-center flex-shrink-0">
-                        {repsIcon ? (
-                          <img
-                            src={repsIcon.src}
-                            alt={repsIcon.alt}
-                            className="w-5 h-5"
-                          />
+                        {isAmrap ? (
+                          <span className="text-[9px] font-bold text-[#2DD4BF] tracking-wide leading-none px-1 py-0.5 rounded bg-[#2DD4BF]/15 border border-[#2DD4BF]/40">
+                            AMRAP
+                          </span>
+                        ) : isFSL ? (
+                          <span className="text-[9px] font-bold text-[#EAB308] tracking-wide leading-none px-1 py-0.5 rounded bg-[#EAB308]/15 border border-[#EAB308]/40">
+                            FSL
+                          </span>
+                        ) : repsIcon ? (
+                          <img src={repsIcon.src} alt={repsIcon.alt} className="w-5 h-5" />
                         ) : null}
                       </div>
                     );

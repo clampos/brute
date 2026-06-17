@@ -14,6 +14,7 @@ import {
   TrendingUp,
   LogOut,
   Globe,
+  Dumbbell,
 } from "lucide-react";
 import logo from "../assets/logo.png";
 import TopBar from "../components/TopBar";
@@ -579,10 +580,11 @@ export default function Settings() {
         title="Settings"
         pageIcon={<SettingsIcon size={18} />}
         menuItems={[
-          { label: "Dashboard", onClick: () => navigate("/dashboard") },
-          { label: "Programmes", onClick: () => navigate("/programmes") },
-          { label: "Workouts", onClick: () => navigate("/workouts") },
-          { label: "Track Metrics", onClick: () => navigate("/metrics") },
+          { label: "Dashboard",        onClick: () => navigate("/dashboard") },
+          { label: "Programmes",       onClick: () => navigate("/programmes") },
+          { label: "Workouts",         onClick: () => navigate("/workouts") },
+          { label: "Track Metrics",    onClick: () => navigate("/metrics") },
+          { label: "Exercise Library", onClick: () => navigate("/exercises") },
         ]}
       />
 
@@ -650,6 +652,26 @@ export default function Settings() {
           <div className="text-left">
             <p className="text-white font-medium text-sm">Track Metrics</p>
             <p className="text-[#A0AEC0] text-xs">Bodyweight, body fat & PRs</p>
+          </div>
+        </div>
+        <svg className="text-[#A0AEC0]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+      </motion.button>
+
+      {/* Quick access — Exercise Library */}
+      <motion.button
+        onClick={() => navigate("/exercises")}
+        whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(0,255,173,0.12)" }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        className="glass-card border border-[#00FFAD]/20 rounded-2xl p-4 flex items-center justify-between w-full hover:border-[#00FFAD]/40 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#00FFAD] to-[#246BFD] flex items-center justify-center">
+            <Dumbbell size={20} className="text-white" />
+          </div>
+          <div className="text-left">
+            <p className="text-white font-medium text-sm">Exercise Library</p>
+            <p className="text-[#A0AEC0] text-xs">Browse, favourite & learn exercises</p>
           </div>
         </div>
         <svg className="text-[#A0AEC0]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
