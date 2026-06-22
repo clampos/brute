@@ -15,10 +15,17 @@ import { prescribe531, advance531 } from "./wave531Service";
 import { prescribeDouble, advanceDouble } from "./doubleProgressionService";
 import { computeGoalPreview, recomputeProjection } from "./goalProgrammeService";
 import { BIG_4, BIG_4_IDS, getLiftName, isBig4 } from "./constants";
+import {
+  willReachGoalNextCycle, isAtGoal, midCheckpointTarget, needsMidCheckpoint,
+  prescribePeakOpener, prescribeMaxAttemptWarmUp,
+  suggestAttempt1, suggestAttempt2, suggestAttempt3,
+  computePostTestState, peakWeekApproachingMessage,
+} from "./peakWeekService";
 import type {
   StrengthLiftState, StrengthSessionPrescription,
   ExperienceLevel, StrengthGoalProgramme, TimelineRevision,
 } from "./types";
+import type { AttemptFeel } from "./peakWeekService";
 
 const router = express.Router();
 
@@ -130,6 +137,17 @@ function rowToGoal(r: any): StrengthGoalProgramme & { programmeId?: string } {
     sessionsCompleted: r.sessions_completed,
     status: r.status,
     programmeId: r.programme_id ?? null,
+    // peak week state
+    peakWeekTriggered:     r.peak_week_triggered === 1,
+    peakWeekPhase:         r.peak_week_phase ?? "NONE",
+    openerCompleted:       r.opener_completed === 1,
+    testCompleted:         r.test_completed === 1,
+    bestAttemptWeight:     r.best_attempt_weight ?? null,
+    testDate:              r.test_date ?? null,
+    postTestAction:        r.post_test_action ?? null,
+    midCheckpointTriggered: r.mid_checkpoint_triggered === 1,
+    midCheckpointWeight:   r.mid_checkpoint_weight ?? null,
+    midCheckpointCompleted: r.mid_checkpoint_completed === 1,
     timelineRevisions: (() => {
       try { return JSON.parse(r.timeline_revisions ?? "[]"); } catch { return []; }
     })(),
@@ -296,7 +314,7 @@ router.post("/sessions", authenticateToken, async (req: Request, res: Response):
     const nextPrescription = prescribeForState(newState, exerciseId);
 
     // Check if any active goal programme should be updated
-    const goalUpdate = await updateGoalProgrammeIfActive(userId, exerciseId, newState.trainingMax ?? newState.linearWeight);
+    const goalUpdate = await updateGoalProgrammeIfActive(userId, exerciseId, newState.trainingMax ?? newState.linearWeight, state);
 
     return res.json({
       sessionId,
@@ -334,6 +352,7 @@ async function updateGoalProgrammeIfActive(
   userId: string,
   exerciseId: string,
   newTm: number | null | undefined,
+  liftState?: StrengthLiftState | null,
 ): Promise<any> {
   if (!newTm) return null;
   const rows = await prisma.$queryRaw<any[]>`
@@ -344,24 +363,61 @@ async function updateGoalProgrammeIfActive(
   if (!rows.length) return null;
   const goal = rowToGoal(rows[0]);
 
+  // ── Peak week detection ──────────────────────────────────────────────────
+  // Run after a week-3 AMRAP (cycleWeek just advanced from 3 → 4 / deload).
+  // If the next complete cycle will put TM at or above the goal, flag peak week.
+  let peakWeekNotification: string | null = null;
+
+  if (!goal.peakWeekTriggered && !goal.testCompleted) {
+    // Check if this session just completed week 3 of a 5/3/1 cycle
+    const justFinishedWeek3 = liftState?.cycleWeek === 3;
+
+    if (justFinishedWeek3 && willReachGoalNextCycle(newTm, goal.targetWeight, exerciseId, goal.experienceLevel as any)) {
+      const now2 = new Date().toISOString();
+      await prisma.$executeRaw`
+        UPDATE strength_goal_programmes
+        SET peak_week_triggered = 1, peak_week_phase = 'APPROACHING', updated_at = ${now2}
+        WHERE id = ${goal.id}
+      `;
+      peakWeekNotification = peakWeekApproachingMessage(goal.liftName, goal.targetWeight);
+    } else if (isAtGoal(newTm, goal.targetWeight)) {
+      // Already at goal — offer early test
+      peakWeekNotification = `Your training max has reached your target. Consider scheduling an early max attempt!`;
+    }
+
+    // Mid-programme checkpoint detection
+    if (!goal.midCheckpointTriggered && needsMidCheckpoint(goal.projectedWeeks) && !goal.midCheckpointWeight) {
+      const checkpointWeight = midCheckpointTarget(goal.start1rm ?? goal.startTm / 0.9, goal.targetWeight);
+      const checkpointTm = checkpointWeight * 0.9;
+      if (newTm >= checkpointTm * 0.9) { // approaching checkpoint
+        await prisma.$executeRaw`
+          UPDATE strength_goal_programmes
+          SET mid_checkpoint_triggered = 1, mid_checkpoint_weight = ${checkpointWeight}, updated_at = ${new Date().toISOString()}
+          WHERE id = ${goal.id}
+        `;
+      }
+    }
+  }
+
+  // ── Standard goal TM update + timeline revision ──────────────────────────
   const projection = recomputeProjection(goal, newTm);
+  const now = new Date().toISOString();
+
   if (!projection || !projection.significant) {
-    // Still update current_tm
     await prisma.$executeRaw`
       UPDATE strength_goal_programmes
-      SET current_tm = ${newTm}, sessions_completed = sessions_completed + 1, updated_at = ${new Date().toISOString()}
+      SET current_tm = ${newTm}, sessions_completed = sessions_completed + 1, updated_at = ${now}
       WHERE id = ${goal.id}
     `;
-    return null;
+    return peakWeekNotification ? { peakWeekNotification } : null;
   }
 
   const revision: TimelineRevision = {
-    date: new Date().toISOString().split("T")[0],
+    date: now.split("T")[0],
     projectedEndDate: projection.newProjectedEndDate,
     reason: projection.reason,
   };
   const revisions = JSON.stringify([...goal.timelineRevisions, revision]);
-  const now = new Date().toISOString();
 
   await prisma.$executeRaw`
     UPDATE strength_goal_programmes
@@ -371,7 +427,7 @@ async function updateGoalProgrammeIfActive(
     WHERE id = ${goal.id}
   `;
 
-  return { projection, revisedTimeline: true };
+  return { projection, revisedTimeline: true, peakWeekNotification };
 }
 
 // ── Goal endpoints ────────────────────────────────────────────────────────────
@@ -620,6 +676,222 @@ router.delete("/goals/:id", authenticateToken, async (req: Request, res: Respons
   } catch (err) {
     console.error("Delete goal error:", err);
     return res.status(500).json({ error: "Failed to cancel goal" });
+  }
+});
+
+// ── Peak week endpoints ───────────────────────────────────────────────────────
+
+// GET /auth/strength/goals/:id/peak-week
+// Returns current peak week state + attempt history for a goal.
+router.get("/goals/:id/peak-week", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+    const rows = await prisma.$queryRaw<any[]>`
+      SELECT * FROM strength_goal_programmes WHERE id = ${id} AND user_id = ${userId} LIMIT 1
+    `;
+    if (!rows.length) return res.status(404).json({ error: "Goal not found" });
+    const goal = rowToGoal(rows[0]);
+
+    const attempts = await prisma.$queryRaw<any[]>`
+      SELECT * FROM strength_test_attempts WHERE goal_id = ${id} ORDER BY attempt_number
+    `;
+
+    // Build opener prescription if applicable
+    const openerSets = goal.peakWeekPhase === "OPENER"
+      ? prescribePeakOpener(goal.currentTm, goal.exerciseId)
+      : null;
+
+    // Build max attempt prescription
+    let maxAttemptWarmUp = null;
+    let attempt1Suggested = null;
+    if (goal.peakWeekPhase === "MAX_ATTEMPT") {
+      maxAttemptWarmUp = prescribeMaxAttemptWarmUp(goal.targetWeight);
+      attempt1Suggested = suggestAttempt1(goal.targetWeight);
+    }
+
+    return res.json({ goal, attempts, openerSets, maxAttemptWarmUp, attempt1Suggested });
+  } catch (err) {
+    console.error("Peak week status error:", err);
+    return res.status(500).json({ error: "Failed to fetch peak week state" });
+  }
+});
+
+// POST /auth/strength/goals/:id/peak-week/advance-phase
+// Manually advance the peak week phase (opener → rest → max attempt).
+router.post("/goals/:id/peak-week/advance-phase", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+    const { phase } = req.body as { phase: string };
+
+    const validPhases = ["APPROACHING", "OPENER", "REST", "MAX_ATTEMPT", "COMPLETE"];
+    if (!validPhases.includes(phase)) return res.status(400).json({ error: "Invalid phase" });
+
+    const now = new Date().toISOString();
+    const openerDone = phase === "REST" || phase === "MAX_ATTEMPT" || phase === "COMPLETE" ? 1 : undefined;
+
+    await prisma.$executeRaw`
+      UPDATE strength_goal_programmes
+      SET peak_week_phase = ${phase},
+          peak_week_triggered = 1,
+          opener_completed = CASE WHEN ${phase} IN ('REST', 'MAX_ATTEMPT', 'COMPLETE') THEN 1 ELSE opener_completed END,
+          updated_at = ${now}
+      WHERE id = ${id} AND user_id = ${userId}
+    `;
+
+    return res.json({ success: true, phase });
+  } catch (err) {
+    console.error("Advance phase error:", err);
+    return res.status(500).json({ error: "Failed to advance phase" });
+  }
+});
+
+// POST /auth/strength/goals/:id/peak-week/log-attempt
+// Log one attempt (1, 2, or 3) with weight, result and feel.
+// Returns the next attempt suggestion.
+router.post("/goals/:id/peak-week/log-attempt", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+    const { attemptNumber, actualWeight, result, feel, testType = "FINAL" } = req.body as {
+      attemptNumber: 1 | 2 | 3;
+      actualWeight: number;
+      result: "hit" | "miss";
+      feel: AttemptFeel;
+      testType?: "FINAL" | "MID_CHECKPOINT";
+    };
+
+    // Fetch goal
+    const rows = await prisma.$queryRaw<any[]>`
+      SELECT * FROM strength_goal_programmes WHERE id = ${id} AND user_id = ${userId} LIMIT 1
+    `;
+    if (!rows.length) return res.status(404).json({ error: "Goal not found" });
+    const goal = rowToGoal(rows[0]);
+
+    // Fetch existing attempts to compute suggested weight
+    const existingAttempts = await prisma.$queryRaw<any[]>`
+      SELECT * FROM strength_test_attempts WHERE goal_id = ${id} ORDER BY attempt_number
+    `;
+
+    // Upsert this attempt
+    const attemptId = randomUUID();
+    const now = new Date().toISOString();
+
+    await prisma.$executeRaw`
+      INSERT INTO strength_test_attempts
+        (id, goal_id, lift_name, test_type, attempt_number, suggested_weight, actual_weight, result, feel, created_at)
+      VALUES
+        (${attemptId}, ${id}, ${goal.liftName}, ${testType}, ${attemptNumber},
+         ${actualWeight}, ${actualWeight}, ${result}, ${feel}, ${now})
+      ON CONFLICT(id) DO NOTHING
+    `;
+
+    // Compute next attempt suggestion
+    let nextSuggestion: number | null = null;
+    let flagReassessment = false;
+
+    if (attemptNumber === 1) {
+      nextSuggestion = suggestAttempt2(actualWeight, feel);
+    } else if (attemptNumber === 2) {
+      const s = suggestAttempt3(actualWeight, feel, goal.targetWeight);
+      nextSuggestion = s.weight;
+      flagReassessment = s.flagReassessment;
+    }
+
+    // Update best attempt weight on the goal if this was a hit
+    const bestWeight = result === "hit" ? actualWeight : null;
+    if (bestWeight !== null) {
+      const currentBest: any = rows[0].best_attempt_weight;
+      if (!currentBest || bestWeight > currentBest) {
+        await prisma.$executeRaw`
+          UPDATE strength_goal_programmes
+          SET best_attempt_weight = ${bestWeight}, updated_at = ${now}
+          WHERE id = ${id}
+        `;
+      }
+    }
+
+    return res.json({ success: true, nextSuggestion, flagReassessment });
+  } catch (err) {
+    console.error("Log attempt error:", err);
+    return res.status(500).json({ error: "Failed to log attempt" });
+  }
+});
+
+// POST /auth/strength/goals/:id/peak-week/complete
+// Called after the final attempt. Updates goal state based on test outcome.
+router.post("/goals/:id/peak-week/complete", authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user.userId;
+    const { id } = req.params;
+    const { bestSuccessfulWeight, postTestAction, testType = "FINAL" } = req.body as {
+      bestSuccessfulWeight: number | null;
+      postTestAction: string;
+      testType?: "FINAL" | "MID_CHECKPOINT";
+    };
+
+    const rows = await prisma.$queryRaw<any[]>`
+      SELECT * FROM strength_goal_programmes WHERE id = ${id} AND user_id = ${userId} LIMIT 1
+    `;
+    if (!rows.length) return res.status(404).json({ error: "Goal not found" });
+    const goal = rowToGoal(rows[0]);
+
+    const { goalHit, newOneRm, newTm } = computePostTestState(bestSuccessfulWeight, goal.targetWeight);
+    const now = new Date().toISOString();
+    const today = now.split("T")[0];
+
+    // Find the active lift state and update TM
+    const prog = await getActiveStrengthProgram(userId);
+    if (prog) {
+      await upsertLiftState(
+        {
+          userId,
+          userProgramId: prog.userProgramId,
+          exerciseId: goal.exerciseId,
+          trainingMax: newTm,
+          cycleWeek: 1,   // start fresh cycle after deload
+          peakWeekPhase: "NONE",
+        },
+        prisma,
+      );
+    }
+
+    if (testType === "FINAL") {
+      await prisma.$executeRaw`
+        UPDATE strength_goal_programmes
+        SET peak_week_phase = 'COMPLETE',
+            test_completed = 1,
+            best_attempt_weight = ${bestSuccessfulWeight},
+            test_date = ${today},
+            post_test_action = ${postTestAction},
+            current_tm = ${newTm},
+            status = CASE WHEN ${goalHit} THEN 'COMPLETED' ELSE 'ACTIVE' END,
+            updated_at = ${now}
+        WHERE id = ${id}
+      `;
+    } else {
+      // Mid-checkpoint complete — goal continues
+      await prisma.$executeRaw`
+        UPDATE strength_goal_programmes
+        SET mid_checkpoint_completed = 1,
+            current_tm = ${newTm},
+            updated_at = ${now}
+        WHERE id = ${id}
+      `;
+    }
+
+    return res.json({
+      goalHit,
+      newOneRm,
+      newTm,
+      message: goalHit
+        ? `You've hit your ${goal.targetWeight}kg goal! New 1RM: ${newOneRm}kg, TM reset to ${newTm}kg.`
+        : `Best lift: ${bestSuccessfulWeight ?? 0}kg. TM recalculated to ${newTm}kg. Keep training — you're close.`,
+    });
+  } catch (err) {
+    console.error("Complete peak week error:", err);
+    return res.status(500).json({ error: "Failed to complete peak week" });
   }
 });
 

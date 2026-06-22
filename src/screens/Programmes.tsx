@@ -1061,11 +1061,25 @@ export default function Programmes() {
                     <div className="text-[#FDB97D] text-xs mt-1">Higher rep, moderate volume training to burn fat and preserve muscle</div>
                   </button>
                   <button
-                    onClick={() => { setGenerateGoal("STRENGTH"); setGenerateStep(2); }}
+                    onClick={() => {
+                      const hasStrengthProg = activeUserProgram?.programme?.progressionFocus === "STRENGTH";
+                      if (hasStrengthProg) {
+                        // Already on a strength programme — just add a tracking goal
+                        resetGenerateModal();
+                        navigate("/strength/goals/new");
+                      } else {
+                        setGenerateGoal("STRENGTH");
+                        setGenerateStep(2);
+                      }
+                    }}
                     className="w-full bg-[#EAB308]/20 border border-[#EAB308]/60 rounded-xl px-4 py-4 text-left hover:bg-[#EAB308]/30 transition-colors"
                   >
                     <div className="text-white font-semibold">Strength</div>
-                    <div className="text-[#FDE68A] text-xs mt-1">5/3/1 wave loading and linear progression to build maximal strength</div>
+                    <div className="text-[#FDE68A] text-xs mt-1">
+                      {activeUserProgram?.programme?.progressionFocus === "STRENGTH"
+                        ? "Add a lift goal to your active strength programme"
+                        : "5/3/1 wave loading and linear progression to build maximal strength"}
+                    </div>
                   </button>
                 </div>
               </div>
@@ -1102,9 +1116,13 @@ export default function Programmes() {
             {/* Step 3: Days per week */}
             {generateStep === 3 && (
               <div>
-                <p className="text-[#9CA3AF] text-sm mb-4">How many days per week can you train?</p>
+                <p className="text-[#9CA3AF] text-sm mb-4">
+                  {generateGoal === "STRENGTH"
+                    ? "Strength programmes run 3 or 4 days per week."
+                    : "How many days per week can you train?"}
+                </p>
                 <div className="grid grid-cols-3 gap-3 mb-2">
-                  {[2, 3, 4, 5, 6].map((days) => (
+                  {(generateGoal === "STRENGTH" ? [3, 4] : [2, 3, 4, 5, 6]).map((days) => (
                     <button
                       key={days}
                       onClick={() => setGenerateDays(days)}

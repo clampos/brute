@@ -289,6 +289,7 @@ export default function Workouts() {
   const [applyingRecoveryAdjustments, setApplyingRecoveryAdjustments] =
     useState(false);
   const [recoveryAdjustmentError, setRecoveryAdjustmentError] = useState("");
+  const [strengthTooltip, setStrengthTooltip] = useState<string | null>(null);
   const [recoveryAdjustmentStatus, setRecoveryAdjustmentStatus] =
     useState<RecoveryAdjustmentStatus>({
       isActive: false,
@@ -1142,13 +1143,17 @@ export default function Workouts() {
           setShowProgrammeCalendarDropdown(false);
         }
       }
+
+      if (strengthTooltip) {
+        setStrengthTooltip(null);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [openExerciseMenu, openSetMenu, showProgrammeCalendarDropdown]);
+  }, [openExerciseMenu, openSetMenu, showProgrammeCalendarDropdown, strengthTooltip]);
 
   // Cleanup old refs when exercises change
   useEffect(() => {
@@ -3279,7 +3284,15 @@ export default function Workouts() {
             </span>
             {userProgram?.programme.bodyPartFocus && (
               <span className="text-[10px] text-[#FBA3FF] bg-[#FBA3FF]/10 px-1.5 py-0.5 rounded-full">
-                {userProgram.programme.bodyPartFocus}
+                {({
+                  fullBody: "Full Body",
+                  upper:    "Upper Body",
+                  lower:    "Lower Body",
+                  push:     "Push",
+                  pull:     "Pull",
+                  legs:     "Legs",
+                } as Record<string, string>)[userProgram.programme.bodyPartFocus]
+                  ?? userProgram.programme.bodyPartFocus}
               </span>
             )}
           </div>
@@ -3513,22 +3526,25 @@ export default function Workouts() {
                       <h4 className="text-white font-semibold text-base">
                         {exercise.name}
                       </h4>
-                      <div className="flex text-sm gap-2 mt-1">
-                        <span className="text-green-400">
-                          {exercise.workoutSets.length} Working Set
-                          {exercise.workoutSets.length !== 1 ? "s" : ""}
-                        </span>
-                        {userProgram?.programme?.progressionFocus ===
-                          "STRENGTH" &&
-                          exercise.strengthRole && (
-                            <span className="text-blue-300 uppercase tracking-wide">
-                              {exercise.strengthRole.replace("_", " ")}
+                      {userProgram?.programme?.progressionFocus === "STRENGTH" ? (
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {exercise.strengthRole && (
+                            <span className="text-[10px] font-semibold text-[#60A5FA] uppercase tracking-wide">
+                              {exercise.strengthRole.replace(/_/g, " ")}
                             </span>
                           )}
-                        <span className="text-pink-400">
-                          {exercise.muscleGroup}
-                        </span>
-                      </div>
+                          {exercise.strengthRole && <span className="text-[#3A3E4A] text-[10px]">·</span>}
+                          <span className="text-[10px] text-pink-400">{exercise.muscleGroup}</span>
+                        </div>
+                      ) : (
+                        <div className="flex text-sm gap-2 mt-1">
+                          <span className="text-green-400">
+                            {exercise.workoutSets.length} Working Set
+                            {exercise.workoutSets.length !== 1 ? "s" : ""}
+                          </span>
+                          <span className="text-pink-400">{exercise.muscleGroup}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -3670,6 +3686,9 @@ export default function Workouts() {
 
               {exercise.workoutSets.map((set, setIdx) => {
                 const isDropRow = isVisualDropSetRow(exercise.workoutSets, setIdx);
+                const hasStrengthSets = exercise.recommendation?.setRecommendations?.some(
+                  (s) => s.isAmrap || s.isFSL,
+                ) ?? false;
 
                 return (
                 <div
@@ -3752,7 +3771,7 @@ export default function Workouts() {
                       const displayTotal = displaySetWeight(String(Math.round(liveTotalKg * 100) / 100));
 
                       return (
-                        <div className={`w-2/5 relative flex items-center gap-1 ${disabledClass}`}>
+                        <div className={`${hasStrengthSets ? "flex-1 min-w-0" : "w-2/5"} relative flex items-center gap-1 ${disabledClass}`}>
                           <span className="text-white/30 text-xs whitespace-nowrap flex-shrink-0">{displayBW}+</span>
                           <input
                             type="number"
@@ -3809,7 +3828,7 @@ export default function Workouts() {
                           }
                           finalizeWeightChange(exercise.exerciseId, setIdx);
                         }}
-                        className={`glass-input text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#8A93A7] text-sm ${disabledClass}`}
+                        className={`glass-input text-white rounded-md px-2 py-1 placeholder:text-[#8A93A7] text-sm ${hasStrengthSets ? "flex-1 min-w-0" : "w-2/5"} ${disabledClass}`}
                         style={{ MozAppearance: "textfield" }}
                         inputMode="decimal"
                       />
@@ -3834,7 +3853,7 @@ export default function Workouts() {
                       );
                     }}
                     onFocus={() => setSelectedExerciseId(exercise.exerciseId)}
-                    className={`glass-input text-white rounded-md px-2 py-1 w-2/5 placeholder:text-[#8A93A7] text-sm ${
+                    className={`glass-input text-white rounded-md px-2 py-1 placeholder:text-[#8A93A7] text-sm ${hasStrengthSets ? "flex-1 min-w-0" : "w-2/5"} ${
                       setIdx > 0 && !exercise.workoutSets[setIdx - 1]?.completed
                         ? "opacity-50 cursor-not-allowed"
                         : ""
@@ -3846,19 +3865,43 @@ export default function Workouts() {
                     const setRec = exercise.recommendation?.setRecommendations?.[setIdx];
                     const isAmrap = setRec?.isAmrap ?? false;
                     const isFSL = setRec?.isFSL ?? false;
-                    const repsIcon = (isAmrap || isFSL)
-                      ? null
-                      : getSetRepIcon(set, getTargetRepsForSet(exercise, setIdx));
+                    const repsIcon = (!isAmrap && !isFSL)
+                      ? getSetRepIcon(set, getTargetRepsForSet(exercise, setIdx))
+                      : null;
+                    const tooltipKey = `${exercise.exerciseId}:${setIdx}`;
+                    const tooltipOpen = strengthTooltip === tooltipKey;
+
                     return (
-                      <div className="w-7 flex justify-center items-center flex-shrink-0">
-                        {isAmrap ? (
-                          <span className="text-[9px] font-bold text-[#2DD4BF] tracking-wide leading-none px-1 py-0.5 rounded bg-[#2DD4BF]/15 border border-[#2DD4BF]/40">
-                            AMRAP
-                          </span>
-                        ) : isFSL ? (
-                          <span className="text-[9px] font-bold text-[#EAB308] tracking-wide leading-none px-1 py-0.5 rounded bg-[#EAB308]/15 border border-[#EAB308]/40">
-                            FSL
-                          </span>
+                      <div className={`${hasStrengthSets ? "w-14" : "w-7"} flex-shrink-0 flex justify-center items-center relative`}>
+                        {(isAmrap || isFSL) ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setStrengthTooltip(tooltipOpen ? null : tooltipKey);
+                              }}
+                              className={`text-[9px] font-bold tracking-wide leading-none px-2 py-1 rounded border select-none ${
+                                isAmrap
+                                  ? "text-[#2DD4BF] bg-[#2DD4BF]/15 border-[#2DD4BF]/40"
+                                  : "text-[#EAB308] bg-[#EAB308]/15 border-[#EAB308]/40"
+                              }`}
+                            >
+                              {isAmrap ? "AMRAP" : "FSL"}
+                            </button>
+                            {tooltipOpen && (
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-[#1C1F26] border border-[#2F3544] rounded-xl px-3 py-2 shadow-2xl w-52 pointer-events-none">
+                                <p className={`text-xs font-bold mb-0.5 ${isAmrap ? "text-[#2DD4BF]" : "text-[#EAB308]"}`}>
+                                  {isAmrap ? "AMRAP" : "FSL — First Set Last"}
+                                </p>
+                                <p className="text-[10px] text-[#9CA3AF] leading-relaxed">
+                                  {isAmrap
+                                    ? "As Many Reps As Possible — do as many clean reps as you can. Your rep count drives TM progression."
+                                    : "Repeat your first working set weight for 5 reps. Adds volume without extra recovery cost."}
+                                </p>
+                              </div>
+                            )}
+                          </>
                         ) : repsIcon ? (
                           <img src={repsIcon.src} alt={repsIcon.alt} className="w-5 h-5" />
                         ) : null}

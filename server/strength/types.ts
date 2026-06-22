@@ -17,10 +17,11 @@ export interface StrengthLiftState {
   programmeType: ProgrammeType;
   trainingMax: number | null;    // kg; null = not yet initialised (LINEAR start)
   linearWeight: number | null;   // kg; current linear working weight
-  cycleWeek: number;             // 1–4 for 531
+  cycleWeek: number;             // 1–4 for 531; 5 = peak opener; 6 = peak max attempt
   cycleNumber: number;
   consecutiveFailures: number;
   lastSessionAt: string | null;
+  peakWeekPhase: string | null;  // mirrors goal's peak_week_phase for the prescription layer
   createdAt: string;
   updatedAt: string;
 }
@@ -57,10 +58,22 @@ export interface StrengthGoalProgramme {
   daysPerWeek: number;
   programmeType: ProgrammeType;
   projectedWeeks: number;
-  projectedEndDate: string;   // ISO date
+  projectedEndDate: string;
   startDate: string;
   sessionsCompleted: number;
   status: GoalProgrammeStatus;
+  programmeId?: string | null;
+  // peak week state
+  peakWeekTriggered:      boolean;
+  peakWeekPhase:          string;
+  openerCompleted:        boolean;
+  testCompleted:          boolean;
+  bestAttemptWeight:      number | null;
+  testDate:               string | null;
+  postTestAction:         string | null;
+  midCheckpointTriggered: boolean;
+  midCheckpointWeight:    number | null;
+  midCheckpointCompleted: boolean;
   timelineRevisions: TimelineRevision[];
   createdAt: string;
   updatedAt: string;
@@ -99,10 +112,12 @@ export interface StrengthSessionPrescription {
 
 export interface GoalProgrammeWeek {
   weekNumber: number;
-  cycleWeek: number;          // 1–4
+  cycleWeek: number;          // 1–4 normal; 5 = peak opener; 6 = rest; 7 = max attempt
   isDeload: boolean;
   estimatedTm: number;
   sets: StrengthSetPrescription[];
+  peakPhase?: "OPENER" | "REST" | "MAX_ATTEMPT";
+  isMidCheckpoint?: boolean;
   milestone?: "25%" | "50%" | "75%" | "100%";
 }
 

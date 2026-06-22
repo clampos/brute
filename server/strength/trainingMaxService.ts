@@ -66,6 +66,7 @@ function rowToState(r: any): StrengthLiftState {
     cycleNumber: r.cycle_number ?? 1,
     consecutiveFailures: r.consecutive_failures ?? 0,
     lastSessionAt: r.last_session_at ?? null,
+    peakWeekPhase: r.peak_week_phase ?? "NONE",
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -109,48 +110,50 @@ export async function upsertLiftState(
   const existing = await getLiftState(state.userId, state.userProgramId, state.exerciseId, prisma);
 
   if (existing) {
-    const pt = state.programmeType ?? existing.programmeType;
-    const tm = state.trainingMax !== undefined ? state.trainingMax : existing.trainingMax;
-    const lw = state.linearWeight !== undefined ? state.linearWeight : existing.linearWeight;
-    const cw = state.cycleWeek ?? existing.cycleWeek;
-    const cn = state.cycleNumber ?? existing.cycleNumber;
-    const cf = state.consecutiveFailures ?? existing.consecutiveFailures;
-    const ls = state.lastSessionAt !== undefined ? state.lastSessionAt : existing.lastSessionAt;
+    const pt  = state.programmeType ?? existing.programmeType;
+    const tm  = state.trainingMax !== undefined ? state.trainingMax : existing.trainingMax;
+    const lw  = state.linearWeight !== undefined ? state.linearWeight : existing.linearWeight;
+    const cw  = state.cycleWeek ?? existing.cycleWeek;
+    const cn  = state.cycleNumber ?? existing.cycleNumber;
+    const cf  = state.consecutiveFailures ?? existing.consecutiveFailures;
+    const ls  = state.lastSessionAt !== undefined ? state.lastSessionAt : existing.lastSessionAt;
+    const pwp = state.peakWeekPhase !== undefined ? state.peakWeekPhase : existing.peakWeekPhase;
 
     await prisma.$executeRaw`
       UPDATE strength_lift_state
       SET programme_type = ${pt}, training_max = ${tm}, linear_weight = ${lw},
           cycle_week = ${cw}, cycle_number = ${cn}, consecutive_failures = ${cf},
-          last_session_at = ${ls}, updated_at = ${now}
+          last_session_at = ${ls}, peak_week_phase = ${pwp}, updated_at = ${now}
       WHERE user_program_id = ${state.userProgramId} AND exercise_id = ${state.exerciseId}
     `;
     return { ...existing, ...state, programmeType: pt, trainingMax: tm, linearWeight: lw,
               cycleWeek: cw, cycleNumber: cn, consecutiveFailures: cf, lastSessionAt: ls,
-              updatedAt: now };
+              peakWeekPhase: pwp, updatedAt: now };
   } else {
-    const id = randomUUID();
-    const pt = state.programmeType ?? "LINEAR";
-    const tm = state.trainingMax ?? null;
-    const lw = state.linearWeight ?? null;
-    const cw = state.cycleWeek ?? 1;
-    const cn = state.cycleNumber ?? 1;
-    const cf = state.consecutiveFailures ?? 0;
-    const ls = state.lastSessionAt ?? null;
+    const id  = randomUUID();
+    const pt  = state.programmeType ?? "LINEAR";
+    const tm  = state.trainingMax ?? null;
+    const lw  = state.linearWeight ?? null;
+    const cw  = state.cycleWeek ?? 1;
+    const cn  = state.cycleNumber ?? 1;
+    const cf  = state.consecutiveFailures ?? 0;
+    const ls  = state.lastSessionAt ?? null;
+    const pwp = state.peakWeekPhase ?? "NONE";
 
     await prisma.$executeRaw`
       INSERT INTO strength_lift_state
         (id, user_id, user_program_id, exercise_id, programme_type, training_max,
          linear_weight, cycle_week, cycle_number, consecutive_failures, last_session_at,
-         created_at, updated_at)
+         peak_week_phase, created_at, updated_at)
       VALUES
         (${id}, ${state.userId}, ${state.userProgramId}, ${state.exerciseId}, ${pt},
-         ${tm}, ${lw}, ${cw}, ${cn}, ${cf}, ${ls}, ${now}, ${now})
+         ${tm}, ${lw}, ${cw}, ${cn}, ${cf}, ${ls}, ${pwp}, ${now}, ${now})
     `;
     return {
       id, userId: state.userId, userProgramId: state.userProgramId,
       exerciseId: state.exerciseId, programmeType: pt, trainingMax: tm,
       linearWeight: lw, cycleWeek: cw, cycleNumber: cn, consecutiveFailures: cf,
-      lastSessionAt: ls, createdAt: now, updatedAt: now,
+      lastSessionAt: ls, peakWeekPhase: pwp, createdAt: now, updatedAt: now,
     };
   }
 }

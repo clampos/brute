@@ -1554,9 +1554,10 @@ router.get(
     try {
       const userId = (req as any).user?.userId;
 
-      // Get library programmes (no userId) + user's custom programmes
+      // Get library programmes (no userId) + user's custom programmes, excluding soft-deleted
       const programmes = await prisma.programme.findMany({
         where: {
+          isDeleted: false,
           OR: [
             { isCustom: false },
             { isCustom: true, userId },
@@ -1779,16 +1780,17 @@ router.delete(
         return res.status(403).json({ error: "You can only delete your own custom programmes" });
       }
 
-      // Check for any UserProgram records referencing this programme (would violate FK constraint)
-      const linkedProgram = await prisma.userProgram.findFirst({ where: { programmeId: id } });
-      if (linkedProgram) {
-        if (linkedProgram.status === "ACTIVE") {
-          return res.status(409).json({ error: "This programme is currently active. End the programme before deleting it." });
-        }
-        return res.status(409).json({ error: "This programme has workout history and cannot be deleted." });
+      // If the programme is currently active, block deletion
+      const activeLink = await prisma.userProgram.findFirst({
+        where: { programmeId: id, status: "ACTIVE" },
+      });
+      if (activeLink) {
+        return res.status(409).json({ error: "This programme is currently active. End it before deleting." });
       }
 
-      await prisma.programme.delete({ where: { id } });
+      // Soft-delete: mark as deleted rather than removing the row.
+      // This preserves all UserProgram records and workout history that reference it.
+      await prisma.programme.update({ where: { id }, data: { isDeleted: true } });
 
       res.status(204).send();
     } catch (error) {
@@ -4975,32 +4977,68 @@ router.post(
               .forEach(r => addRow(r.exerciseId, d, r.orderIndex, r.sets, r.reps, r.strengthRole));
           }
         } else {
-          // ── 3-day full-body ─────────────────────────────────────────────────
-          // Day 1 — Squat + Bench
+          // ── 3-day powerlifting split: Squat / Bench / Deadlift ─────────────
+          // Day 1 — Squat
           addRow("quads_barbell_squat",      1, 0, 3, "5",      "MAIN_LIFT");
-          addRow("chest_barbell_bench",      1, 1, 3, "5",      "MAIN_LIFT");
-          addRow("hamstrings_rdl",           1, 2, 4, "8-10",   "ACCESSORY");  // hamstring ✓
-          addRow("triceps_pushdown",         1, 3, 3, "10-12",  "ACCESSORY");  // tricep ✓
-          addRow("chest_incline_db",         1, 4, 3, "12-15",  "ACCESSORY");  // chest secondary
-          addRow("back_face_pull",           1, 5, 3, "15",     "ACCESSORY");  // rear delt ✓
-          addRow("abs_plank",                1, 6, 3, "30-60s", "ACCESSORY");  // core (session 1)
+          addRow("hamstrings_rdl",           1, 1, 4, "8-10",   "ACCESSORY");   // hamstrings
+          addRow("hamstrings_leg_curl",      1, 2, 3, "12-15",  "ACCESSORY");   // hamstring isolation
+          addRow("calves_standing_raise",    1, 3, 4, "15",     "ACCESSORY");   // calves
+          addRow("abs_hanging_leg_raise",    1, 4, 3, "12-15",  "ACCESSORY");   // core (session 1)
 
-          // Day 2 — Deadlift + OHP
-          addRow("back_deadlift",            2, 0, 3, "5",      "MAIN_LIFT");
-          addRow("shoulders_ohp",            2, 1, 3, "5",      "MAIN_LIFT");
-          addRow("back_barbell_row",         2, 2, 4, "8-10",   "SUPPLEMENTAL");// back
-          addRow("quads_leg_press",          2, 3, 3, "10-12",  "ACCESSORY");   // quad ✓
-          addRow("triceps_skull_crusher",    2, 4, 3, "10-12",  "ACCESSORY");   // tricep ✓
-          addRow("shoulders_reverse_fly",    2, 5, 3, "15",     "ACCESSORY");   // rear delt ✓
+          // Day 2 — Bench Press
+          addRow("chest_barbell_bench",      2, 0, 3, "5",      "MAIN_LIFT");
+          addRow("back_barbell_row",         2, 1, 4, "8-10",   "SUPPLEMENTAL");// back — critical counterbalance
+          addRow("back_lat_pulldown",        2, 2, 3, "10-12",  "ACCESSORY");   // back width
+          addRow("back_face_pull",           2, 3, 3, "15",     "ACCESSORY");   // rear delt / rotator cuff
+          addRow("biceps_barbell_curl",      2, 4, 3, "12-15",  "ACCESSORY");   // biceps
 
-          // Day 3 — Squat + Bench (variation)
-          addRow("quads_barbell_squat",      3, 0, 3, "5",      "MAIN_LIFT");
-          addRow("chest_barbell_bench",      3, 1, 3, "5",      "MAIN_LIFT");
-          addRow("hamstrings_seated_curl",   3, 2, 4, "8-10",   "ACCESSORY");   // hamstring ✓
-          addRow("quads_leg_extension",      3, 3, 3, "10-12",  "ACCESSORY");   // quad ✓
-          addRow("shoulders_lateral_raise",  3, 4, 3, "12-15",  "ACCESSORY");   // shoulder isolation
-          addRow("back_face_pull",           3, 5, 3, "15",     "ACCESSORY");   // rear delt ✓
-          addRow("abs_hanging_leg_raise",    3, 6, 3, "10-15",  "ACCESSORY");   // core (session 2)
+          // Day 3 — Deadlift
+          addRow("back_deadlift",            3, 0, 3, "5",      "MAIN_LIFT");
+          addRow("quads_leg_press",          3, 1, 4, "8-10",   "ACCESSORY");   // quads (deadlift alone insufficient)
+          addRow("shoulders_ohp",            3, 2, 3, "8-10",   "ACCESSORY");   // shoulder exposure (light — NOT 5/3/1 progression)
+          addRow("triceps_pushdown",         3, 3, 3, "12-15",  "ACCESSORY");   // triceps
+          addRow("abs_plank",                3, 4, 3, "30-60s", "ACCESSORY");   // core (session 2)
+        }
+
+        // ── Weekly muscle-group coverage validation (both splits) ────────────
+        // Exercise IDs that satisfy coverage for each required muscle group.
+        const COVERAGE_IDS: Record<string, string[]> = {
+          chest:      ["chest_barbell_bench","chest_incline_db","chest_flat_db","chest_db_fly","chest_cable_fly","chest_machine_press","chest_pushups","chest_dips"],
+          back:       ["back_barbell_row","back_lat_pulldown","back_cable_row","back_db_row","back_pullups","back_chin_ups","back_deadlift","back_tbar_row","back_face_pull"],
+          shoulders:  ["shoulders_ohp","back_face_pull","shoulders_lateral_raise","shoulders_reverse_fly","shoulders_db_press","shoulders_arnold_press","shoulders_upright_row","shoulders_front_raise","shoulders_cable_lateral"],
+          quads:      ["quads_barbell_squat","quads_leg_press","quads_leg_extension","quads_front_squat","quads_hack_squat","quads_bulgarian_split_squat","quads_goblet_squat","quads_walking_lunge"],
+          hamstrings: ["hamstrings_rdl","hamstrings_leg_curl","hamstrings_seated_curl","back_deadlift","hamstrings_db_rdl","hamstrings_good_morning","hamstrings_nordic_curl","hamstrings_glute_ham_raise"],
+          calves:     ["calves_standing_raise","calves_seated_raise","calves_leg_press_raise","calves_donkey_raise","calves_single_leg_raise","calves_db_standing_raise"],
+          biceps:     ["biceps_barbell_curl","biceps_db_curl","biceps_hammer_curl","biceps_cable_curl","biceps_preacher_curl","biceps_concentration_curl","back_lat_pulldown","back_chin_ups","back_pullups"],
+          triceps:    ["triceps_pushdown","triceps_skull_crusher","triceps_close_grip_bench","triceps_overhead_extension","triceps_cable_overhead","triceps_dips","triceps_kickback","chest_barbell_bench"],
+          core:       ["abs_plank","abs_hanging_leg_raise","abs_crunch","abs_cable_crunch","abs_russian_twist","abs_leg_raise","abs_bicycle_crunch","abs_pallof_press"],
+        };
+
+        // Fallback exercises to add when a muscle group has no weekly coverage.
+        // day: the most appropriate session for backfilling that muscle.
+        const COVERAGE_FALLBACK: Record<string, { exerciseId: string; day: number; sets: number; reps: string; role: string }> = {
+          chest:      { exerciseId: "chest_incline_db",          day: days >= 4 ? 2 : 2, sets: 3, reps: "10-12", role: "ACCESSORY" },
+          back:       { exerciseId: "back_cable_row",            day: days >= 4 ? 3 : 3, sets: 3, reps: "10-12", role: "ACCESSORY" },
+          shoulders:  { exerciseId: "shoulders_lateral_raise",   day: days >= 4 ? 4 : 3, sets: 3, reps: "12-15", role: "ACCESSORY" },
+          quads:      { exerciseId: "quads_leg_extension",       day: 1,                  sets: 3, reps: "12-15", role: "ACCESSORY" },
+          hamstrings: { exerciseId: "hamstrings_seated_curl",    day: days >= 4 ? 3 : 1, sets: 3, reps: "12-15", role: "ACCESSORY" },
+          calves:     { exerciseId: "calves_standing_raise",     day: days >= 4 ? 1 : 1, sets: 3, reps: "15",    role: "ACCESSORY" },
+          biceps:     { exerciseId: "biceps_db_curl",            day: days >= 4 ? 4 : 2, sets: 3, reps: "12-15", role: "ACCESSORY" },
+          triceps:    { exerciseId: "triceps_overhead_extension", day: days >= 4 ? 2 : 3, sets: 3, reps: "12-15", role: "ACCESSORY" },
+          core:       { exerciseId: "abs_plank",                 day: days >= 4 ? 3 : 3, sets: 3, reps: "30-60s", role: "ACCESSORY" },
+        };
+
+        const assignedIds = new Set(strengthRows.map(r => r.exerciseId));
+        for (const [muscle, coveringIds] of Object.entries(COVERAGE_IDS)) {
+          if (!coveringIds.some(id => assignedIds.has(id))) {
+            const fb = COVERAGE_FALLBACK[muscle];
+            if (fb && !assignedIds.has(fb.exerciseId)) {
+              const dayRows = strengthRows.filter(r => r.dayNumber === fb.day);
+              const nextOrder = dayRows.length > 0 ? Math.max(...dayRows.map(r => r.orderIndex)) + 1 : 0;
+              addRow(fb.exerciseId, fb.day, nextOrder, fb.sets, fb.reps, fb.role);
+              assignedIds.add(fb.exerciseId);
+            }
+          }
         }
 
         const capLevel = experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1);

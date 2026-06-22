@@ -27,18 +27,41 @@ export default function StrengthGoalCreate() {
   const [manuallyEdited, setManuallyEdited]     = useState(false);
 
   // Step 3
-  const [targetWeight, setTargetWeight]     = useState<string>("");
-  const [daysPerWeek, setDaysPerWeek]       = useState(4);
+  const [targetWeight, setTargetWeight]       = useState<string>("");
+  const [daysPerWeek, setDaysPerWeek]         = useState(4);
   const [experienceLevel, setExperienceLevel] = useState("intermediate");
 
   // Step 4
-  const [preview, setPreview]           = useState<any>(null);
+  const [preview, setPreview]               = useState<any>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
-  const [saving, setSaving]             = useState(false);
-  const [saveStep, setSaveStep]         = useState<string>("");
-  const [error, setError]               = useState<string | null>(null);
+  const [saving, setSaving]                 = useState(false);
+  const [saveStep, setSaveStep]             = useState<string>("");
+  const [error, setError]                   = useState<string | null>(null);
+
+  // Active strength programme detection (secondary-goal mode)
+  const [activeStrengthProg, setActiveStrengthProg] = useState<any>(null);
 
   const selectedLiftName = BIG_4.find(l => l.exerciseId === selectedLift)?.name ?? "";
+
+  // Fetch existing active strength programme on mount
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    fetch("/auth/user-programs", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(progs => {
+        if (!Array.isArray(progs)) return;
+        const active = progs.find(
+          (p: any) => p.status === "ACTIVE" && p.programme?.progressionFocus === "STRENGTH",
+        );
+        setActiveStrengthProg(active ?? null);
+        if (active) {
+          if (active.programme?.daysPerWeek)    setDaysPerWeek(active.programme.daysPerWeek);
+          if (active.programme?.experienceLevel) setExperienceLevel(active.programme.experienceLevel);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Auto-fetch 1RM when step 2 activates
   useEffect(() => {
@@ -117,59 +140,76 @@ export default function StrengthGoalCreate() {
       const goalData = await goalRes.json();
       if (goalData.error) { setError(goalData.error); setSaving(false); return; }
 
-      // 2. Generate a STRENGTH programme with the chosen parameters
-      setSaveStep("Building your programme…");
-      const genRes = await fetch("/auth/programmes/generate", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          goal: "STRENGTH",
-          experienceLevel,
-          daysPerWeek,
-          equipment: "fullGym",
-          weeks: preview?.projectedWeeks ?? undefined,
-          programmeName: `${targetWeight}kg ${selectedLiftName} Programme`,
-        }),
-      });
-      const genData = await genRes.json();
-      if (genData.error || !genData.id) {
-        // Programme gen failed — still navigate to goal (non-fatal)
-        navigate(`/strength/goals/${goalData.goal.id}`);
-        return;
-      }
+      if (activeStrengthProg) {
+        // ── Secondary goal: track within the existing strength programme ──────
+        setSaveStep("Adding to your programme…");
 
-      // 3. Cancel any existing active programme and activate the new one
-      setSaveStep("Activating programme…");
-      const userProgsRes = await fetch("/auth/user-programs", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const userProgs = await userProgsRes.json();
-      const active = Array.isArray(userProgs)
-        ? userProgs.find((p: any) => p.status === "ACTIVE")
-        : null;
-      if (active) {
-        await fetch(`/auth/user-programs/${active.id}`, {
+        // Link this goal to the existing programme
+        await fetch(`/auth/strength/goals/${goalData.goal.id}/link-programme`, {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "CANCELLED" }),
+          body: JSON.stringify({ programmeId: activeStrengthProg.programmeId }),
         });
+
+        // Seed the lift state so the first session has correct weights
+        await fetch(`/auth/strength/goals/${goalData.goal.id}/init-lift-state`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+
+        // Navigate to the goal detail — no new programme needed
+        navigate(`/strength/goals/${goalData.goal.id}`);
+      } else {
+        // ── Primary goal: generate and activate a new programme ──────────────
+        setSaveStep("Building your programme…");
+        const genRes = await fetch("/auth/programmes/generate", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            goal: "STRENGTH",
+            experienceLevel,
+            daysPerWeek,
+            equipment: "fullGym",
+            weeks: preview?.projectedWeeks ?? undefined,
+            programmeName: `${targetWeight}kg ${selectedLiftName} Programme`,
+          }),
+        });
+        const genData = await genRes.json();
+        if (genData.error || !genData.id) {
+          navigate(`/strength/goals/${goalData.goal.id}`);
+          return;
+        }
+
+        setSaveStep("Activating programme…");
+        const userProgsRes = await fetch("/auth/user-programs", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const userProgs = await userProgsRes.json();
+        const existing = Array.isArray(userProgs)
+          ? userProgs.find((p: any) => p.status === "ACTIVE")
+          : null;
+        if (existing) {
+          await fetch(`/auth/user-programs/${existing.id}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "CANCELLED" }),
+          });
+        }
+
+        await fetch("/auth/user-programs", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ programmeId: genData.id, startDate: new Date().toISOString() }),
+        });
+
+        await fetch(`/auth/strength/goals/${goalData.goal.id}/link-programme`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ programmeId: genData.id }),
+        });
+
+        navigate("/workouts");
       }
-
-      await fetch("/auth/user-programs", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ programmeId: genData.id, startDate: new Date().toISOString() }),
-      });
-
-      // Link the generated programme back to this goal record
-      await fetch(`/auth/strength/goals/${goalData.goal.id}/link-programme`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ programmeId: genData.id }),
-      });
-
-      // Navigate to workouts so the user sees their first session
-      navigate("/workouts");
     } catch {
       setError("Something went wrong. Please try again.");
       setSaving(false);
@@ -352,47 +392,65 @@ export default function StrengthGoalCreate() {
               )}
             </div>
 
-            <div>
-              <label className="block text-xs text-[#5E6272] uppercase tracking-widest mb-2">
-                Training Days Per Week
-              </label>
-              <div className="flex gap-2">
-                {[2, 3, 4, 5].map(d => (
-                  <button
-                    key={d}
-                    onClick={() => setDaysPerWeek(d)}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
-                      daysPerWeek === d
-                        ? "bg-[#EAB308]/20 border-[#EAB308]/60 text-[#EAB308]"
-                        : "bg-[#1C1F26] border-[#2F3544] text-[#5E6272]"
-                    }`}
-                  >
-                    {d}×
-                  </button>
-                ))}
+            {activeStrengthProg ? (
+              /* Secondary goal — days & experience locked to active programme */
+              <div className="bg-[#246BFD]/10 border border-[#246BFD]/30 rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold text-white mb-0.5">
+                  Tracking within your active programme
+                </p>
+                <p className="text-xs text-[#8EC5FF] leading-relaxed">
+                  This {selectedLiftName} goal will be tracked inside{" "}
+                  <span className="font-semibold">
+                    {activeStrengthProg.programme?.name ?? "your strength programme"}
+                  </span>
+                  . No new programme will be generated — your existing schedule stays the same.
+                </p>
               </div>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs text-[#5E6272] uppercase tracking-widest mb-2">
+                    Training Days Per Week
+                  </label>
+                  <div className="flex gap-2">
+                    {[3, 4].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setDaysPerWeek(d)}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                          daysPerWeek === d
+                            ? "bg-[#EAB308]/20 border-[#EAB308]/60 text-[#EAB308]"
+                            : "bg-[#1C1F26] border-[#2F3544] text-[#5E6272]"
+                        }`}
+                      >
+                        {d}×
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-xs text-[#5E6272] uppercase tracking-widest mb-2">
-                Experience Level
-              </label>
-              <div className="flex flex-col gap-2">
-                {EXPERIENCE_OPTIONS.map(level => (
-                  <button
-                    key={level}
-                    onClick={() => setExperienceLevel(level)}
-                    className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all capitalize ${
-                      experienceLevel === level
-                        ? "bg-[#EAB308]/20 border-[#EAB308]/60 text-[#EAB308]"
-                        : "bg-[#1C1F26] border-[#2F3544] text-[#5E6272]"
-                    }`}
-                  >
-                    {level}
-                  </button>
-                ))}
-              </div>
-            </div>
+                <div>
+                  <label className="block text-xs text-[#5E6272] uppercase tracking-widest mb-2">
+                    Experience Level
+                  </label>
+                  <div className="flex flex-col gap-2">
+                    {EXPERIENCE_OPTIONS.map(level => (
+                      <button
+                        key={level}
+                        onClick={() => setExperienceLevel(level)}
+                        className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all capitalize ${
+                          experienceLevel === level
+                            ? "bg-[#EAB308]/20 border-[#EAB308]/60 text-[#EAB308]"
+                            : "bg-[#1C1F26] border-[#2F3544] text-[#5E6272]"
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </motion.div>
         )}
 
@@ -406,9 +464,13 @@ export default function StrengthGoalCreate() {
             className="flex flex-col gap-4"
           >
             <div>
-              <h2 className="text-xl font-bold text-white">Your Programme</h2>
+              <h2 className="text-xl font-bold text-white">
+                {activeStrengthProg ? "Your Goal" : "Your Programme"}
+              </h2>
               <p className="text-sm text-[#5E6272] mt-1">
-                Confirming will generate your strength programme and activate it.
+                {activeStrengthProg
+                  ? `This goal will be added to ${activeStrengthProg.programme?.name ?? "your active programme"}. No schedule changes.`
+                  : "Confirming will generate your strength programme and activate it."}
               </p>
             </div>
 
@@ -471,16 +533,16 @@ export default function StrengthGoalCreate() {
                   <div className="flex flex-col gap-2">
                     {daysPerWeek >= 4 ? (
                       <>
-                        <ProgramDay n={1} title="Squat Day" desc="Squat 3×5 + lower accessories" />
-                        <ProgramDay n={2} title="Bench Day" desc="Bench 3×5 + push accessories" />
-                        <ProgramDay n={3} title="Deadlift Day" desc="Deadlift 1×5 + pull accessories" />
-                        <ProgramDay n={4} title="OHP Day" desc="Overhead Press 3×5 + shoulder/tricep accessories" />
+                        <ProgramDay n={1} title="Squat Day"    desc="Squat 3×5 + hamstring, quad & core accessories" />
+                        <ProgramDay n={2} title="Bench Day"    desc="Bench 3×5 + chest, tricep & rear-delt accessories" />
+                        <ProgramDay n={3} title="Deadlift Day" desc="Deadlift 3×5 + back, hamstring & quad accessories" />
+                        <ProgramDay n={4} title="OHP Day"      desc="Overhead Press 3×5 + back, tricep & shoulder accessories" />
                       </>
                     ) : (
                       <>
-                        <ProgramDay n={1} title="Day A" desc="Squat + Bench + Row" />
-                        <ProgramDay n={2} title="Day B" desc="Deadlift + OHP + Row" />
-                        {daysPerWeek >= 3 && <ProgramDay n={3} title="Day A (repeat)" desc="Squat + Bench + Row" />}
+                        <ProgramDay n={1} title="Squat Day"    desc="Squat 3×5 + RDL, leg curl, calf raises & core" />
+                        <ProgramDay n={2} title="Bench Day"    desc="Bench 3×5 + barbell row, lat pulldown, face pulls & curls" />
+                        <ProgramDay n={3} title="Deadlift Day" desc="Deadlift 3×5 + leg press, OHP (light), tricep pushdown & core" />
                       </>
                     )}
                   </div>

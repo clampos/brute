@@ -4,6 +4,7 @@
 
 import { round2_5, calcTmFromOneRm } from "./trainingMaxService";
 import { FIVE_THREE_ONE_WEEKS, TM_INCREMENTS, ADVANCED_INCREMENTS, LINEAR_INCREMENTS, LINEAR_SETS, LINEAR_REPS } from "./constants";
+import { needsMidCheckpoint } from "./peakWeekService";
 // LINEAR_SETS is now a plain number (3)
 import type {
   GoalProgrammeWeek, GoalProgrammePreview, StrengthSetPrescription,
@@ -140,7 +141,41 @@ export function computeGoalPreview(params: GoalPreviewParams): GoalProgrammePrev
   }
 
   const isUnrealistic = !goalReached;
-  const projectedWeeks = isUnrealistic ? MAX_WEEKS : weekNumber;
+  let projectedWeeks = isUnrealistic ? MAX_WEEKS : weekNumber;
+
+  // ── Inject peak week entries at the end of the final cycle ──────────────
+  if (!isUnrealistic && programmeType === "531") {
+    const peakTm = weeks[weeks.length - 1]?.estimatedTm ?? currentTm;
+    const peakBase = projectedWeeks + 1;
+
+    // Replace what would be a standard deload with the 3-session peak week
+    weeks.push({ weekNumber: peakBase,     cycleWeek: 5, isDeload: false, estimatedTm: peakTm, sets: [], peakPhase: "OPENER" });
+    weeks.push({ weekNumber: peakBase + 1, cycleWeek: 6, isDeload: false, estimatedTm: peakTm, sets: [], peakPhase: "REST" });
+    weeks.push({ weekNumber: peakBase + 2, cycleWeek: 7, isDeload: false, estimatedTm: peakTm, sets: [], peakPhase: "MAX_ATTEMPT" });
+    projectedWeeks = peakBase + 2;
+  }
+
+  // ── Mid-programme checkpoint (16+ week programmes) ──────────────────────
+  if (!isUnrealistic && needsMidCheckpoint(projectedWeeks) && programmeType === "531") {
+    const midTargetTm = startTm + (targetWeight - startTm) * 0.5;
+    // Find the week-3 (AMRAP) closest to the mid-checkpoint TM
+    const midIdx = weeks.findIndex(
+      (w) => !w.peakPhase && w.cycleWeek === 3 && w.estimatedTm >= midTargetTm,
+    );
+    if (midIdx >= 0) {
+      const insertAfter = midIdx;
+      const tmAtCheckpoint = weeks[midIdx].estimatedTm;
+      const checkpointWeeks: GoalProgrammeWeek[] = [
+        { weekNumber: 0, cycleWeek: 5, isDeload: false, estimatedTm: tmAtCheckpoint, sets: [], peakPhase: "OPENER",      isMidCheckpoint: true },
+        { weekNumber: 0, cycleWeek: 6, isDeload: false, estimatedTm: tmAtCheckpoint, sets: [], peakPhase: "REST",        isMidCheckpoint: true },
+        { weekNumber: 0, cycleWeek: 7, isDeload: false, estimatedTm: tmAtCheckpoint, sets: [], peakPhase: "MAX_ATTEMPT", isMidCheckpoint: true },
+      ];
+      weeks.splice(insertAfter + 1, 0, ...checkpointWeeks);
+      // Renumber all weeks
+      weeks.forEach((w, i) => { w.weekNumber = i + 1; });
+      projectedWeeks = weeks[weeks.length - 1].weekNumber;
+    }
+  }
 
   // Compute projected end date
   const projectedEndDate = addWeeks(new Date(), projectedWeeks);

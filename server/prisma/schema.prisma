@@ -68,6 +68,7 @@ model Programme {
   progressionFocus ProgrammeProgressionFocus @default(MUSCLE_BUILDING) @map("progression_focus")
   description String?
   isCustom    Boolean  @default(false) @map("is_custom")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
   userId      String?  @map("user_id")
   experienceLevel String? @map("experience_level")
   createdAt   DateTime @default(now()) @map("created_at")

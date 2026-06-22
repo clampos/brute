@@ -13,6 +13,9 @@ import {
   Flame,
   Shield,
   History,
+  Zap,
+  TrendingUp,
+  ChevronRight,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
@@ -527,138 +530,170 @@ export default function Dashboard() {
       {activeTab === "overview" && (
         <div className="flex flex-col gap-4">
           {/* Today's Workout Box */}
-          {userProgram && todayWorkout ? (
-            <motion.div
-              className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-              whileHover={{ y: -3, boxShadow: "0 12px 36px rgba(0,206,209,0.35)" }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <div className="relative z-10">
-                <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
-                <p className="text-sm opacity-90 font-medium mb-6">
-                  {userProgram.programme.name} Week {userProgram.currentWeek},
-                  Day {userProgram.currentDay}
+          <motion.div
+            className="rounded-2xl px-4 py-3 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+            whileHover={{ y: -3, boxShadow: "0 12px 36px rgba(0,206,209,0.35)" }}
+            whileTap={{ scale: 0.98 }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold mb-0.5">Today's Workout</h2>
+                <p className="text-xs opacity-80 font-medium">
+                  {userProgram
+                    ? `${userProgram.programme.name} · Week ${userProgram.currentWeek}, Day ${userProgram.currentDay}`
+                    : "Choose a programme to begin your fitness journey"}
                 </p>
-
-                <motion.button
-                  onClick={() => navigate("/workouts")}
-                  whileTap={{ scale: 0.95 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                  className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transition-all"
-                >
-                  Start Now
-                </motion.button>
               </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              className="rounded-2xl p-6 bg-gradient-to-br from-[#00CED1] via-[#87CEEB] to-[#FFB6D9] text-black relative overflow-hidden"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-              whileHover={{ y: -3, boxShadow: "0 12px 36px rgba(0,206,209,0.35)" }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <h2 className="text-lg font-bold mb-1">Today's Workout</h2>
-              <p className="text-sm opacity-90 mb-6">
-                Choose a programme to begin your fitness journey
-              </p>
               <motion.button
-                onClick={() => navigate("/programmes")}
+                onClick={() => navigate(userProgram ? "/workouts" : "/programmes")}
                 whileTap={{ scale: 0.95 }}
                 transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transition-all"
+                className="bg-[#246BFD] hover:bg-[#1a52cc] text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg transition-all flex-shrink-0 ml-3"
               >
-                Start Now
+                {userProgram ? "Start" : "Choose"}
               </motion.button>
-            </motion.div>
-          )}
+            </div>
+          </motion.div>
 
           {/* Old code removed - was showing progress bar and view programme button */}
 
           {/* Rolling consistency streak */}
           {streakStatus && (
             <motion.div
-              className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-4"
+              className="relative overflow-hidden rounded-2xl border border-[#FF8C42]/30"
+              style={{ background: "linear-gradient(135deg, #1C1F26 0%, #1A0F00 100%)" }}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              whileHover={{ y: -2, boxShadow: "0 8px 24px rgba(255,140,66,0.15)" }}
+              whileHover={{ y: -2, boxShadow: "0 12px 32px rgba(255,140,66,0.2)" }}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Flame size={18} className="text-[#FF8C42]" />
-                  <span className="text-white font-semibold text-base">
-                    <CountUp to={streakStatus.streakCount} duration={0.7} />-week streak
-                  </span>
-                </div>
-                {streakStatus.freezeUsedOnCurrentStreak && (
-                  <div className="flex items-center gap-1 text-[#8AB4FF] text-xs font-medium">
-                    <Shield size={14} />
-                    Freeze used
+              {/* Ambient glow */}
+              <div className="absolute -top-6 -right-6 w-36 h-36 rounded-full bg-[#FF8C42]/10 blur-2xl pointer-events-none" />
+
+              <div className="relative p-5">
+                {/* Top row — flame icon + streak number */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FF8C42] to-[#FFC857] flex items-center justify-center flex-shrink-0 shadow-lg shadow-orange-500/25">
+                      <Flame size={24} className="text-white" fill="white" />
+                    </div>
+                    <div>
+                      <p className="text-3xl font-black text-white leading-none tracking-tight">
+                        <CountUp to={streakStatus.streakCount} duration={0.7} />
+                        <span className="text-xl font-bold text-[#FF8C42] ml-1.5">Week Streak</span>
+                      </p>
+                      <p className="text-sm text-[#FF8C42]/70 font-medium mt-0.5">
+                        {streakStatus.currentWindowWorkouts} Workouts In A Row
+                      </p>
+                    </div>
                   </div>
+                  {streakStatus.freezeUsedOnCurrentStreak && (
+                    <div className="flex items-center gap-1 bg-[#8AB4FF]/10 border border-[#8AB4FF]/30 rounded-full px-2.5 py-1">
+                      <Shield size={12} className="text-[#8AB4FF]" />
+                      <span className="text-[#8AB4FF] text-[10px] font-semibold">Freeze used</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Progress section */}
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-semibold text-[#9AA0AE] uppercase tracking-widest">Workouts This Week</span>
+                    <span className="text-sm font-bold text-[#FF8C42]">
+                      {streakStatus.currentWindowWorkouts} / {streakStatus.streakGoal}
+                    </span>
+                  </div>
+                  <div className="h-2.5 bg-[#2A1800] rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-[#FF8C42] to-[#FFC857]"
+                      initial={{ width: 0 }}
+                      animate={{
+                        width: `${Math.min(100, (streakStatus.currentWindowWorkouts / Math.max(streakStatus.streakGoal, 1)) * 100)}%`,
+                      }}
+                      transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+                    />
+                  </div>
+                </div>
+
+                {streakStatus.showCountdown && (
+                  <p className="text-[#AFC4E8] text-xs mt-3 bg-[#246BFD]/10 rounded-lg px-3 py-2 border border-[#246BFD]/20">
+                    Log a workout in the next {streakStatus.countdownDaysRemaining} day
+                    {streakStatus.countdownDaysRemaining === 1 ? "" : "s"} to keep your streak.
+                  </p>
                 )}
               </div>
-
-              <p className="text-[#9AA0AE] text-sm mt-2">
-                {streakStatus.currentWindowWorkouts} / {streakStatus.streakGoal} workouts this window
-              </p>
-
-              <div className="w-full bg-[#1A1D23] rounded-full h-2 mt-3 overflow-hidden">
-                <motion.div
-                  className="bg-gradient-to-r from-[#FF8C42] to-[#FFC857] h-2 rounded-full"
-                  initial={{ width: 0 }}
-                  animate={{
-                    width: `${Math.min(
-                      100,
-                      (streakStatus.currentWindowWorkouts /
-                        Math.max(streakStatus.streakGoal, 1)) *
-                        100,
-                    )}%`,
-                  }}
-                  transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-                />
-              </div>
-
-              {streakStatus.showCountdown && (
-                <p className="text-[#AFC4E8] text-xs mt-3">
-                  Log a workout in the next {streakStatus.countdownDaysRemaining} day
-                  {streakStatus.countdownDaysRemaining === 1 ? "" : "s"} to keep your streak.
-                </p>
-              )}
             </motion.div>
           )}
 
           {/* Strength Goals */}
           {strengthGoals.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <p className="text-xs text-[#5E6272] uppercase tracking-widest font-semibold">Strength Goals</p>
+            <div className="flex flex-col gap-3">
               {strengthGoals.map((goal: any) => {
+                // Reverse TM → 1RM by rounding to nearest 2.5 (TMs are multiples of 2.5,
+                // so plain Math.round loses 1kg due to floating-point precision).
+                const tm2rm = (tm: number) => Math.round(tm / 0.9 / 2.5) * 2.5;
+                const start1rm  = goal.start1rm  ?? tm2rm(goal.startTm);
+                const current1rm = tm2rm(goal.currentTm);
                 const progress = Math.min(
-                  ((goal.currentTm - goal.startTm) / Math.max(goal.targetWeight - goal.startTm, 1)) * 100,
+                  Math.max(((current1rm - start1rm) / Math.max(goal.targetWeight - start1rm, 1)) * 100, 0),
                   100,
                 );
+                const kgToGo = Math.max(goal.targetWeight - current1rm, 0);
                 return (
                   <motion.div
                     key={goal.id}
                     whileTap={{ scale: 0.97 }}
                     onClick={() => navigate(`/strength/goals/${goal.id}`)}
-                    className="bg-[#1C1F26] border border-[#2F3544] rounded-xl px-4 py-3 cursor-pointer"
+                    className="relative overflow-hidden rounded-2xl border border-[#EAB308]/30 cursor-pointer"
+                    style={{ background: "linear-gradient(135deg, #1C1F26 0%, #16130000 100%)" }}
+                    whileHover={{ y: -2, boxShadow: "0 12px 32px rgba(234,179,8,0.15)" }}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-white">{goal.liftName}</span>
-                      <span className="text-xs text-[#EAB308] font-semibold">
-                        {goal.currentTm} → {goal.targetWeight}kg
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-[#2F3544] rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-[#EAB308] to-[#F59E0B]"
-                        style={{ width: `${progress}%` }}
-                      />
+                    {/* Ambient glow */}
+                    <div className="absolute -bottom-8 -right-8 w-40 h-40 rounded-full bg-[#EAB308]/8 blur-2xl pointer-events-none" />
+
+                    <div className="relative px-4 py-3">
+                      {/* Header + lift name row */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-md bg-[#EAB308]/20 border border-[#EAB308]/30 flex items-center justify-center">
+                            <Zap size={11} className="text-[#EAB308]" fill="currentColor" />
+                          </div>
+                          <span className="text-base font-black text-white tracking-tight">{goal.liftName}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[#5E6272]">
+                          <span className="text-[10px]">{progress.toFixed(0)}%</span>
+                          <ChevronRight size={12} />
+                        </div>
+                      </div>
+
+                      {/* Current → target weight display */}
+                      <div className="flex items-baseline gap-2 mb-2">
+                        <span className="text-2xl font-black text-white">{current1rm}<span className="text-sm font-semibold text-[#9AA0AE] ml-0.5">kg</span></span>
+                        <TrendingUp size={15} className="text-[#EAB308] flex-shrink-0 mb-0.5" />
+                        <span className="text-2xl font-black text-[#EAB308]">{goal.targetWeight}<span className="text-sm font-semibold text-[#EAB308]/60 ml-0.5">kg</span></span>
+                        {kgToGo > 0 && (
+                          <span className="text-xs text-[#5E6272] ml-1 self-end">({kgToGo}kg to go)</span>
+                        )}
+                      </div>
+
+                      {/* Progress bar */}
+                      <div>
+                        <div className="h-2 bg-[#2A2000] rounded-full overflow-hidden mb-1">
+                          <motion.div
+                            className="h-full rounded-full bg-gradient-to-r from-[#EAB308] to-[#F59E0B]"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress}%` }}
+                            transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+                          />
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[10px] text-[#5E6272]">{start1rm}kg</span>
+                          <span className="text-[10px] text-[#EAB308]/70">{goal.targetWeight}kg</span>
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 );

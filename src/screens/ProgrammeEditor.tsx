@@ -665,6 +665,7 @@ export default function ProgrammeEditor() {
   const getMuscleGroupsForFocus = (focus: string): string[] => {
     switch (focus.toLowerCase()) {
       case "full body":
+      case "fullbody":   // camelCase stored by strength programme generator
         return [
           "Chest", "Back", "Shoulders", "Quads", "Hamstrings",
           "Glutes", "Biceps", "Triceps", "Forearms", "Calves", "Abs",
@@ -895,8 +896,32 @@ export default function ProgrammeEditor() {
     return vol;
   }, [days, allExercises]);
 
+  const BIG_4_IDS = new Set([
+    "quads_barbell_squat",
+    "chest_barbell_bench",
+    "back_deadlift",
+    "shoulders_ohp",
+  ]);
+
   // Volume guidance per muscle (sets/week) [MEV, MRV], tiered by experience level and goal
   const volumeTableByGoal: Record<string, Record<string, Record<string, [number, number]>>> = {
+    STRENGTH: {
+      beginner: {
+        Chest:      [5, 12], Back:       [6, 14], Quads:      [5, 12],
+        Hamstrings: [4, 10], Glutes:     [3, 8],  Shoulders:  [4, 10],
+        Biceps:     [3, 8],  Triceps:    [3, 8],  Calves:     [2, 6],  Abs: [3, 6],
+      },
+      intermediate: {
+        Chest:      [6, 14], Back:       [8, 16], Quads:      [6, 14],
+        Hamstrings: [4, 12], Glutes:     [4, 10], Shoulders:  [4, 12],
+        Biceps:     [3, 10], Triceps:    [3, 10], Calves:     [3, 8],  Abs: [3, 8],
+      },
+      advanced: {
+        Chest:      [8, 16], Back:       [10, 20], Quads:     [8, 16],
+        Hamstrings: [6, 14], Glutes:     [5, 12],  Shoulders: [6, 14],
+        Biceps:     [4, 12], Triceps:    [4, 12],  Calves:    [4, 10], Abs: [4, 10],
+      },
+    },
     MUSCLE_BUILDING: {
       beginner: {
         Chest:      [10, 15], Back:       [12, 18], Quads:      [10, 15],
@@ -933,8 +958,8 @@ export default function ProgrammeEditor() {
     },
   };
 
-  const goalKey = progressionFocus === "FAT_LOSS" ? "FAT_LOSS" : "MUSCLE_BUILDING";
-  const volumeRangesByLevel = volumeTableByGoal[goalKey];
+  const goalKey = progressionFocus === "FAT_LOSS" ? "FAT_LOSS" : progressionFocus === "STRENGTH" ? "STRENGTH" : "MUSCLE_BUILDING";
+  const volumeRangesByLevel = volumeTableByGoal[goalKey] ?? volumeTableByGoal["MUSCLE_BUILDING"];
   const volumeRanges = volumeRangesByLevel[experienceLevel] ?? volumeRangesByLevel.intermediate;
 
   const getVolumeStatus = (muscle: string, sets: number): "low" | "optimal" | "high" => {
@@ -1034,7 +1059,7 @@ export default function ProgrammeEditor() {
           </div>
           <p className="text-[#4B5563] text-xs mt-3 border-t border-white/5 pt-3">
             {experienceLevel.charAt(0).toUpperCase() + experienceLevel.slice(1)}{" "}
-            {progressionFocus === "FAT_LOSS" ? "fat loss" : "muscle building"} targets shown (sets / MEV–MRV). Updates live as you edit.
+            {progressionFocus === "FAT_LOSS" ? "fat loss" : progressionFocus === "STRENGTH" ? "strength" : "muscle building"} targets shown (sets / weekly range). Updates live as you edit.
           </p>
         </div>
       )}
@@ -1148,23 +1173,16 @@ export default function ProgrammeEditor() {
                                       <span className="text-[#5E6272]">{ex.reps} reps</span>
                                     </div>
                                     {progressionFocus === "STRENGTH" && (
-                                      <div className="mt-2 flex items-center justify-center gap-2">
-                                        <span className="text-xs text-[#9CA3AF]">Role</span>
-                                        <select
-                                          value={ex.strengthRole}
-                                          onChange={(event) =>
-                                            handleStrengthRoleChange(
-                                              day.dayNumber,
-                                              ex.id,
-                                              event.target.value as "MAIN_LIFT" | "SUPPLEMENTAL" | "ACCESSORY",
-                                            )
-                                          }
-                                          className="bg-[#111318] border border-[#2F3544] text-white text-xs rounded px-2 py-1"
-                                        >
-                                          <option value="MAIN_LIFT">Main Lift</option>
-                                          <option value="SUPPLEMENTAL">Supplemental</option>
-                                          <option value="ACCESSORY">Accessory</option>
-                                        </select>
+                                      <div className="mt-1.5 flex justify-center">
+                                        <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full ${
+                                          ex.strengthRole === "MAIN_LIFT"
+                                            ? "bg-[#EAB308]/15 text-[#EAB308] border border-[#EAB308]/30"
+                                            : ex.strengthRole === "SUPPLEMENTAL"
+                                            ? "bg-[#246BFD]/15 text-[#8EC5FF] border border-[#246BFD]/30"
+                                            : "bg-white/5 text-[#5E6272] border border-white/10"
+                                        }`}>
+                                          {ex.strengthRole === "MAIN_LIFT" ? "Main Lift" : ex.strengthRole === "SUPPLEMENTAL" ? "Supplemental" : "Accessory"}
+                                        </span>
                                       </div>
                                     )}
                                   </div>
@@ -1180,37 +1198,42 @@ export default function ProgrammeEditor() {
                                       className={favouriteIds.has(ex.exerciseId) ? "text-pink-500 fill-pink-500" : "text-[#5E6272] hover:text-pink-400"}
                                     />
                                   </button>
-                                  <button
-                                    onClick={() =>
-                                      setReplacingExercise(
-                                        isReplacing
-                                          ? null
-                                          : {
-                                              dayNumber: day.dayNumber,
-                                              progExId: ex.id,
-                                              muscleGroup:
-                                                allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup ||
-                                                ex.muscleGroup ||
-                                                "",
-                                              currentExerciseId: ex.exerciseId,
-                                            },
-                                      )
-                                    }
-                                    className={`p-1 rounded-lg transition-colors ${
-                                      isReplacing
-                                        ? "text-[#8EC5FF] bg-[#246BFD]/20"
-                                        : "text-[#5E6272] hover:text-[#8EC5FF]"
-                                    }`}
-                                    title="Replace exercise"
-                                  >
-                                    <RefreshCw size={15} />
-                                  </button>
-                                  <XCircle
-                                    className="text-[#5E6272] w-5 h-5 cursor-pointer hover:text-red-400 transition-colors"
-                                    onClick={() =>
-                                      handleRemoveExercise(ex.id, ex.exerciseId, day.dayNumber)
-                                    }
-                                  />
+                                  {/* Replace and remove locked for Big 4 on strength programmes */}
+                                  {!(progressionFocus === "STRENGTH" && BIG_4_IDS.has(ex.exerciseId)) && (
+                                    <>
+                                      <button
+                                        onClick={() =>
+                                          setReplacingExercise(
+                                            isReplacing
+                                              ? null
+                                              : {
+                                                  dayNumber: day.dayNumber,
+                                                  progExId: ex.id,
+                                                  muscleGroup:
+                                                    allExercises.find((a) => a.id === ex.exerciseId)?.muscleGroup ||
+                                                    ex.muscleGroup ||
+                                                    "",
+                                                  currentExerciseId: ex.exerciseId,
+                                                },
+                                          )
+                                        }
+                                        className={`p-1 rounded-lg transition-colors ${
+                                          isReplacing
+                                            ? "text-[#8EC5FF] bg-[#246BFD]/20"
+                                            : "text-[#5E6272] hover:text-[#8EC5FF]"
+                                        }`}
+                                        title="Replace exercise"
+                                      >
+                                        <RefreshCw size={15} />
+                                      </button>
+                                      <XCircle
+                                        className="text-[#5E6272] w-5 h-5 cursor-pointer hover:text-red-400 transition-colors"
+                                        onClick={() =>
+                                          handleRemoveExercise(ex.id, ex.exerciseId, day.dayNumber)
+                                        }
+                                      />
+                                    </>
+                                  )}
                                 </div>
                               </div>
 
